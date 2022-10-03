@@ -44,6 +44,7 @@ import com.yugabyte.yw.forms.TlsToggleParams;
 import com.yugabyte.yw.forms.UniverseConfigureTaskParams;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.Cluster;
+import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.ClusterType;
 import com.yugabyte.yw.forms.UniverseDefinitionTaskParams.UserIntent;
 import com.yugabyte.yw.forms.UniverseResp;
 import com.yugabyte.yw.forms.UpgradeParams;
@@ -196,10 +197,19 @@ public class UniverseCRUDHandler {
 
     // TODO(Rahul): When we support multiple read only clusters, change clusterType to cluster
     //  uuid.
-    Cluster cluster =
-        taskParams.getCurrentClusterType().equals(UniverseDefinitionTaskParams.ClusterType.PRIMARY)
-            ? taskParams.getPrimaryCluster()
-            : taskParams.getReadOnlyClusters().get(0);
+    Cluster cluster;
+
+    if (taskParams.currentClusterType.equals(UniverseDefinitionTaskParams.ClusterType.PRIMARY)) {
+      cluster = taskParams.getPrimaryCluster();
+    } else if (taskParams.currentClusterType.equals(UniverseDefinitionTaskParams.ClusterType.ASYNC)) {
+      cluster = taskParams.getReadOnlyClusters().get(0);
+    } else if (taskParams.currentClusterType.equals(UniverseDefinitionTaskParams.ClusterType.ADDON)) {
+      // TODO: this only allows us to do 1 addon cluster. We need to support multiple addon clusters.
+      cluster = taskParams.getAddOnClusters().get(0);
+    } else {
+      throw new PlatformServiceException(BAD_REQUEST, "Invalid cluster type");
+    }
+
     UniverseDefinitionTaskParams.UserIntent primaryIntent = cluster.userIntent;
 
     checkGeoPartitioningParameters(customer, taskParams, OpType.CONFIGURE);

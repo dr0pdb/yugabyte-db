@@ -185,7 +185,8 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
   /** Types of Clusters that can make up a universe. */
   public enum ClusterType {
     PRIMARY,
-    ASYNC
+    ASYNC,
+    ADDON
   }
 
   /** Allowed states for an exposing service of a universe */
@@ -801,6 +802,19 @@ public class UniverseDefinitionTaskParams extends UniverseTaskParams {
     return clusters
         .stream()
         .filter(c -> c.clusterType.equals(ClusterType.ASYNC))
+        .collect(Collectors.toList());
+  }
+
+  /**
+   * Helper API to retrieve a Cluster in the Universe represented by these Params by its UUID.
+   *
+   * @return a list of all AddOns in the Universe represented by these Params.
+   */
+  @JsonIgnore
+  public List<Cluster> getAddOnClusters() {
+    return clusters
+        .stream()
+        .filter(c -> c.clusterType.equals(ClusterType.ADDON))
         .collect(Collectors.toList());
   }
 

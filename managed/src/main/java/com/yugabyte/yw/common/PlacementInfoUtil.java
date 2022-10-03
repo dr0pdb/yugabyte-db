@@ -546,7 +546,7 @@ public class PlacementInfoUtil {
     taskParams.nodePrefix = Util.getNodePrefix(customerId, universeName);
 
     ConfigureNodesMode mode;
-    // If no placement info, and if this is the first primary or readonly cluster create attempt,
+    // If no placement info, and if this is the first primary or readonly/addon cluster create attempt,
     // choose a new placement.
     if (cluster.placementInfo == null
         && clusterOpType.equals(UniverseConfigureTaskParams.ClusterOperationType.CREATE)) {
