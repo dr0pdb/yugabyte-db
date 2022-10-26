@@ -500,14 +500,22 @@ void
 GetUserIdAndSecContext(Oid *userid, int *sec_context)
 {
 	*userid = CurrentUserId;
+	YBC_LOG_INFO_STACK_TRACE("stiwary: miscinit.c::GetUserIdAndSecContext, [Before] Getting sec_context. Old value: %d, New value: %d, Address of SecurityRestrictionContext: %p",
+					*sec_context, SecurityRestrictionContext, &SecurityRestrictionContext);
 	*sec_context = SecurityRestrictionContext;
+	YBC_LOG_INFO_STACK_TRACE("stiwary: miscinit.c::GetUserIdAndSecContext, [After] Getting sec_context. New value: %d",
+					*sec_context);
 }
 
 void
 SetUserIdAndSecContext(Oid userid, int sec_context)
 {
 	CurrentUserId = userid;
+	YBC_LOG_INFO_STACK_TRACE("stiwary: miscinit.c::SetUserIdAndSecContext, [Before] Setting SecurityRestrictionContext. Old value: %d, New value: %d, Address of SecurityRestrictionContext: %p",
+					 SecurityRestrictionContext, sec_context, &SecurityRestrictionContext);
 	SecurityRestrictionContext = sec_context;
+	YBC_LOG_INFO_STACK_TRACE("stiwary: miscinit.c::SetUserIdAndSecContext, [After] Setting SecurityRestrictionContext to %d",
+					 SecurityRestrictionContext);
 }
 
 

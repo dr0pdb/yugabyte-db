@@ -1989,6 +1989,9 @@ StartTransaction(void)
 	 */
 	GetUserIdAndSecContext(&s->prevUser, &s->prevSecContext);
 
+	YBC_LOG_INFO_STACK_TRACE("stiwary: xact.c::StartTransaction, prevSecContext %d",
+					 s->prevSecContext);
+
 	/* SecurityRestrictionContext should never be set outside a transaction */
 	Assert(s->prevSecContext == 0);
 
