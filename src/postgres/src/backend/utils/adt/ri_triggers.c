@@ -30,6 +30,8 @@
 
 #include "postgres.h"
 
+#include <unistd.h>
+
 #include "access/htup_details.h"
 #include "access/sysattr.h"
 #include "access/xact.h"
@@ -2702,18 +2704,32 @@ ri_PerformCheck(const RI_ConstraintInfo *riinfo,
 
 	/* Switch to proper UID to perform check as */
 	GetUserIdAndSecContext(&save_userid, &save_sec_context);
+
+	YBC_LOG_INFO_STACK_TRACE("stiwary: "
+							 "ri_triggers.c::ri_PerformCheck::PID(%d), Going "
+							 "to execute trigger. Going to set the security "
+							 "context to %d, current value is %d",
+							 getpid(),
+							 save_sec_context | SECURITY_LOCAL_USERID_CHANGE |
+								 SECURITY_NOFORCE_RLS,
+							 save_sec_context);
+
 	SetUserIdAndSecContext(RelationGetForm(query_rel)->relowner,
 						   save_sec_context | SECURITY_LOCAL_USERID_CHANGE |
 						   SECURITY_NOFORCE_RLS);
 
 	/* Finally we can run the query. */
-	spi_result = SPI_execute_snapshot(qplan,
-									  vals, nulls,
-									  test_snapshot, crosscheck_snapshot,
-									  false, false, limit);
+	spi_result = SPI_execute_snapshot(qplan, vals, nulls, test_snapshot,
+									  crosscheck_snapshot, false, false, limit);
 
 	/* Restore UID and security context */
 	SetUserIdAndSecContext(save_userid, save_sec_context);
+
+	YBC_LOG_INFO_STACK_TRACE("stiwary: "
+							 "ri_triggers.c::ri_PerformCheck::PID(%d), "
+							 "Executed trigger. Have restored the security "
+							 "context back to %d",
+							 getpid(), save_sec_context);
 
 	/* Check result */
 	if (spi_result < 0)
