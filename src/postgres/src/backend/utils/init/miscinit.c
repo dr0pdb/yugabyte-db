@@ -501,10 +501,6 @@ GetUserIdAndSecContext(Oid *userid, int *sec_context)
 {
 	*userid = CurrentUserId;
 	*sec_context = SecurityRestrictionContext;
-	YBC_LOG_INFO_STACK_TRACE("stiwary: "
-							 "miscinit.c::GetUserIdAndSecContext::PID(%d), "
-							 "Getting sec_context. Value: %d",
-							 getpid(), *sec_context);
 }
 
 void

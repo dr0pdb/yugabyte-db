@@ -50,6 +50,7 @@
 #include "executor/nodeSubplan.h"
 #include "foreign/fdwapi.h"
 #include "jit/jit.h"
+#include <unistd.h>
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "optimizer/clauses.h"
@@ -405,10 +406,16 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 void
 ExecutorFinish(QueryDesc *queryDesc)
 {
+
+	YBC_LOG_INFO_STACK_TRACE("stiwary:execMain.c::ExecutorFinish::PID(%d), Started for query: %s",
+	getpid(), queryDesc->sourceText);
 	if (ExecutorFinish_hook)
 		(*ExecutorFinish_hook) (queryDesc);
 	else
 		standard_ExecutorFinish(queryDesc);
+
+	YBC_LOG_INFO_STACK_TRACE("stiwary:execMain.c::ExecutorFinish::PID(%d), Finished for query: %s",
+	getpid(), queryDesc->sourceText);
 }
 
 void
@@ -416,6 +423,9 @@ standard_ExecutorFinish(QueryDesc *queryDesc)
 {
 	EState	   *estate;
 	MemoryContext oldcontext;
+
+	YBC_LOG_INFO_STACK_TRACE("stiwary:execMain.c::standard_ExecutorFinish::PID(%d), Started",
+	getpid());
 
 	/* sanity checks */
 	Assert(queryDesc != NULL);
@@ -439,8 +449,13 @@ standard_ExecutorFinish(QueryDesc *queryDesc)
 	ExecPostprocessPlan(estate);
 
 	/* Execute queued AFTER triggers, unless told not to */
-	if (!(estate->es_top_eflags & EXEC_FLAG_SKIP_TRIGGERS))
+	if (!(estate->es_top_eflags & EXEC_FLAG_SKIP_TRIGGERS)) {
+		YBC_LOG_INFO("stiwary:execMain.c::standard_ExecutorFinish::PID(%d), Going to execute triggers",
+			getpid());
 		AfterTriggerEndQuery(estate);
+		YBC_LOG_INFO("stiwary:execMain.c::standard_ExecutorFinish::PID(%d), Done executing triggers",
+	                 getpid());
+	}
 
 	// Flush buffered operations straight before elapsed time calculation.
 	if (IsYugaByteEnabled())
@@ -452,6 +467,8 @@ standard_ExecutorFinish(QueryDesc *queryDesc)
 	MemoryContextSwitchTo(oldcontext);
 
 	estate->es_finished = true;
+	YBC_LOG_INFO_STACK_TRACE("stiwary:execMain.c::standard_ExecutorFinish::PID(%d), Finished",
+	getpid());
 }
 
 /* ----------------------------------------------------------------

@@ -1589,6 +1589,10 @@ EmitErrorReport(void)
 	recursion_depth--;
 }
 
+ErrorData* GetErrorData(void) {
+	return &errordata[errordata_stack_depth];
+}
+
 /*
  * CopyErrorData --- obtain a copy of the topmost error stack entry
  *

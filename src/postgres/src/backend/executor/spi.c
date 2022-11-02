@@ -14,6 +14,8 @@
  */
 #include "postgres.h"
 
+#include <unistd.h>
+
 #include "access/htup_details.h"
 #include "access/printtup.h"
 #include "access/sysattr.h"
@@ -549,6 +551,10 @@ SPI_execute_snapshot(SPIPlanPtr plan,
 {
 	int			res;
 
+	YBC_LOG_INFO_STACK_TRACE("stiwary: "
+							 "spi.c::SPI_execute_snapshot::PID(%d), Start",
+							 getpid());
+
 	if (plan == NULL || plan->magic != _SPI_PLAN_MAGIC || tcount < 0)
 		return SPI_ERROR_ARGUMENT;
 
@@ -565,7 +571,15 @@ SPI_execute_snapshot(SPIPlanPtr plan,
 							snapshot, crosscheck_snapshot,
 							read_only, fire_triggers, tcount);
 
+	YBC_LOG_INFO_STACK_TRACE("stiwary: "
+							 "spi.c::SPI_execute_snapshot::PID(%d), After "
+							 "_SPI_execute_plan",
+							 getpid());
+
 	_SPI_end_call(true);
+	YBC_LOG_INFO_STACK_TRACE("stiwary: "
+							"spi.c::SPI_execute_snapshot::PID(%d), Finished",
+							getpid());
 	return res;
 }
 
@@ -2060,6 +2074,11 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 	CachedPlan *cplan = NULL;
 	ListCell   *lc1;
 
+
+	YBC_LOG_INFO_STACK_TRACE("stiwary: "
+							 "spi.c::SPI_execute_plan::PID(%d), Start",
+							 getpid());
+
 	/*
 	 * Setup error traceback support for ereport()
 	 */
@@ -2104,6 +2123,11 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 			pushed_active_snap = true;
 		}
 	}
+
+	YBC_LOG_INFO_STACK_TRACE("stiwary: "
+							 "spi.c::SPI_execute_plan::PID(%d), Done with "
+							 "setting up of snapshot",
+							 getpid());
 
 	foreach(lc1, plan->plancache_list)
 	{
@@ -2252,6 +2276,12 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 										dest,
 										paramLI, _SPI_current->queryEnv,
 										0);
+
+				YBC_LOG_INFO_STACK_TRACE("stiwary: "
+										 "spi.c::SPI_execute_plan::PID(%d), "
+										 "going to call _SPI_pquery",
+										 getpid());
+
 				res = _SPI_pquery(qdesc, fire_triggers,
 								  canSetTag ? tcount : 0);
 				FreeQueryDesc(qdesc);
@@ -2272,6 +2302,11 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 					context = PROCESS_UTILITY_QUERY;
 				else
 					context = PROCESS_UTILITY_QUERY_NONATOMIC;
+
+				YBC_LOG_INFO_STACK_TRACE("stiwary: "
+										 "spi.c::SPI_execute_plan::PID(%d), "
+										 "going to call ProcessUtility",
+										 getpid());
 
 				ProcessUtility(stmt,
 							   plansource->query_string,
@@ -2482,6 +2517,11 @@ _SPI_pquery(QueryDesc *queryDesc, bool fire_triggers, uint64 tcount)
 		ResetUsage();
 #endif
 
+	YBC_LOG_INFO_STACK_TRACE("stiwary: "
+								"spi.c::_SPI_pquery::PID(%d), "
+								"Started and selected res",
+								getpid());
+
 	/* Select execution options */
 	if (fire_triggers)
 		eflags = 0;				/* default run-to-completion flags */
@@ -2489,6 +2529,12 @@ _SPI_pquery(QueryDesc *queryDesc, bool fire_triggers, uint64 tcount)
 		eflags = EXEC_FLAG_SKIP_TRIGGERS;
 
 	ExecutorStart(queryDesc, eflags);
+
+
+	YBC_LOG_INFO_STACK_TRACE("stiwary: "
+								"spi.c::_SPI_pquery::PID(%d), "
+								"Before ExecutorRun",
+								getpid());
 
 	ExecutorRun(queryDesc, ForwardScanDirection, tcount, true);
 
@@ -2621,6 +2667,11 @@ _SPI_procmem(void)
 static int
 _SPI_begin_call(bool use_exec)
 {
+
+	YBC_LOG_INFO_STACK_TRACE("stiwary: "
+							 "spi.c::SPI_begin_call::PID(%d), Start with use_exec: %d",
+							 getpid(), use_exec);
+
 	if (_SPI_current == NULL)
 		return SPI_ERROR_UNCONNECTED;
 
@@ -2631,6 +2682,10 @@ _SPI_begin_call(bool use_exec)
 		/* switch to the Executor memory context */
 		_SPI_execmem();
 	}
+
+		YBC_LOG_INFO_STACK_TRACE("stiwary: "
+							 "spi.c::SPI_begin_call::PID(%d), Finished",
+							 getpid());
 
 	return 0;
 }

@@ -521,6 +521,10 @@ ybpgm_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, uint64 count,
 static void
 ybpgm_ExecutorFinish(QueryDesc *queryDesc)
 {
+  YBC_LOG_INFO_STACK_TRACE("stiwary:yb_pg_metrics.c::ybpgm_ExecutorFinish::PID("
+						   "%d), Started for query: %s",
+						   getpid(), queryDesc->sourceText);
+
   IncStatementNestingLevel();
   PG_TRY();
   {
@@ -532,10 +536,24 @@ ybpgm_ExecutorFinish(QueryDesc *queryDesc)
   }
   PG_CATCH();
   {
-    DecStatementNestingLevel();
-    PG_RE_THROW();
+    ErrorData  *edata;
+		edata = GetErrorData();
+
+		YBC_LOG_INFO_STACK_TRACE(
+			"stiwary:yb_pg_metrics.c::ybpgm_ExecutorFinish::"
+			"PID(%d), Got exception for query: %s in file:%s::%s::%d with "
+			"message: %s\n\n\n Detailed error message: %s, error log: %s",
+			getpid(), queryDesc->sourceText, edata->filename, edata->funcname,
+			edata->lineno, edata->message, edata->detail, edata->detail_log);
+
+		DecStatementNestingLevel();
+		PG_RE_THROW();
   }
   PG_END_TRY();
+
+  YBC_LOG_INFO_STACK_TRACE("stiwary:yb_pg_metrics.c::ybpgm_ExecutorFinish::PID("
+						   "%d), Finished for query: %s",
+						   getpid(), queryDesc->sourceText);
 }
 
 static void

@@ -379,6 +379,7 @@ typedef struct ErrorData
 } ErrorData;
 
 extern void EmitErrorReport(void);
+extern ErrorData *GetErrorData(void);
 extern ErrorData *CopyErrorData(void);
 extern void FreeErrorData(ErrorData *edata);
 extern void FlushErrorState(void);

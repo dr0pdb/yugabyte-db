@@ -17,6 +17,8 @@
 
 #include <limits.h>
 
+#include "unistd.h"
+
 #include "access/xact.h"
 #include "commands/prepare.h"
 #include "commands/trigger.h"
@@ -151,6 +153,9 @@ ProcessQuery(PlannedStmt *plan,
 {
 	QueryDesc  *queryDesc;
 
+	YBC_LOG_INFO_STACK_TRACE("stiwary:pquery.c::ProcessQuery::PID(%d), Started for source text: %s",
+	getpid(), sourceText);
+
 	/*
 	 * Create the QueryDesc object
 	 */
@@ -216,6 +221,9 @@ ProcessQuery(PlannedStmt *plan,
 	/*
 	 * Now, we close down all the scans and free allocated resources.
 	 */
+	
+	YBC_LOG_INFO_STACK_TRACE("stiwary:pquery.c::ProcessQuery::PID(%d), Going to call ExecutorFinish for query text: %s",
+	getpid(), sourceText);
 	ExecutorFinish(queryDesc);
 	ExecutorEnd(queryDesc);
 
@@ -712,6 +720,10 @@ PortalRun(Portal portal, long count, bool isTopLevel, bool run_once,
 	ResourceOwner saveResourceOwner;
 	MemoryContext savePortalContext;
 	MemoryContext saveMemoryContext;
+
+	YBC_LOG_INFO_STACK_TRACE("stiwary:pquery.c::PortalRun::PID("
+						"%d), Started",
+						getpid());
 
 	AssertArg(PortalIsValid(portal));
 
@@ -1236,6 +1248,10 @@ PortalRunMulti(Portal portal,
 	bool		active_snapshot_set = false;
 	bool        is_single_row_modify_txn = false;
 	ListCell   *stmtlist_item;
+
+	  YBC_LOG_INFO_STACK_TRACE("stiwary:pquery.c::PortalRunMulti::PID("
+						   "%d), Started",
+						   getpid());
 
 	/*
 	 * If the destination is DestRemoteExecute, change to DestNone.  The

@@ -4618,12 +4618,16 @@ yb_exec_simple_query_impl(const void* query_string)
 static void
 yb_exec_simple_query(const char* query_string, MemoryContext exec_context)
 {
+	YBC_LOG_INFO("stiwary:postgres.c::yb_exec_simple_query::PID(%d), Going to execute query: %s",
+	                 getpid(), query_string);
 	YBQueryRestartData restart_data  = {
 		.portal_name  = NULL,
 		.query_string = query_string,
 		.command_tag  = yb_parse_command_tag(query_string)
 	};
 	yb_exec_query_wrapper(exec_context, &restart_data, &yb_exec_simple_query_impl, query_string);
+	YBC_LOG_INFO("stiwary:postgres.c::yb_exec_simple_query::PID(%d), Done executing query: %s",
+	                 getpid(), query_string);
 }
 
 typedef struct YBExecuteMessageFunctorContext

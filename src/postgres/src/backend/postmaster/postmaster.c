@@ -1765,14 +1765,17 @@ ServerLoop(void)
 					port = ConnCreate(ListenSocket[i]);
 					if (port)
 					{
-						BackendStartup(port);
+							YBC_LOG_INFO_STACK_TRACE("stiwary:postmaster.c::"
+													 "ServerLoop::PID(%d). Connection created",
+													 getpid());
+							BackendStartup(port);
 
-						/*
-						 * We no longer need the open socket or port structure
-						 * in this process
-						 */
-						StreamClose(port->sock);
-						ConnFree(port);
+							/*
+							 * We no longer need the open socket or port
+							 * structure in this process
+							 */
+							StreamClose(port->sock);
+							ConnFree(port);
 					}
 				}
 			}
