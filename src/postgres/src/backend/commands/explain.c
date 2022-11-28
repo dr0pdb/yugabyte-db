@@ -155,6 +155,12 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt, const char *queryString,
 	bool		timing_set = false;
 	bool		summary_set = false;
 
+
+	YBC_LOG_INFO("ExplainQuery: Start explaining query %s",
+				 queryString);
+	instr_time start;
+	INSTR_TIME_SET_CURRENT(start);
+
 	/* Parse options list. */
 	foreach(lc, stmt->options)
 	{
@@ -285,6 +291,10 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt, const char *queryString,
 	end_tup_output(tstate);
 
 	pfree(es->str->data);
+
+	instr_time finish;
+	INSTR_TIME_SET_CURRENT(finish);
+	YBC_LOG_INFO("ExplainQuery: Done explaining query: %s\nPerformance numbers (microseconds):\nTotal time: %lu", queryString, INSTR_TIME_GET_MICROSEC(finish) - INSTR_TIME_GET_MICROSEC(start));
 }
 
 /*
@@ -482,6 +492,13 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	int			eflags;
 	int			instrument_option = 0;
 
+	instr_time start;
+	instr_time timeAfterExecutorRun;
+	instr_time timeAfterExecutorFinish;
+    INSTR_TIME_SET_CURRENT(start);
+
+	YBC_LOG_INFO("ExplainOnePlan: Start");
+
 	Assert(plannedstmt->commandType != CMD_UTILITY);
 
 	if (es->analyze && es->timing)
@@ -531,6 +548,9 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	/* call ExecutorStart to prepare the plan for execution */
 	ExecutorStart(queryDesc, eflags);
 
+	instr_time timeAfterExecutorStart;
+	INSTR_TIME_SET_CURRENT(timeAfterExecutorStart);
+
 	int64 peakMem = 0;
 
 	/* Execute the plan for statistics if asked for */
@@ -554,11 +574,15 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 		/* run the plan */
 		ExecutorRun(queryDesc, dir, 0L, true);
 
+		INSTR_TIME_SET_CURRENT(timeAfterExecutorRun);
+
 		/* take a snapshot on the max PG memory consumption */
 		peakMem = PgMemTracker.stmt_max_mem_bytes;
 
 		/* run cleanup too */
 		ExecutorFinish(queryDesc);
+
+		INSTR_TIME_SET_CURRENT(timeAfterExecutorFinish);
 
 		/* We can't run ExecutorEnd 'till we're done printing the stats... */
 		totaltime += elapsed_time(&starttime);
@@ -637,6 +661,15 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 		if (IsYugaByteEnabled())
 			appendPgMemInfo(es, peakMem);
 	}
+
+	YBC_LOG_INFO("ExplainOnePlan: Done executing explain one plan\n"
+				"Performance Numbers (microseconds)\n"
+				"Time spent in ExecutorStart: %lu\n"
+				"Time spent in ExecutorRun: %lu\n"
+				"Time spent in ExecutorFinish: %lu\n",
+				INSTR_TIME_GET_MICROSEC(timeAfterExecutorStart) - INSTR_TIME_GET_MICROSEC(start), 
+				INSTR_TIME_GET_MICROSEC(timeAfterExecutorRun) - INSTR_TIME_GET_MICROSEC(timeAfterExecutorStart),
+				INSTR_TIME_GET_MICROSEC(timeAfterExecutorFinish) - INSTR_TIME_GET_MICROSEC(timeAfterExecutorRun));
 
 	ExplainCloseGroup("Query", NULL, true, es);
 }
