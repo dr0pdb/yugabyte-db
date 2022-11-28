@@ -4631,12 +4631,22 @@ yb_exec_simple_query_impl(const void* query_string)
 static void
 yb_exec_simple_query(const char* query_string, MemoryContext exec_context)
 {
+	instr_time queryStart;
+	instr_time queryEnd;
+	INSTR_TIME_SET_CURRENT(queryStart);
+	YBC_LOG_INFO("Executing query: %s", query_string);
+
 	YBQueryRestartData restart_data  = {
 		.portal_name  = NULL,
 		.query_string = query_string,
 		.command_tag  = yb_parse_command_tag(query_string)
 	};
 	yb_exec_query_wrapper(exec_context, &restart_data, &yb_exec_simple_query_impl, query_string);
+	INSTR_TIME_SET_CURRENT(queryEnd);
+	YBC_LOG_INFO("Execution of query: %s took %lu time (microseconds)\n",
+				 query_string,
+				 INSTR_TIME_GET_MICROSEC(queryEnd) -
+					 INSTR_TIME_GET_MICROSEC(queryStart));
 }
 
 typedef struct YBExecuteMessageFunctorContext
