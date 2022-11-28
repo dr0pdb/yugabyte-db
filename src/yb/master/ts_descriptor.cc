@@ -48,10 +48,11 @@
 #include "yb/util/flags.h"
 #include "yb/util/status_format.h"
 
-DEFINE_UNKNOWN_int32(tserver_unresponsive_timeout_ms, 60 * 1000,
-             "The period of time that a Master can go without receiving a heartbeat from a "
-             "tablet server before considering it unresponsive. Unresponsive servers are not "
-             "selected when assigning replicas during table creation or re-replication.");
+DEFINE_UNKNOWN_int32(
+    tserver_unresponsive_timeout_ms, 60 * 100000,
+    "The period of time that a Master can go without receiving a heartbeat from a "
+    "tablet server before considering it unresponsive. Unresponsive servers are not "
+    "selected when assigning replicas during table creation or re-replication.");
 TAG_FLAG(tserver_unresponsive_timeout_ms, advanced);
 
 

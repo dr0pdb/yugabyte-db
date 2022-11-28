@@ -302,10 +302,12 @@ ExecutorRun(QueryDesc *queryDesc,
 			ScanDirection direction, uint64 count,
 			bool execute_once)
 {
+	YBC_LOG_INFO("execMain.c::ExecutorRun: Start");
 	if (ExecutorRun_hook)
 		(*ExecutorRun_hook) (queryDesc, direction, count, execute_once);
 	else
 		standard_ExecutorRun(queryDesc, direction, count, execute_once);
+	YBC_LOG_INFO("execMain.c::ExecutorRun: Done");
 }
 
 void
@@ -405,10 +407,12 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 void
 ExecutorFinish(QueryDesc *queryDesc)
 {
+	YBC_LOG_INFO("execMain.c::ExecutorFinish: Start");
 	if (ExecutorFinish_hook)
 		(*ExecutorFinish_hook) (queryDesc);
 	else
 		standard_ExecutorFinish(queryDesc);
+	YBC_LOG_INFO("execMain.c::ExecutorFinish: Done");
 }
 
 void
@@ -416,6 +420,13 @@ standard_ExecutorFinish(QueryDesc *queryDesc)
 {
 	EState	   *estate;
 	MemoryContext oldcontext;
+	instr_time	  start;
+	instr_time	  timeBeforePostprocessPlan;
+	instr_time	  timeAfterPostprocessPlan;
+	instr_time	  timeAfterTriggerEndQuery;
+	instr_time	  timeAfterEndOperationsBuffering;
+
+	INSTR_TIME_SET_CURRENT(start);
 
 	/* sanity checks */
 	Assert(queryDesc != NULL);
@@ -435,16 +446,24 @@ standard_ExecutorFinish(QueryDesc *queryDesc)
 	if (queryDesc->totaltime)
 		InstrStartNode(queryDesc->totaltime);
 
+	INSTR_TIME_SET_CURRENT(timeBeforePostprocessPlan);
+
 	/* Run ModifyTable nodes to completion */
 	ExecPostprocessPlan(estate);
+
+	INSTR_TIME_SET_CURRENT(timeAfterPostprocessPlan);
 
 	/* Execute queued AFTER triggers, unless told not to */
 	if (!(estate->es_top_eflags & EXEC_FLAG_SKIP_TRIGGERS))
 		AfterTriggerEndQuery(estate);
 
+	INSTR_TIME_SET_CURRENT(timeAfterTriggerEndQuery);
+
 	// Flush buffered operations straight before elapsed time calculation.
 	if (IsYugaByteEnabled())
 		YBEndOperationsBuffering();
+
+	INSTR_TIME_SET_CURRENT(timeAfterEndOperationsBuffering);
 
 	if (queryDesc->totaltime)
 		InstrStopNode(queryDesc->totaltime, 0);
@@ -452,6 +471,25 @@ standard_ExecutorFinish(QueryDesc *queryDesc)
 	MemoryContextSwitchTo(oldcontext);
 
 	estate->es_finished = true;
+
+	INSTR_TIME_SUBTRACT(timeBeforePostprocessPlan, start);
+	INSTR_TIME_SUBTRACT(timeAfterPostprocessPlan, start);
+	INSTR_TIME_SUBTRACT(timeAfterTriggerEndQuery, start);
+	INSTR_TIME_SUBTRACT(timeAfterEndOperationsBuffering, start);
+
+	YBC_LOG_INFO("execMain.c::standard_ExecutorFinish: Done\n"
+				 "Performance Numbers (microseconds)\n"
+				 "Time spent in PostprocessPlan: %lu\n"
+				 "Time spent in AfterTriggerEndQuery: %lu\n"
+				 "Time spent in YBEndOperationsBuffering: %lu\n"
+				 "Total time spent in standard_ExecutorFinish function: %lu\n",
+				 INSTR_TIME_GET_MICROSEC(timeAfterPostprocessPlan) -
+					 INSTR_TIME_GET_MICROSEC(timeBeforePostprocessPlan),
+				 INSTR_TIME_GET_MICROSEC(timeAfterTriggerEndQuery) -
+					 INSTR_TIME_GET_MICROSEC(timeAfterPostprocessPlan),
+				 INSTR_TIME_GET_MICROSEC(timeAfterEndOperationsBuffering) -
+					 INSTR_TIME_GET_MICROSEC(timeAfterTriggerEndQuery),
+				 INSTR_TIME_GET_MICROSEC(timeAfterEndOperationsBuffering));
 }
 
 /* ----------------------------------------------------------------

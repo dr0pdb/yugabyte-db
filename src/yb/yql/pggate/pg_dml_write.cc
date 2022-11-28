@@ -16,6 +16,7 @@
 #include "yb/yql/pggate/pg_dml_write.h"
 
 #include "yb/gutil/casts.h"
+#include "yb/util/debug-util.h"
 
 namespace yb {
 namespace pggate {
@@ -94,7 +95,6 @@ Status PgDmlWrite::DeleteEmptyPrimaryBinds() {
 }
 
 Status PgDmlWrite::Exec(ForceNonBufferable force_non_bufferable) {
-
   // Delete allocated binds that are not associated with a value.
   // YBClient interface enforce us to allocate binds for primary key columns in their indexing
   // order, so we have to allocate these binds before associating them with values. When the values

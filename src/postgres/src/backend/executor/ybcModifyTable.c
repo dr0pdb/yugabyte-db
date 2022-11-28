@@ -218,6 +218,9 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 	Bitmapset      *pkey    = YBGetTablePrimaryKeyBms(rel);
 	YBCPgStatement insert_stmt = NULL;
 	bool           is_null  = false;
+	instr_time		start;
+
+	INSTR_TIME_SET_CURRENT(start);
 
 	/* Generate a new oid for this row if needed */
 	if (rel->rd_rel->relhasoids)
@@ -244,6 +247,9 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 	{
 		*ybctid = tuple->t_ybctid;
 	}
+
+	instr_time timeBeforeAttrLoop;
+	INSTR_TIME_SET_CURRENT(timeBeforeAttrLoop);
 
 	for (AttrNumber attnum = minattr; attnum <= natts; attnum++)
 	{
@@ -287,6 +293,9 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 		HandleYBStatus(YBCPgDmlBindColumn(insert_stmt, attnum, ybc_expr));
 	}
 
+	instr_time timeAfterAttrLoop;
+	INSTR_TIME_SET_CURRENT(timeAfterAttrLoop);
+
 	/*
 	 * For system tables, mark tuple for invalidation from system caches
 	 * at next command boundary.
@@ -314,6 +323,14 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 	if (!is_single_row_txn)
 		YBCPgAddIntoForeignKeyReferenceCache(relid, tuple->t_ybctid);
 
+	instr_time finishTime;
+	INSTR_TIME_SET_CURRENT(finishTime);
+	YBC_LOG_INFO("ybcModifyTable.c::YBCExecuteInsertInternal: Finished in "
+				 "total time (microseconds): %lu\ntotal time in AttrLoop: %lu",
+				 INSTR_TIME_GET_MICROSEC(finishTime) -
+					 INSTR_TIME_GET_MICROSEC(start),
+				 INSTR_TIME_GET_MICROSEC(timeAfterAttrLoop) -
+					 INSTR_TIME_GET_MICROSEC(timeBeforeAttrLoop));
 	return HeapTupleGetOid(tuple);
 }
 
@@ -795,6 +812,10 @@ bool YBCExecuteUpdate(Relation rel,
 	Datum			ybctid;
 	ListCell	   *lc;
 
+	YBC_LOG_INFO("ybcModifyTable.c::YBCExecuteUpdate: Start");
+	instr_time start;
+	INSTR_TIME_SET_CURRENT(start);
+
 	/* is_single_row_txn always implies target tuple wasn't fetched. */
 	Assert(!is_single_row_txn || !target_tuple_fetched);
 
@@ -976,6 +997,15 @@ bool YBCExecuteUpdate(Relation rel,
 		}
 	}
 
+	instr_time beforeCallingExec;
+	INSTR_TIME_SET_CURRENT(beforeCallingExec);
+
+	instr_time elapsedBeforeCallingExec = beforeCallingExec;
+	INSTR_TIME_SUBTRACT(elapsedBeforeCallingExec, start);
+	YBC_LOG_INFO("ybcModifyTable.c::YBCExecuteUpdate: Calling "
+				 "YBCExecWriteStmt, time elapsed before this: %lu microseconds",
+				 INSTR_TIME_GET_MICROSEC(elapsedBeforeCallingExec));
+
 	/* If update batching is allowed, then ignore rows_affected_count. */
 	YBCExecWriteStmt(update_stmt,
 					 rel,
@@ -1041,6 +1071,15 @@ bool YBCExecuteUpdate(Relation rel,
 	{
 		tuple->t_ybctid = ybctid;
 	}
+
+	instr_time afterCallingExec;
+	INSTR_TIME_SET_CURRENT(afterCallingExec);
+
+	instr_time elapsedafterCallingExec = afterCallingExec;
+	INSTR_TIME_SUBTRACT(elapsedafterCallingExec, start);
+	YBC_LOG_INFO("ybcModifyTable.c::YBCExecuteUpdate: Done, total time elapsed "
+				 ": %lu microseconds",
+				 INSTR_TIME_GET_MICROSEC(elapsedafterCallingExec));
 
 	/*
 	 * For batched statements rows_affected_count remains at its initial value:

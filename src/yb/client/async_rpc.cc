@@ -199,13 +199,10 @@ AsyncRpc::~AsyncRpc() {
                 << "us. Trace:\n"
                 << trace_->DumpToString(true);
     } else {
-      const auto print_trace_every_n = GetAtomicFlag(&FLAGS_ybclient_print_trace_every_n);
-      if (print_trace_every_n > 0) {
-        YB_LOG_EVERY_N(INFO, print_trace_every_n)
-            << ToString() << " took " << ToMicroseconds(CoarseMonoClock::Now() - start_)
-            << "us. Trace:\n"
-            << trace_->DumpToString(true);
-      }
+      // const auto print_trace_every_n = GetAtomicFlag(&FLAGS_ybclient_print_trace_every_n);
+      YB_LOG(INFO) << ToString() << " took " << ToMicroseconds(CoarseMonoClock::Now() - start_)
+                   << "us. Trace:\n"
+                   << trace_->DumpToString(true);
     }
   }
 }

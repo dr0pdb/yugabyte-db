@@ -44,8 +44,8 @@ DECLARE_bool(use_node_hostname_for_local_tserver);
 DECLARE_int32(backfill_index_client_rpc_timeout_ms);
 DECLARE_int32(yb_client_admin_operation_timeout_sec);
 
-DEFINE_UNKNOWN_uint64(pg_client_heartbeat_interval_ms, 10000,
-    "Pg client heartbeat interval in ms.");
+DEFINE_UNKNOWN_uint64(
+    pg_client_heartbeat_interval_ms, 1000000, "Pg client heartbeat interval in ms.");
 
 DECLARE_bool(TEST_index_read_multiple_partitions);
 
