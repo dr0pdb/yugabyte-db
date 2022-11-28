@@ -216,16 +216,15 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
     manager_->rpcs().Abort(handles.begin(), handles.end());
     LOG_IF_WITH_PREFIX(DFATAL, !waiters_.empty()) << "Non empty waiters";
     const auto threshold = GetAtomicFlag(&FLAGS_txn_slow_op_threshold_ms);
-    const auto print_trace_every_n = GetAtomicFlag(&FLAGS_txn_print_trace_every_n);
+    // const auto print_trace_every_n = GetAtomicFlag(&FLAGS_txn_print_trace_every_n);
     const auto now = CoarseMonoClock::Now();
     if ((trace_ && trace_->must_print())
            || (threshold > 0 && ToMilliseconds(now - start_) > threshold)) {
       LOG(INFO) << ToString() << " took " << ToMicroseconds(now - start_) << "us. Trace: \n"
         << (trace_ ? trace_->DumpToString(true) : "Not collected");
     } else if (trace_) {
-      YB_LOG_IF_EVERY_N(INFO, print_trace_every_n > 0, print_trace_every_n)
-        << ToString() << " took " << ToMicroseconds(now - start_) << "us. Trace: \n"
-        << trace_->DumpToString(true);
+      YB_LOG(INFO) << ToString() << " took " << ToMicroseconds(now - start_) << "us. Trace: \n"
+                   << trace_->DumpToString(true);
     }
   }
 
@@ -469,6 +468,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
 
   void Commit(CoarseTimePoint deadline, SealOnly seal_only, CommitCallback callback)
       EXCLUDES(mutex_) {
+    LOG(INFO) << __func__;
     auto transaction = transaction_->shared_from_this();
     TRACE_TO(trace_, __func__);
     {

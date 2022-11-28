@@ -35,6 +35,7 @@
 #include "yb/gutil/casts.h"
 #include "yb/gutil/port.h"
 
+#include "yb/util/debug-util.h"
 #include "yb/util/lw_function.h"
 #include "yb/util/status.h"
 
@@ -369,6 +370,13 @@ class PgOperationBuffer::Impl {
                               bool transactional,
                               size_t ops_count) {
     if (!ops.empty() && !(interceptor && (*interceptor)(&ops, transactional))) {
+      LOG(INFO) << "PgOperationBuffer::Impl::SendOperations:\n called with " << ops.size()
+                << " operations at:\n"
+                << GetStackTrace();
+      auto start_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch())
+                            .count();
+
       EnsureCapacity(&in_flight_ops_, buffering_settings_);
       // In case max_in_flight_operations < max_batch_size, the number of in-flight operations will
       // be equal to max_batch_size after sending single buffer. So use max of these values for
@@ -384,6 +392,12 @@ class PgOperationBuffer::Impl {
       }
       in_flight_ops_.push_back(
         InFlightOperation(VERIFY_RESULT(flusher_(std::move(ops), transactional))));
+      auto end_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::steady_clock::now().time_since_epoch())
+                          .count();
+      LOG(INFO) << "PgOperationBuffer::Impl::SendOperations:\n Time taken for sending operations "
+                   "(milliseconds): "
+                << end_time - start_time;
       return true;
     }
     return false;

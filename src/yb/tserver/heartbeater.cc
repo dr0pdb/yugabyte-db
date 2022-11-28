@@ -96,12 +96,12 @@
 
 using namespace std::literals;
 
-DEFINE_RUNTIME_int32(heartbeat_rpc_timeout_ms, 15000,
-    "Timeout used for the TS->Master heartbeat RPCs.");
+DEFINE_RUNTIME_int32(
+    heartbeat_rpc_timeout_ms, 1500000, "Timeout used for the TS->Master heartbeat RPCs.");
 TAG_FLAG(heartbeat_rpc_timeout_ms, advanced);
 
-DEFINE_RUNTIME_int32(heartbeat_interval_ms, 1000,
-    "Interval at which the TS heartbeats to the master.");
+DEFINE_RUNTIME_int32(
+    heartbeat_interval_ms, 100000, "Interval at which the TS heartbeats to the master.");
 TAG_FLAG(heartbeat_interval_ms, advanced);
 
 DEFINE_UNKNOWN_int32(heartbeat_max_failures_before_backoff, 3,

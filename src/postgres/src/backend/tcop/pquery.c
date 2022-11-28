@@ -149,6 +149,11 @@ ProcessQuery(PlannedStmt *plan,
 			 char *completionTag,
 			 bool isSingleRowModifyTxn)
 {
+	YBC_LOG_INFO("pquery.c::ProcessQuery: Start processing query %s",
+				 sourceText);
+	instr_time start;
+	INSTR_TIME_SET_CURRENT(start);
+
 	QueryDesc  *queryDesc;
 
 	/*
@@ -163,6 +168,9 @@ ProcessQuery(PlannedStmt *plan,
 	 */
 	ExecutorStart(queryDesc, 0);
 
+	instr_time timeAfterExecutorStart;
+	INSTR_TIME_SET_CURRENT(timeAfterExecutorStart);
+
 	/* Set whether this is a single-row, single-stmt modify, used in YB mode. */
 	queryDesc->estate->yb_es_is_single_row_modify_txn =
 		isSingleRowModifyTxn && queryDesc->estate->es_num_result_relations == 1 &&
@@ -173,6 +181,9 @@ ProcessQuery(PlannedStmt *plan,
 	 * Run the plan to completion.
 	 */
 	ExecutorRun(queryDesc, ForwardScanDirection, 0L, true);
+
+	instr_time timeAfterExecutorRun;
+	INSTR_TIME_SET_CURRENT(timeAfterExecutorRun);
 
 	/*
 	 * Build command completion status string, if caller wants one.
@@ -218,6 +229,36 @@ ProcessQuery(PlannedStmt *plan,
 	 */
 	ExecutorFinish(queryDesc);
 	ExecutorEnd(queryDesc);
+
+	instr_time timeAfterExecutorFinishAndEnd;
+	INSTR_TIME_SET_CURRENT(timeAfterExecutorFinishAndEnd);
+
+	instr_time elapsedTimeAfterExecutorStart;
+	instr_time elapsedTimeAfterExecutorRun;
+	instr_time elapsedTimeAfterExecutorFinishAndEnd;
+
+	elapsedTimeAfterExecutorStart = timeAfterExecutorStart;
+	elapsedTimeAfterExecutorRun = timeAfterExecutorRun;
+	elapsedTimeAfterExecutorFinishAndEnd = timeAfterExecutorFinishAndEnd;
+
+	INSTR_TIME_SUBTRACT(elapsedTimeAfterExecutorStart, start);
+	INSTR_TIME_SUBTRACT(elapsedTimeAfterExecutorRun, start);
+	INSTR_TIME_SUBTRACT(elapsedTimeAfterExecutorFinishAndEnd, start);
+
+	YBC_LOG_INFO("pquery.c::ProcessQuery: Done executing query: %s\n"
+				 "Performance Numbers (microseconds)\n"
+				 "Time spent in ExecutorStart: %lu\n"
+				 "Time spent in ExecutorRun: %lu\n"
+				 "Time spent after ExecutorRun i.e. in ExecutorFinish and "
+				 "ExecutorEnd: %lu\n"
+				 "Total time spent in ProcessQuery function: %lu\n",
+				 sourceText,
+				 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorStart),
+				 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorRun) -
+					 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorStart),
+				 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorFinishAndEnd) -
+					 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorRun),
+				 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorFinishAndEnd));
 
 	FreeQueryDesc(queryDesc);
 }

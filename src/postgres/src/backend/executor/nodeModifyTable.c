@@ -1307,6 +1307,8 @@ ExecUpdate(ModifyTableState *mtstate,
 	if (IsBootstrapProcessingMode())
 		elog(ERROR, "cannot UPDATE during bootstrap");
 
+	YBC_LOG_INFO("nodeModifyTable.c::ExecUpdate: Start");
+
 	/*
 	 * get the heap tuple out of the tuple table slot, making sure we have a
 	 * writable copy
@@ -1374,6 +1376,9 @@ ExecUpdate(ModifyTableState *mtstate,
 	else if (IsYBRelation(resultRelationDesc))
 	{
 		bool		partition_constraint_failed;
+		instr_time	start;
+
+		INSTR_TIME_SET_CURRENT(start);
 
 		yb_lreplace:;
 		/*
@@ -2422,8 +2427,13 @@ ExecModifyTable(PlanState *pstate)
 	ItemPointerData tuple_ctid;
 	HeapTupleData oldtupdata;
 	HeapTuple	oldtuple;
+	instr_time			   starttime;
+	instr_time			   timeBeforeActualOp;
+	instr_time			   totalTime;
 
+	YBC_LOG_INFO_STACK_TRACE("nodeModifyTable::ExecModifyTable: Start");
 	CHECK_FOR_INTERRUPTS();
+	INSTR_TIME_SET_CURRENT(starttime);
 
 	/*
 	 * This should NOT get called during EvalPlanQual; we should have passed a
@@ -2653,6 +2663,7 @@ ExecModifyTable(PlanState *pstate)
 				slot = ExecFilterJunk(junkfilter, slot);
 		}
 
+		INSTR_TIME_SET_CURRENT(timeBeforeActualOp);
 		switch (operation)
 		{
 			case CMD_INSERT:
@@ -2714,6 +2725,26 @@ ExecModifyTable(PlanState *pstate)
 
 	node->mt_done = true;
 
+	INSTR_TIME_SET_CURRENT(totalTime);
+
+	instr_time elapsedBeforeActualOp;
+	instr_time elapsedTotal;
+
+	elapsedBeforeActualOp = timeBeforeActualOp;
+	elapsedTotal = totalTime;
+	INSTR_TIME_SUBTRACT(elapsedBeforeActualOp, starttime);
+	INSTR_TIME_SUBTRACT(elapsedTotal, starttime);
+
+	YBC_LOG_INFO("nodeModifyTable.c::ExecModifyTable: Done with the "
+				 "execution of CmdType %d.\n"
+				 "Performance Numbers (microseconds)\n"
+				 "Time taken before actual execution of command: %lu\n"
+				 "Time taken in the execution of the command: %lu\n"
+				 "Total time in the function: %lu\n",
+				 operation, INSTR_TIME_GET_MICROSEC(elapsedBeforeActualOp),
+				 INSTR_TIME_GET_MICROSEC(elapsedTotal) -
+					 INSTR_TIME_GET_MICROSEC(elapsedBeforeActualOp),
+				 INSTR_TIME_GET_MICROSEC(elapsedTotal));
 	return NULL;
 }
 

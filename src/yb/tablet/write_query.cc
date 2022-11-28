@@ -349,6 +349,7 @@ Result<bool> WriteQuery::CqlPrepareExecute() {
 }
 
 Result<bool> WriteQuery::PgsqlPrepareExecute() {
+  TRACE(__func__);
   auto shared_tablet = VERIFY_RESULT(tablet());
   RETURN_NOT_OK(InitExecute(ExecuteMode::kPgsql));
 
@@ -397,6 +398,7 @@ Result<bool> WriteQuery::PgsqlPrepareExecute() {
 }
 
 void WriteQuery::Execute(std::unique_ptr<WriteQuery> query) {
+  TRACE(__func__);
   auto* query_ptr = query.get();
   query_ptr->self_ = std::move(query);
 
@@ -458,6 +460,7 @@ docdb::ConflictManagementPolicy GetConflictManagementPolicy(
 }
 
 Status WriteQuery::DoExecute() {
+  TRACE(__func__);
   auto shared_tablet = VERIFY_RESULT(tablet());
   auto& write_batch = *request().mutable_write_batch();
   isolation_level_ = VERIFY_RESULT(shared_tablet->GetIsolationLevelFromPB(write_batch));
