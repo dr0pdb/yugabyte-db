@@ -17,6 +17,7 @@
 
 #include "yb/gutil/casts.h"
 #include "yb/util/debug-util.h"
+#include <chrono>
 
 namespace yb {
 namespace pggate {
@@ -95,6 +96,8 @@ Status PgDmlWrite::DeleteEmptyPrimaryBinds() {
 }
 
 Status PgDmlWrite::Exec(ForceNonBufferable force_non_bufferable) {
+  YBC_LOG_INFO("RKNRKN pg_dml_write.cc::PgDmlWrite::Exec: Start exec");
+  auto dml_write_exec_start = std::chrono::high_resolution_clock::now();
   // Delete allocated binds that are not associated with a value.
   // YBClient interface enforce us to allocate binds for primary key columns in their indexing
   // order, so we have to allocate these binds before associating them with values. When the values
@@ -127,6 +130,13 @@ Status PgDmlWrite::Exec(ForceNonBufferable force_non_bufferable) {
     // Save the number of rows affected by the op.
     rows_affected_count_ = VERIFY_RESULT(doc_op_->GetRowsAffectedCount());
   }
+  auto dml_write_exec_end = std::chrono::high_resolution_clock::now();
+
+  YBC_LOG_INFO(
+      "RKNRKN pg_dml_write.cc::PgDmlWrite::Exec: Done with Exec: %lld microseconds. \n",
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          dml_write_exec_end - dml_write_exec_start)
+          .count());
 
   return Status::OK();
 }

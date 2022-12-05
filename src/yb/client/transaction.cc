@@ -216,15 +216,18 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
     manager_->rpcs().Abort(handles.begin(), handles.end());
     LOG_IF_WITH_PREFIX(DFATAL, !waiters_.empty()) << "Non empty waiters";
     const auto threshold = GetAtomicFlag(&FLAGS_txn_slow_op_threshold_ms);
-    // const auto print_trace_every_n = GetAtomicFlag(&FLAGS_txn_print_trace_every_n);
+    const auto print_trace_every_n = GetAtomicFlag(&FLAGS_txn_print_trace_every_n);
     const auto now = CoarseMonoClock::Now();
     if ((trace_ && trace_->must_print())
            || (threshold > 0 && ToMilliseconds(now - start_) > threshold)) {
       LOG(INFO) << ToString() << " took " << ToMicroseconds(now - start_) << "us. Trace: \n"
         << (trace_ ? trace_->DumpToString(true) : "Not collected");
     } else if (trace_) {
-      YB_LOG(INFO) << ToString() << " took " << ToMicroseconds(now - start_) << "us. Trace: \n"
-                   << trace_->DumpToString(true);
+      YB_LOG_IF_EVERY_N(INFO, print_trace_every_n > 0, print_trace_every_n)
+          << ToString() << " took " << ToMicroseconds(now - start_) << "us. Trace: \n"
+          << trace_->DumpToString(true);
+      /*YB_LOG(INFO) << ToString() << " took " << ToMicroseconds(now - start_) << "us. Trace: \n"
+                   << trace_->DumpToString(true);*/
     }
   }
 
@@ -318,6 +321,8 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
     TRACE_TO(trace_, "Preparing $0 ops", AsString(ops_info->groups.size()));
     VTRACE_TO(2, trace_, "Preparing $0 ops", AsString(ops_info->groups));
 
+    LOG(INFO) << ("RKNRKN transaction.cc::Prepare: Start");
+    auto prepare_start = std::chrono::high_resolution_clock::now();
     {
       UNIQUE_LOCK(lock, mutex_);
       auto promotion_started = StartPromotionToGlobalIfNecessary(ops_info);
@@ -362,6 +367,12 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
       // there multiple tablets that will process first request.
       SetReadTimeIfNeeded(ops_info->groups.size() > 1 || force_consistent_read);
     }
+    auto prepare_end = std::chrono::high_resolution_clock::now();
+
+    LOG(INFO) << "RKNRKN transaction.cc::Prepare: Done with send buffer: "
+              << std::chrono::duration_cast<std::chrono::microseconds>(prepare_end - prepare_start)
+                     .count()
+              << " microseconds.";
 
     {
       ops_info->metadata = {
@@ -390,6 +401,9 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
     if (FLAGS_TEST_transaction_inject_flushed_delay_ms > 0) {
       std::this_thread::sleep_for(FLAGS_TEST_transaction_inject_flushed_delay_ms * 1ms);
     }
+
+    LOG(INFO) << ("RKNRKN transaction.cc::Flushed: Start");
+    auto flush_start = std::chrono::high_resolution_clock::now();
 
     boost::optional<Status> notify_commit_status;
     bool abort = false;
@@ -456,6 +470,13 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
       }
     }
 
+    auto flush_end = std::chrono::high_resolution_clock::now();
+
+    LOG(INFO)
+        << "RKNRKN transaction.cc::Prepare: Done: "
+        << std::chrono::duration_cast<std::chrono::microseconds>(flush_end - flush_start).count()
+        << " microseconds.";
+
     if (notify_commit_status) {
       VLOG_WITH_PREFIX(4) << "Sealing done: " << *notify_commit_status;
       commit_callback(*notify_commit_status);
@@ -468,9 +489,11 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
 
   void Commit(CoarseTimePoint deadline, SealOnly seal_only, CommitCallback callback)
       EXCLUDES(mutex_) {
-    LOG(INFO) << __func__;
+    // LOG(INFO) << __func__;
     auto transaction = transaction_->shared_from_this();
     TRACE_TO(trace_, __func__);
+    LOG(INFO) << ("RKNRKN transaction.cc::Commit: Start");
+    auto commit_start = std::chrono::high_resolution_clock::now();
     {
       UNIQUE_LOCK(lock, mutex_);
       auto status = CheckCouldCommitUnlocked(seal_only);
@@ -512,6 +535,12 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
     }
 
     DoCommit(deadline, seal_only, Status::OK(), transaction);
+    auto commit_end = std::chrono::high_resolution_clock::now();
+
+    LOG(INFO)
+        << "RKNRKN transaction.cc::Commit: Done: "
+        << std::chrono::duration_cast<std::chrono::microseconds>(commit_end - commit_start).count()
+        << " microseconds.";
   }
 
   void Abort(CoarseTimePoint deadline) EXCLUDES(mutex_) {
@@ -1274,6 +1303,8 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
     }
     VLOG_WITH_PREFIX(4) << "Commit done: " << actual_status;
     commit_callback(actual_status);
+    const auto now = CoarseMonoClock::Now();
+    LOG(INFO) << "RKNRKN In CommitDone, total time taken: " << ToMicroseconds(now - start_);
 
     if (actual_status.IsExpired()) {
       // We can't perform immediate cleanup here because the transaction could be committed,

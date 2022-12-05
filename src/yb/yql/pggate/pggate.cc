@@ -1252,11 +1252,24 @@ Status PgApiImpl::DmlExecWriteOp(PgStatement *handle, int32_t *rows_affected_cou
     case StmtOp::STMT_DELETE:
     case StmtOp::STMT_TRUNCATE:
       {
-        auto dml_write = down_cast<PgDmlWrite *>(handle);
-        RETURN_NOT_OK(dml_write->Exec(ForceNonBufferable(rows_affected_count != nullptr)));
-        if (rows_affected_count) {
-          *rows_affected_count = dml_write->GetRowsAffectedCount();
-        }
+      YBC_LOG_INFO("RKNRKN pg_gate.cc::PgApiImpl::DmlExecWriteOp: Start DML exec");
+      auto dml_write_exec_start = std::chrono::high_resolution_clock::now();
+
+      auto dml_write = down_cast<PgDmlWrite *>(handle);
+      RETURN_NOT_OK(dml_write->Exec(ForceNonBufferable(rows_affected_count != nullptr)));
+      if (rows_affected_count) {
+        *rows_affected_count = dml_write->GetRowsAffectedCount();
+      }
+
+        auto dml_write_exec_end = std::chrono::high_resolution_clock::now();
+
+        YBC_LOG_INFO(
+            "RKNRKN pg_gate.cc::PgApiImpl::DmlExecWriteOp: Done with DML exec: %lld microseconds. "
+            "\n",
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                dml_write_exec_end - dml_write_exec_start)
+                .count());
+
         return Status::OK();
       }
     default:

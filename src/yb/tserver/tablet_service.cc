@@ -1715,7 +1715,7 @@ Status TabletServiceImpl::PerformWrite(
     context->EnsureTraceCreated();
   }
   ADOPT_TRACE(context->trace());
-  TRACE("Start Write with request: $0", req->DebugString());
+  //TRACE("Start Write with request: $0", req->DebugString());
   TRACE_EVENT1("tserver", "TabletServiceImpl::Write",
                "tablet_id", req->tablet_id());
   VLOG(2) << "Received Write RPC: " << req->DebugString();

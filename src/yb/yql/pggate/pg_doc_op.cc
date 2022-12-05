@@ -33,6 +33,7 @@
 #include "yb/yql/pggate/pg_tools.h"
 #include "yb/yql/pggate/pggate_flags.h"
 #include "yb/yql/pggate/util/pg_doc_data.h"
+#include <chrono>
 
 using std::string;
 
@@ -299,6 +300,9 @@ Status PgDocOp::SendRequest(ForceNonBufferable force_non_bufferable) {
 }
 
 Status PgDocOp::SendRequestImpl(ForceNonBufferable force_non_bufferable) {
+  LOG(INFO) << ("RKNRKN pg_doc_op.cc::PgDocOp::SendRequestImpl: Start sending requests");
+  auto send_req_start = std::chrono::high_resolution_clock::now();
+
   // Populate collected information into protobuf requests before sending to DocDB.
   RETURN_NOT_OK(CreateRequests());
 
@@ -315,6 +319,14 @@ Status PgDocOp::SendRequestImpl(ForceNonBufferable force_non_bufferable) {
   response_ = VERIFY_RESULT(sender_(
       pg_session_.get(), pgsql_ops_.data(), send_count,
       *table_, GetInTxnLimit(), force_non_bufferable));
+
+  auto send_req_end = std::chrono::high_resolution_clock::now();
+
+  LOG(INFO) << "RKNRKN pg_doc_op.cc::PgDocOp::SendRequestImpl: Done with sending requests:"
+            << std::chrono::duration_cast<std::chrono::microseconds>(send_req_end - send_req_start)
+                   .count()
+            << " microseconds.";
+
   return Status::OK();
 }
 

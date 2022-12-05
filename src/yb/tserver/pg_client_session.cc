@@ -664,7 +664,7 @@ Status PgClientSession::SetActiveSubTransaction(
 Status PgClientSession::FinishTransaction(
     const PgFinishTransactionRequestPB& req, PgFinishTransactionResponsePB* resp,
     rpc::RpcContext* context) {
-  LOG(INFO) << __func__ << " with req: " << req.DebugString();
+//  LOG(INFO) << __func__ << " with req: " << req.DebugString();
   saved_priority_ = boost::none;
   auto kind = req.ddl_mode() ? PgClientSessionKind::kDdl : PgClientSessionKind::kPlain;
   auto& txn = Transaction(kind);
@@ -691,7 +691,7 @@ Status PgClientSession::FinishTransaction(
 
 Status PgClientSession::Perform(
     PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context) {
-  LOG(INFO) << __func__ << " with req: " << req->DebugString();
+//  LOG(INFO) << __func__ << " with req: " << req->DebugString();
   PgResponseCache::Setter setter;
   auto& options = *req->mutable_options();
   if (options.has_caching_info()) {
@@ -782,7 +782,7 @@ Status PgClientSession::UpdateReadPointForXClusterConsistentReads(
 
 Result<std::pair<client::YBSession*, PgClientSession::UsedReadTimePtr>>
 PgClientSession::SetupSession(const PgPerformRequestPB& req, CoarseTimePoint deadline) {
-  LOG(INFO) << __func__;
+//  LOG(INFO) << __func__;
   const auto& options = req.options();
   PgClientSessionKind kind;
   if (options.use_catalog_session()) {
@@ -800,7 +800,7 @@ PgClientSession::SetupSession(const PgPerformRequestPB& req, CoarseTimePoint dea
   auto session = Session(kind).get();
   client::YBTransaction* transaction = Transaction(kind).get();
 
-  LOG(INFO) << __func__ << ": " << options.DebugString() << " with kind: " << kind;
+//  LOG(INFO) << __func__ << ": " << options.DebugString() << " with kind: " << kind;
 
   UsedReadTimePtr used_read_time;
   if (options.restart_transaction()) {
@@ -877,7 +877,7 @@ std::string PgClientSession::LogPrefix() {
 Status PgClientSession::BeginTransactionIfNecessary(
     const PgPerformOptionsPB& options, CoarseTimePoint deadline) {
   const auto isolation = static_cast<IsolationLevel>(options.isolation());
-  LOG(INFO) << __func__ << " with isolation = " << isolation;
+//  LOG(INFO) << __func__ << " with isolation = " << isolation;
 
   auto priority = options.priority();
   auto& session = EnsureSession(PgClientSessionKind::kPlain);
@@ -908,7 +908,7 @@ Status PgClientSession::BeginTransactionIfNecessary(
         : Status::OK();
   }
 
-  LOG(INFO) << __func__ << ": Getting a new txn from the transaction_pool_provider";
+//  LOG(INFO) << __func__ << ": Getting a new txn from the transaction_pool_provider";
 
   txn = transaction_pool_provider_().Take(
       client::ForceGlobalTransaction(options.force_global_transaction()), deadline);
@@ -917,11 +917,11 @@ Status PgClientSession::BeginTransactionIfNecessary(
       txn_serial_no_ == options.txn_serial_no()) {
     RETURN_NOT_OK(CheckPlainSessionReadTime());
     txn->InitWithReadPoint(isolation, std::move(*session->read_point()));
-    LOG(INFO) << "Start transaction " << IsolationLevel_Name(isolation) << ", id: " << txn->id()
-              << ", kept read time: " << txn->read_point().GetReadTime();
+//    LOG(INFO) << "Start transaction " << IsolationLevel_Name(isolation) << ", id: " << txn->id()
+//              << ", kept read time: " << txn->read_point().GetReadTime();
   } else {
-    LOG(INFO) << "Start transaction " << IsolationLevel_Name(isolation) << ", id: " << txn->id()
-              << ", new read time";
+//    LOG(INFO) << "Start transaction " << IsolationLevel_Name(isolation) << ", id: " << txn->id()
+//              << ", new read time";
     RETURN_NOT_OK(txn->Init(isolation));
   }
 

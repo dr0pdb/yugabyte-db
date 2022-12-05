@@ -228,37 +228,44 @@ ProcessQuery(PlannedStmt *plan,
 	 * Now, we close down all the scans and free allocated resources.
 	 */
 	ExecutorFinish(queryDesc);
-	ExecutorEnd(queryDesc);
+	instr_time timeAfterExecutorFinish;
+	INSTR_TIME_SET_CURRENT(timeAfterExecutorFinish);
 
-	instr_time timeAfterExecutorFinishAndEnd;
-	INSTR_TIME_SET_CURRENT(timeAfterExecutorFinishAndEnd);
+	ExecutorEnd(queryDesc);
+	instr_time timeAfterExecutorEnd;
+	INSTR_TIME_SET_CURRENT(timeAfterExecutorEnd);
 
 	instr_time elapsedTimeAfterExecutorStart;
 	instr_time elapsedTimeAfterExecutorRun;
-	instr_time elapsedTimeAfterExecutorFinishAndEnd;
+	instr_time elapsedTimeAfterExecutorFinish;
+	instr_time elapsedTimeAfterExecutorEnd;
 
 	elapsedTimeAfterExecutorStart = timeAfterExecutorStart;
 	elapsedTimeAfterExecutorRun = timeAfterExecutorRun;
-	elapsedTimeAfterExecutorFinishAndEnd = timeAfterExecutorFinishAndEnd;
+	elapsedTimeAfterExecutorFinish = timeAfterExecutorFinish;
+	elapsedTimeAfterExecutorEnd = timeAfterExecutorEnd;
 
 	INSTR_TIME_SUBTRACT(elapsedTimeAfterExecutorStart, start);
 	INSTR_TIME_SUBTRACT(elapsedTimeAfterExecutorRun, start);
-	INSTR_TIME_SUBTRACT(elapsedTimeAfterExecutorFinishAndEnd, start);
+	INSTR_TIME_SUBTRACT(elapsedTimeAfterExecutorFinish, start);
+	INSTR_TIME_SUBTRACT(elapsedTimeAfterExecutorEnd, start);
 
 	YBC_LOG_INFO("pquery.c::ProcessQuery: Done executing query: %s\n"
 				 "Performance Numbers (microseconds)\n"
 				 "Time spent in ExecutorStart: %lu\n"
 				 "Time spent in ExecutorRun: %lu\n"
-				 "Time spent after ExecutorRun i.e. in ExecutorFinish and "
-				 "ExecutorEnd: %lu\n"
+				 "Time spent in ExecutorFinish: %lu\n"
+				 "Time spent in ExecutorEnd: %lu\n"
 				 "Total time spent in ProcessQuery function: %lu\n",
 				 sourceText,
 				 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorStart),
 				 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorRun) -
 					 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorStart),
-				 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorFinishAndEnd) -
+				 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorFinish) -
 					 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorRun),
-				 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorFinishAndEnd));
+				 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorEnd) -
+					 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorFinish),
+				 INSTR_TIME_GET_MICROSEC(elapsedTimeAfterExecutorEnd));
 
 	FreeQueryDesc(queryDesc);
 }

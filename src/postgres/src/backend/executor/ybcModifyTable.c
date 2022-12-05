@@ -75,7 +75,8 @@ void MarkCurrentCommandUsed() {
 bool YBCIsSingleRowTxnCapableRel(ResultRelInfo *resultRelInfo)
 {
 	bool has_triggers = resultRelInfo->ri_TrigDesc && resultRelInfo->ri_TrigDesc->numtriggers > 0;
-	bool has_indices = YBCRelInfoHasSecondaryIndices(resultRelInfo);
+	//bool has_indices = YBCRelInfoHasSecondaryIndices(resultRelInfo);
+	bool has_indices = false;
 	return !has_indices && !has_triggers;
 }
 
@@ -221,6 +222,8 @@ static Oid YBCExecuteInsertInternal(Oid dboid,
 	instr_time		start;
 
 	INSTR_TIME_SET_CURRENT(start);
+
+	YBC_LOG_INFO("-----------------RKNRKN----------------- num attrs: %d\n", natts);
 
 	/* Generate a new oid for this row if needed */
 	if (rel->rd_rel->relhasoids)
@@ -422,6 +425,7 @@ Oid YBCHeapInsertForDb(Oid dboid,
 		 * single row (i.e. single-row-modify txn), and there are no indices
 		 * or triggers on the target table.
 		 */
+		YBC_LOG_INFO("-----------------RKNRKN----------------- calling YBCExecuteNonTxnInsertForDb");
 		return YBCExecuteNonTxnInsertForDb(dboid,
 		                                   resultRelationDesc,
 		                                   slot->tts_tupleDescriptor,
@@ -431,6 +435,7 @@ Oid YBCHeapInsertForDb(Oid dboid,
 	}
 	else
 	{
+		YBC_LOG_INFO("-----------------RKNRKN----------------- calling YBCExecuteInsertForDb");
 		return YBCExecuteInsertForDb(dboid,
 		                             resultRelationDesc,
 		                             slot->tts_tupleDescriptor,

@@ -343,6 +343,8 @@ class PgOperationBuffer::Impl {
   }
 
   Status SendBufferImpl(const SendInterceptor* interceptor) {
+    LOG(INFO) << ("RKNRKN pg_operation_buffer.cc::SendBufferImpl: Start");
+    auto send_buffer_start = std::chrono::high_resolution_clock::now();
     if (keys_.empty()) {
       return Status::OK();
     }
@@ -362,6 +364,13 @@ class PgOperationBuffer::Impl {
     if (ops_sent) {
       in_flight_ops_.back().keys = std::move(keys);
     }
+    auto send_buffer_end = std::chrono::high_resolution_clock::now();
+
+    LOG(INFO) << "RKNRKN pg_operation_buffer.cc::SendBufferImpl: Done with send buffer: "
+              << std::chrono::duration_cast<std::chrono::microseconds>(
+                     send_buffer_end - send_buffer_start)
+                     .count()
+              << " microseconds.";
     return Status::OK();
   }
 
@@ -371,8 +380,7 @@ class PgOperationBuffer::Impl {
                               size_t ops_count) {
     if (!ops.empty() && !(interceptor && (*interceptor)(&ops, transactional))) {
       LOG(INFO) << "PgOperationBuffer::Impl::SendOperations:\n called with " << ops.size()
-                << " operations at:\n"
-                << GetStackTrace();
+                << " operations at:\n";
       auto start_time = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now().time_since_epoch())
                             .count();

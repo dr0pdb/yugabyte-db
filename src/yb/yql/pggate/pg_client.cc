@@ -348,9 +348,9 @@ class PgClient::Impl {
   }
 
   void PerformAsync(
-      tserver::PgPerformOptionsPB* options,
-      PgsqlOps* operations,
-      const PerformCallback& callback) {
+      tserver::PgPerformOptionsPB* options, PgsqlOps* operations, const PerformCallback& callback) {
+    LOG(INFO) << ("RKNRKN pg_client.cc::PerformAsync: Start");
+    auto perform_async_start = std::chrono::high_resolution_clock::now();
     auto& arena = operations->front()->arena();
     tserver::LWPgPerformRequestPB req(&arena);
     req.set_session_id(session_id_);
@@ -377,6 +377,14 @@ class PgClient::Impl {
       }
       data->callback(result);
     });
+
+    auto perform_async_end = std::chrono::high_resolution_clock::now();
+
+    LOG(INFO) << "RKNRKN pg_client.cc::PerformAsync: Done with perform async: "
+              << std::chrono::duration_cast<std::chrono::microseconds>(
+                     perform_async_end - perform_async_start)
+                     .count()
+              << " microseconds.";
   }
 
   void PrepareOperations(tserver::LWPgPerformRequestPB* req, PgsqlOps* operations) {

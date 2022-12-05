@@ -2837,6 +2837,7 @@ yb_single_row_update_or_delete_path(PlannerInfo *root,
 	if (has_applicable_indices(relation, update_attrs, no_update_index_list))
 	{
 		RelationClose(relation);
+		YBC_LOG_INFO("RKNRKN createplan.c::returning false because of index \n");
 		return false;
 	}
 

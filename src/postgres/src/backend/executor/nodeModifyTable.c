@@ -538,7 +538,7 @@ ExecInsert(ModifyTableState *mtstate,
 			else
 			{
 				/*
-				 * Before we start insertion proper, acquire our "speculative
+				 * Before we start ion proper, acquire our "speculative
 				 * insertion lock".  Others can use that to wait for us to decide
 				 * if we're going to go ahead with the insertion, instead of
 				 * waiting for the whole transaction to complete.
@@ -2428,10 +2428,13 @@ ExecModifyTable(PlanState *pstate)
 	HeapTupleData oldtupdata;
 	HeapTuple	oldtuple;
 	instr_time			   starttime;
+	instr_time			   timeBeforeJunkFilter;
 	instr_time			   timeBeforeActualOp;
 	instr_time			   totalTime;
+	bool                   setTime = false;
+	bool                   setTimeBeforeActualOp = false;
 
-	YBC_LOG_INFO_STACK_TRACE("nodeModifyTable::ExecModifyTable: Start");
+	// YBC_LOG_INFO_STACK_TRACE("nodeModifyTable::ExecModifyTable: Start");
 	CHECK_FOR_INTERRUPTS();
 	INSTR_TIME_SET_CURRENT(starttime);
 
@@ -2465,6 +2468,7 @@ ExecModifyTable(PlanState *pstate)
 		node->fireBSTriggers = false;
 	}
 
+	YBC_LOG_INFO("RKNRKN the modify table state is %d", node->mt_nplans);
 	/* Preload local variables */
 	resultRelInfo = node->resultRelInfo + node->mt_whichplan;
 	subplanstate = node->mt_plans[node->mt_whichplan];
@@ -2480,6 +2484,11 @@ ExecModifyTable(PlanState *pstate)
 	saved_resultRelInfo = estate->es_result_relation_info;
 
 	estate->es_result_relation_info = resultRelInfo;
+	if (!setTimeBeforeActualOp)
+	{
+		INSTR_TIME_SET_CURRENT(timeBeforeActualOp);
+		setTimeBeforeActualOp = true;
+	}
 
 	/*
 	 * Fetch rows from subplan(s), and execute the required table modification
@@ -2496,6 +2505,12 @@ ExecModifyTable(PlanState *pstate)
 		ResetPerTupleExprContext(estate);
 
 		planSlot = ExecProcNode(subplanstate);
+
+		/*if(! setTime)
+		{
+		  INSTR_TIME_SET_CURRENT(timeBeforeJunkFilter);
+		  setTime = true;
+		}*/
 
 		if (TupIsNull(planSlot))
 		{
@@ -2551,8 +2566,15 @@ ExecModifyTable(PlanState *pstate)
 
 		tupleid = NULL;
 		oldtuple = NULL;
+		if (!setTime)
+		{
+			INSTR_TIME_SET_CURRENT(timeBeforeJunkFilter);
+			setTime = true;
+		}
+
 		if (junkfilter != NULL)
 		{
+			YBC_LOG_INFO("RKNRKN nodeModifyTable.c::Inside junkfilter if");
 			/*
 			 * extract the 'ctid' or 'wholerow' junk attribute.
 			 */
@@ -2565,18 +2587,19 @@ ExecModifyTable(PlanState *pstate)
 
 				relkind = resultRelInfo->ri_RelationDesc->rd_rel->relkind;
 				/*
-				 * For YugaByte relations extract the old row from the wholerow junk
-				 * attribute if needed.
-				 * 1. For tables with secondary indexes we need the (old) ybctid for
-				 *    removing old index entries (for UPDATE and DELETE)
-				 * 2. For tables with row triggers we need to pass the old row for
-				 *    trigger execution.
+				 * For YugaByte relations extract the old row from the wholerow
+				 * junk attribute if needed.
+				 * 1. For tables with secondary indexes we need the (old) ybctid
+				 * for removing old index entries (for UPDATE and DELETE)
+				 * 2. For tables with row triggers we need to pass the old row
+				 * for trigger execution.
 				 */
 				if (IsYBRelation(resultRelInfo->ri_RelationDesc) &&
 					(YBCRelInfoHasSecondaryIndices(resultRelInfo) ||
-					YBRelHasOldRowTriggers(resultRelInfo->ri_RelationDesc,
-					                       operation)))
+					 YBRelHasOldRowTriggers(resultRelInfo->ri_RelationDesc,
+											operation)))
 				{
+					YBC_LOG_INFO("RKNRKN nodeModifyTable.c::In if");
 					resno = ExecFindJunkAttribute(junkfilter, "wholerow");
 					datum = ExecGetJunkAttribute(slot, resno, &isNull);
 
@@ -2606,6 +2629,7 @@ ExecModifyTable(PlanState *pstate)
 				}
 				else if (relkind == RELKIND_RELATION || relkind == RELKIND_MATVIEW)
 				{
+					YBC_LOG_INFO("RKNRKN nodeModifyTable.c::In first else if");
 					datum = ExecGetJunkAttribute(slot,
 												 junkfilter->jf_junkAttNo,
 												 &isNull);
@@ -2634,6 +2658,7 @@ ExecModifyTable(PlanState *pstate)
 				 */
 				else if (AttributeNumberIsValid(junkfilter->jf_junkAttNo))
 				{
+					YBC_LOG_INFO("RKNRKN nodeModifyTable.c::In second else if");
 					datum = ExecGetJunkAttribute(slot,
 												 junkfilter->jf_junkAttNo,
 												 &isNull);
@@ -2660,17 +2685,19 @@ ExecModifyTable(PlanState *pstate)
 			 * apply the junkfilter if needed.
 			 */
 			if (operation != CMD_DELETE)
+			{
+				YBC_LOG_INFO("RKNRKN nodeModifyTable.c::Before ExecFilterJunk \n");
 				slot = ExecFilterJunk(junkfilter, slot);
+			}
 		}
 
-		INSTR_TIME_SET_CURRENT(timeBeforeActualOp);
 		switch (operation)
 		{
 			case CMD_INSERT:
 				if (!proute)
 				{
-					slot = ExecInsert(node, slot, planSlot,
-									  estate, node->canSetTag);
+					slot = ExecInsert(node, slot, planSlot, estate,
+									  node->canSetTag);
 				}
 				else
 				{
@@ -2727,9 +2754,15 @@ ExecModifyTable(PlanState *pstate)
 
 	INSTR_TIME_SET_CURRENT(totalTime);
 
+    instr_time elapsedBeforeJunkFilter;
 	instr_time elapsedBeforeActualOp;
 	instr_time elapsedTotal;
 
+	if (setTime)
+	{
+	  elapsedBeforeJunkFilter = timeBeforeJunkFilter;
+	  INSTR_TIME_SUBTRACT(elapsedBeforeJunkFilter, starttime);
+	}
 	elapsedBeforeActualOp = timeBeforeActualOp;
 	elapsedTotal = totalTime;
 	INSTR_TIME_SUBTRACT(elapsedBeforeActualOp, starttime);
@@ -2738,10 +2771,13 @@ ExecModifyTable(PlanState *pstate)
 	YBC_LOG_INFO("nodeModifyTable.c::ExecModifyTable: Done with the "
 				 "execution of CmdType %d.\n"
 				 "Performance Numbers (microseconds)\n"
+				 "Time taken before junk filter: %lu\n"
 				 "Time taken before actual execution of command: %lu\n"
 				 "Time taken in the execution of the command: %lu\n"
 				 "Total time in the function: %lu\n",
-				 operation, INSTR_TIME_GET_MICROSEC(elapsedBeforeActualOp),
+				 operation, INSTR_TIME_GET_MICROSEC(elapsedBeforeJunkFilter),
+				 INSTR_TIME_GET_MICROSEC(elapsedBeforeActualOp) -
+					 INSTR_TIME_GET_MICROSEC(elapsedBeforeJunkFilter),
 				 INSTR_TIME_GET_MICROSEC(elapsedTotal) -
 					 INSTR_TIME_GET_MICROSEC(elapsedBeforeActualOp),
 				 INSTR_TIME_GET_MICROSEC(elapsedTotal));

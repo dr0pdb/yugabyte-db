@@ -84,20 +84,28 @@ static bool ModifyTableIsSingleRowWrite(ModifyTable *modifyTable)
 		return false;
 
 	/* Multi-relation implies multi-shard. */
-	if (list_length(modifyTable->resultRelations) != 1)
+	if (list_length(modifyTable->resultRelations) != 1) {
+		YBC_LOG_INFO("-----------RKNRKN-------- num of result relations not 1");
 		return false;
+	}
 
 	/* ON CONFLICT clause may require another write request */
-	if (modifyTable->onConflictAction != ONCONFLICT_NONE)
+	if (modifyTable->onConflictAction != ONCONFLICT_NONE) {
+		YBC_LOG_INFO("-----------RKNRKN-------- conflict");
 		return false;
+	}
 
 	/* Init plan execution would require request(s) to DocDB */
-	if (modifyTable->plan.initPlan != NIL)
+	if (modifyTable->plan.initPlan != NIL) {
+		YBC_LOG_INFO("-----------RKNRKN-------- init plan not nil");
 		return false;
+	}
 
 	/* Check the data source is a single plan */
-	if (list_length(modifyTable->plans) != 1)
+	if (list_length(modifyTable->plans) != 1) {
+		YBC_LOG_INFO("-----------RKNRKN-------- data source is not single plan");
 		return false;
+	}
 
 	Plan *plan = (Plan *) linitial(modifyTable->plans);
 
@@ -105,16 +113,22 @@ static bool ModifyTableIsSingleRowWrite(ModifyTable *modifyTable)
 	 * Only Result plan without a subplan produces single tuple without making
 	 * DocDB requests
 	 */
-	if (!IsA(plan, Result) || outerPlan(plan))
+	if (!IsA(plan, Result) || outerPlan(plan)) {
+		YBC_LOG_INFO("-----------RKNRKN-------- result plan with subplan");
 		return false;
+	}
 
 	/* Complex expressions in the target list may require DocDB requests */
-	if (YbIsTransactionalExpr((Node *) plan->targetlist))
+	if (YbIsTransactionalExpr((Node *) plan->targetlist)) {
+		YBC_LOG_INFO("-----------RKNRKN-------- target list may require docdb requests");
 		return false;
+	}
 
 	/* Same for the returning expressions */
-	if (YbIsTransactionalExpr((Node *) modifyTable->returningLists))
+	if (YbIsTransactionalExpr((Node *) modifyTable->returningLists)) {
+		YBC_LOG_INFO("-----------RKNRKN-------- returning expr");
 		return false;
+	}
 
 	/* If all our checks passed return true */
 	return true;
