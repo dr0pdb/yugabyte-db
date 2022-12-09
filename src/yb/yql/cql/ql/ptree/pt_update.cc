@@ -82,6 +82,7 @@ Status PTAssign::Analyze(SemContext *sem_context) {
 
       sem_state.SetExprState(curr_ytype->keys_type(),
                              client::YBColumnSchema::ToInternalDataType(curr_ytype->keys_type()));
+      sem_state.set_bindvar_name(PTBindVar::coll_map_key_bindvar_name(col_desc_->name()));  // TODO.
       RETURN_NOT_OK(arg->Analyze(sem_context));
 
       curr_ytype = curr_ytype->values_type();
@@ -107,8 +108,12 @@ Status PTAssign::Analyze(SemContext *sem_context) {
 
   sem_state.set_processing_assignee(false);
 
+  auto x = PTBindVar::coll_value_bindvar_name(col_desc_->name());
+  auto rhs_bindvar_name = (has_subscripted_column())
+      ? MCMakeShared<MCString>(sem_context->PSemMem(), x.data(), x.size()) : lhs_->bindvar_name();
+
   // Setup the expected datatypes, and analyze the rhs value.
-  sem_state.SetExprState(curr_ytype, curr_itype, lhs_->bindvar_name(), col_desc_);
+  sem_state.SetExprState(curr_ytype, curr_itype, rhs_bindvar_name, col_desc_);
   RETURN_NOT_OK(rhs_->Analyze(sem_context));
   RETURN_NOT_OK(rhs_->CheckRhsExpr(sem_context));
 
