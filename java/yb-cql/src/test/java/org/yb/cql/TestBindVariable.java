@@ -2557,31 +2557,30 @@ public class TestBindVariable extends BaseCQLTest {
 
     // TODO: Add cases for binding only key.
 
-    session.execute("TRUNCATE table test_map");
+    session.execute("TRUNCATE table test_tbl");
 
     // Binding both key and value
     {
       String bindByPosition =
-          "INSERT INTO test_map (h, m, ll) VALUES (1, {100: 'map_value_1'}, ['list_value_1']) "
+          "INSERT INTO test_tbl (h, m, ll) VALUES (1, {100: 'map_value_1'}, ['list_value_1']) "
           + "IF m[?] != ? AND ll[?] != ?;";
       String bindByName =
-          "INSERT INTO test_map (h, m, ll) VALUES (2, {200: 'map_value_2'}, ['list_value_2']) "
+          "INSERT INTO test_tbl (h, m, ll) VALUES (2, {200: 'map_value_2'}, ['list_value_2']) "
           + "IF m[?] != ? AND ll[?] != ?;";
       String bindByNamedMarkers =
-          "INSERT INTO test_map (h, m, ll) VALUES (3, {300: 'map_value_3'}, ['list_value_3']) "
+          "INSERT INTO test_tbl (h, m, ll) VALUES (3, {300: 'map_value_3'}, ['list_value_3']) "
           + "IF m[:b3] != :b1 AND ll[:b4] != :b2;";
 
       // Direct binding
       {
         // Bind by position
         {
-          ResultSet rs = session.execute(bindByPosition, 100, "map_value_1", 0, "list_value_1");
-          assertEquals(true, expected_one_row(rs).getBool(0)); // applied = true
-          ResultSet rs2 = session.execute(bindByPosition, 100, "map_value_1", 0, "list_value_1");
-          assertEquals(false, expected_one_row(rs2).getBool(0)); // applied = false
+          for (boolean applied : Arrays.asList(true, false)) {
+            ResultSet rs = session.execute(bindByPosition, 100, "map_value_1", 0, "list_value_1");
+            assertEquals(applied, expected_one_row(rs).getBool(0));
+          }
         }
-
-        session.execute("TRUNCATE TABLE test_map;");
+        session.execute("TRUNCATE TABLE test_tbl;");
 
         // Bind by name
         {
@@ -2593,13 +2592,12 @@ public class TestBindVariable extends BaseCQLTest {
               put("value(ll)", "list_value_2");
             }
           };
-          ResultSet rs = session.execute(bindByName, bindings);
-          assertEquals(true, expected_one_row(rs).getBool(0));
-          ResultSet rs2 = session.execute(bindByName, bindings);
-          assertEquals(false, expected_one_row(rs2).getBool(0));
+          for (boolean applied : Arrays.asList(true, false)) {
+            ResultSet rs = session.execute(bindByName, bindings);
+            assertEquals(applied, expected_one_row(rs).getBool(0));
+          }
         }
-
-        session.execute("TRUNCATE TABLE test_map;");
+        session.execute("TRUNCATE TABLE test_tbl;");
 
         // Bind by named markers
         {
@@ -2611,63 +2609,52 @@ public class TestBindVariable extends BaseCQLTest {
               put("b4", 0);
             }
           };
-          ResultSet rs = session.execute(bindByNamedMarkers, bindings);
-          assertEquals(true, expected_one_row(rs).getBool(0));
-          ResultSet rs2 = session.execute(bindByNamedMarkers, bindings);
-          assertEquals(false, expected_one_row(rs2).getBool(0));
+          for (boolean applied : Arrays.asList(true, false)) {
+            ResultSet rs = session.execute(bindByNamedMarkers, bindings);
+            assertEquals(applied, expected_one_row(rs).getBool(0));
+          }
         }
       }
 
-      session.execute("truncate table test_map;");
+      session.execute("truncate table test_tbl;");
 
       // Prepared statements
       {
         // Bind by position
         {
           PreparedStatement prepared = session.prepare(bindByPosition);
-          ResultSet rs = session.execute(bindByPosition, 100, "map_value_1", 0, "list_value_1");
-          assertEquals(true, expected_one_row(rs).getBool(0));
-          ResultSet rs2 = session.execute(bindByPosition, 100, "map_value_1", 0, "list_value_1");
-          assertEquals(false, expected_one_row(rs2).getBool(0));
+          for (boolean applied : Arrays.asList(true, false)) {
+            ResultSet rs = session.execute(bindByPosition, 100, "map_value_1", 0, "list_value_1");
+            assertEquals(applied, expected_one_row(rs).getBool(0));
+          }
         }
-
         // Bind by name
         {
           PreparedStatement prepared = session.prepare(bindByName);
-          ResultSet rs = session.execute(prepared.bind()
-                                             .setInt("key(m)", 200)
-                                             .setString("value(m)", "map_value_2")
-                                             .setInt("idx(ll)", 0)
-                                             .setString("value(ll)", "list_value_2"));
-          assertEquals(true, expected_one_row(rs).getBool(0));
-          ResultSet rs2 = session.execute(prepared.bind()
-                                              .setInt("key(m)", 200)
-                                              .setString("value(m)", "map_value_2")
-                                              .setInt("idx(ll)", 0)
-                                              .setString("value(ll)", "list_value_2"));
-          assertEquals(false, expected_one_row(rs2).getBool(0));
+          for (boolean applied : Arrays.asList(true, false)) {
+            ResultSet rs = session.execute(prepared.bind()
+                                               .setInt("key(m)", 200)
+                                               .setString("value(m)", "map_value_2")
+                                               .setInt("idx(ll)", 0)
+                                               .setString("value(ll)", "list_value_2"));
+            assertEquals(applied, expected_one_row(rs).getBool(0));
+          }
         }
 
         // Bind by named markers
         {
           PreparedStatement prepared = session.prepare(bindByNamedMarkers);
-          ResultSet rs = session.execute(prepared.bind()
-                                             .setInt("b3", 300)
-                                             .setString("b1", "map_value_3")
-                                             .setInt("b4", 1)
-                                             .setString("b2", "list_value_3"));
-          assertEquals(true, expected_one_row(rs).getBool(0));
-          ResultSet rs2 = session.execute(prepared.bind()
-                                              .setInt("b3", 300)
-                                              .setString("b1", "map_value_3")
-                                              .setInt("b4", 1)
-                                              .setString("b2", "list_value_3"));
-          assertEquals(false, expected_one_row(rs2).getBool(0));
+          for (boolean applied : Arrays.asList(true, false)) {
+            ResultSet rs = session.execute(prepared.bind()
+                                               .setInt("b3", 300)
+                                               .setString("b1", "map_value_3")
+                                               .setInt("b4", 1)
+                                               .setString("b2", "list_value_3"));
+            assertEquals(applied, expected_one_row(rs).getBool(0));
+          }
         }
       }
     }
-
-    LOG.info("End test");
   }
 
   @Test
@@ -2871,29 +2858,117 @@ public class TestBindVariable extends BaseCQLTest {
       }
     }
 
-    // TODO: Add test cases for binding only the key.
-
-    session.execute("TRUNCATE TABLE test_map;");
+    session.execute("TRUNCATE TABLE test_tbl;");
     for (int h = 1; h <= 10; h++) {
-      session.execute("INSERT INTO test_map (h, m, ll) VALUES (?, {? : ?}, [?, ?, ?, ?, ?]);", h,
+      session.execute("INSERT INTO test_tbl (h, m, ll) VALUES (?, {? : ?}, [?, ?, ?, ?, ?]);", h,
+          h * 100, String.format("map_value_%d", h), "list_value_0", "list_value_1", "list_value_2",
+          "list_value_3", "list_value_4");
+    }
+
+    // Binding only key
+    {
+      String bindByPosition = "DELETE FROM test_tbl WHERE h = ? IF m[?] = '%s' AND ll[?] = '%s'";
+      String bindByName = "DELETE FROM test_tbl WHERE h = ? IF m[?] = '%s' AND ll[?] = '%s'";
+      String bindByNamedMarkers =
+          "DELETE FROM test_tbl WHERE h = :b1 IF m[:b4] = '%s' AND ll[:b5] = '%s'";
+
+      // Direct binding
+      {
+        // Bind by position
+        {
+          session.execute(String.format(bindByPosition, "map_value_1", "list_value_1"), 1, 100, 1);
+          assertNoRow("SELECT * from test_tbl where h = 1");
+        }
+
+        // Bind by name
+        {
+          HashMap values = new HashMap<String, Object>() {
+            {
+              put("h", 2);
+              put("key(m)", 200);
+              put("idx(ll)", 2);
+            }
+          };
+          session.execute(String.format(bindByName, "map_value_2", "list_value_2"), values);
+          assertNoRow("SELECT * from test_tbl where h = 2");
+        }
+
+        // Bind by named markers
+        {
+          HashMap values = new HashMap<String, Object>() {
+            {
+              put("b1", 3);
+              put("b4", 300);
+              put("b5", 3);
+            }
+          };
+          session.execute(String.format(bindByNamedMarkers, "map_value_3", "list_value_3"), values);
+          assertNoRow("SELECT * from test_tbl where h = 3");
+        }
+      }
+
+      session.execute("truncate table test_tbl;");
+      // Insert 10 rows
+      for (int h = 1; h <= 10; h++) {
+        session.execute("INSERT INTO test_tbl (h, m, ll) VALUES (?, {? : ?}, [?, ?, ?, ?, ?]);", h,
+            h * 100, String.format("map_value_%d", h), "list_value_0", "list_value_1",
+            "list_value_2", "list_value_3", "list_value_4");
+      }
+
+      // Prepared statements
+      {
+        // Bind by position
+        {
+          PreparedStatement prepared =
+              session.prepare(String.format(bindByPosition, "map_value_1", "list_value_1"));
+          session.execute(prepared.bind(1, 100, 1));
+          assertNoRow("SELECT * from test_tbl where h = 1");
+        }
+
+        // Bind by name
+        {
+          PreparedStatement prepared =
+              session.prepare(String.format(bindByName, "map_value_2", "list_value_2"));
+          session.execute(prepared.bind()
+                              .setInt("h", 2)
+                              .setInt("key(m)", 200)
+                              .setInt("idx(ll)", 2));
+          assertNoRow("SELECT * from test_tbl where h = 2");
+        }
+
+        // Bind by named markers
+        {
+          PreparedStatement prepared =
+              session.prepare(String.format(bindByNamedMarkers, "map_value_3", "list_value_3"));
+          session.execute(prepared.bind()
+                              .setInt("b1", 3)
+                              .setInt("b4", 300)
+                              .setInt("b5", 3));
+          assertNoRow("SELECT * from test_tbl where h = 3");
+        }
+      }
+    }
+
+    session.execute("TRUNCATE TABLE test_tbl;");
+    for (int h = 1; h <= 10; h++) {
+      session.execute("INSERT INTO test_tbl (h, m, ll) VALUES (?, {? : ?}, [?, ?, ?, ?, ?]);", h,
           h * 100, String.format("map_value_%d", h), "list_value_0", "list_value_1", "list_value_2",
           "list_value_3", "list_value_4");
     }
 
     // Binding both key and value
     {
-      String bindByPosition = "DELETE FROM test_map WHERE h = ? IF m[?] = ? AND ll[?] = ?";
-      String bindByName = "DELETE FROM test_map WHERE h = ? IF m[?] = ? AND ll[?] = ?";
+      String bindByPosition = "DELETE FROM test_tbl WHERE h = ? IF m[?] = ? AND ll[?] = ?";
+      String bindByName = "DELETE FROM test_tbl WHERE h = ? IF m[?] = ? AND ll[?] = ?";
       String bindByNamedMarkers =
-          "DELETE FROM test_map WHERE h = :b1 IF m[:b4] = :b2 AND ll[:b5] = :b3";
+          "DELETE FROM test_tbl WHERE h = :b1 IF m[:b4] = :b2 AND ll[:b5] = :b3";
 
       // Direct binding
       {
         // Bind by position
         {
           session.execute(bindByPosition, 1, 100, "map_value_1", 1, "list_value_1");
-          ResultSet rs = session.execute("SELECT * from test_map where h = 1");
-          assertEquals(0, rs.all().size());
+          assertNoRow("SELECT * from test_tbl where h = 1");
         }
 
         // Bind by name
@@ -2908,8 +2983,7 @@ public class TestBindVariable extends BaseCQLTest {
             }
           };
           session.execute(bindByName, values);
-          ResultSet rs = session.execute("SELECT * from test_map where h = 2");
-          assertEquals(0, rs.all().size());
+          assertNoRow("SELECT * from test_tbl where h = 2");
         }
 
         // Bind by named markers
@@ -2924,15 +2998,14 @@ public class TestBindVariable extends BaseCQLTest {
             }
           };
           session.execute(bindByNamedMarkers, values);
-          ResultSet rs = session.execute("SELECT * from test_map where h = 3");
-          assertEquals(0, rs.all().size());
+          assertNoRow("SELECT * from test_tbl where h = 3");
         }
       }
 
-      session.execute("truncate table test_map;");
+      session.execute("truncate table test_tbl;");
       // Insert 10 rows
       for (int h = 1; h <= 10; h++) {
-        session.execute("INSERT INTO test_map (h, m, ll) VALUES (?, {? : ?}, [?, ?, ?, ?, ?]);", h,
+        session.execute("INSERT INTO test_tbl (h, m, ll) VALUES (?, {? : ?}, [?, ?, ?, ?, ?]);", h,
             h * 100, String.format("map_value_%d", h), "list_value_0", "list_value_1",
             "list_value_2", "list_value_3", "list_value_4");
       }
@@ -2943,7 +3016,7 @@ public class TestBindVariable extends BaseCQLTest {
         {
           PreparedStatement prepared = session.prepare(bindByPosition);
           session.execute(prepared.bind(1, 100, "map_value_1", 1, "list_value_1"));
-          ResultSet rs = session.execute("SELECT * from test_map where h = 1");
+          assertNoRow("SELECT * from test_tbl where h = 1");
         }
 
         // Bind by name
@@ -2955,7 +3028,7 @@ public class TestBindVariable extends BaseCQLTest {
                               .setString("value(m)", "map_value_2")
                               .setInt("idx(ll)", 2)
                               .setString("value(ll)", "list_value_2"));
-          ResultSet rs = session.execute("SELECT * from test_map where h = 2");
+          assertNoRow("SELECT * from test_tbl where h = 2");
         }
 
         // Bind by named markers
@@ -2967,7 +3040,7 @@ public class TestBindVariable extends BaseCQLTest {
                               .setString("b3", "list_value_3")
                               .setInt("b4", 300)
                               .setInt("b5", 3));
-          ResultSet rs = session.execute("SELECT * from test_map where h = 3");
+          assertNoRow("SELECT * from test_tbl where h = 3");
         }
       }
     }
