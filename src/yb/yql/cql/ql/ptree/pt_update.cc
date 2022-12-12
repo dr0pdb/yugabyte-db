@@ -82,7 +82,19 @@ Status PTAssign::Analyze(SemContext *sem_context) {
 
       sem_state.SetExprState(curr_ytype->keys_type(),
                              client::YBColumnSchema::ToInternalDataType(curr_ytype->keys_type()));
-      sem_state.set_bindvar_name(PTBindVar::coll_map_key_bindvar_name(col_desc_->name()));  // TODO.
+      std::string subscripted_column_bindvar_name;
+      switch (col_desc_->ql_type()->main()) {
+        case DataType::MAP:
+          subscripted_column_bindvar_name = PTBindVar::coll_map_key_bindvar_name(col_desc_->name());
+          break;
+        case DataType::LIST:
+          subscripted_column_bindvar_name =
+              PTBindVar::coll_list_index_bindvar_name(col_desc_->name());
+          break;
+        default:
+          subscripted_column_bindvar_name = PTBindVar::default_bindvar_name();
+      }
+      sem_state.set_bindvar_name(subscripted_column_bindvar_name);
       RETURN_NOT_OK(arg->Analyze(sem_context));
 
       curr_ytype = curr_ytype->values_type();
@@ -108,9 +120,14 @@ Status PTAssign::Analyze(SemContext *sem_context) {
 
   sem_state.set_processing_assignee(false);
 
-  auto x = PTBindVar::coll_value_bindvar_name(col_desc_->name());
+  // For cases such as "UPDATE .. SET map[100] = ...", Cassandra uses "value(m)" for the bindvar
+  // name while for non-subscripted columns such as "UPDATE .. SET x = ...", "x" is used.
+  auto subscripted_bindvar_name = PTBindVar::coll_value_bindvar_name(col_desc_->name());
   auto rhs_bindvar_name = (has_subscripted_column())
-      ? MCMakeShared<MCString>(sem_context->PSemMem(), x.data(), x.size()) : lhs_->bindvar_name();
+                              ? MCMakeShared<MCString>(
+                                    sem_context->PSemMem(), subscripted_bindvar_name.data(),
+                                    subscripted_bindvar_name.size())
+                              : lhs_->bindvar_name();
 
   // Setup the expected datatypes, and analyze the rhs value.
   sem_state.SetExprState(curr_ytype, curr_itype, rhs_bindvar_name, col_desc_);
