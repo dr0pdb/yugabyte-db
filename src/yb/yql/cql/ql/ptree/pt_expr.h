@@ -1162,7 +1162,7 @@ class PTSubscriptedColumn : public PTOperator0 {
     return name_;
   }
 
-  // Access function for name.
+  // Access function for args.
   const PTExprListNode::SharedPtr& args() const {
     return args_;
   }
@@ -1392,8 +1392,14 @@ class PTBindVar : public PTExpr {
   static std::string bcall_arg_bindvar_name(
       const std::string& bcall_name, size_t arg_position);
 
-  // The name Cassandra uses for binding the collection elements.
-  static std::string coll_bindvar_name(const std::string& col_name);
+  // The name Cassandra uses for binding the map element keys.
+  static std::string coll_map_key_bindvar_name(const std::string &col_name);
+
+  // The name Cassandra uses for binding the list element indexes.
+  static std::string coll_list_index_bindvar_name(const std::string &col_name);
+
+  // The name Cassandra uses for binding the collection element values.
+  static std::string coll_value_bindvar_name(const std::string &col_name);
 
   // The name for binding the JSON attributes.
   static std::string json_bindvar_name(const std::string& col_name);

@@ -1049,10 +1049,23 @@ Status QLWriteOperation::ApplyDelete(
           column.is_static() ?
             encoded_hashed_doc_key_.as_slice() : encoded_pk_doc_key_.as_slice(),
           KeyEntryValue::MakeColumnId(column_id));
-      RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(sub_path,
-          data.read_time, data.deadline, request_.query_id(), user_timestamp()));
-      if (update_indexes_) {
-        new_row->MarkTombstoned(column_id);
+
+      if (!column_value.subscript_args().empty()) {
+        const auto control_fields = ValueControlFields {
+          .ttl = request_ttl(),
+          .timestamp = user_timestamp(),
+        };
+        const ColumnSchema& column_schema =
+            VERIFY_RESULT(doc_read_context_->schema.column_by_id(column_id));
+        // Treat delete as an update with value = null. May not be desirable but works for now.
+        RETURN_NOT_OK(ApplyForSubscriptArgs(
+            column_value, *existing_row, data, control_fields, column_schema, column_id));
+      } else {
+        RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(
+            sub_path, data.read_time, data.deadline, request_.query_id(), user_timestamp()));
+        if (update_indexes_) {
+          new_row->MarkTombstoned(column_id);
+        }
       }
     }
     if (update_indexes_) {
