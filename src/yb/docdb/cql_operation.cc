@@ -1045,22 +1045,14 @@ Status QLWriteOperation::ApplyDelete(
           << "column id missing: " << column_value.DebugString();
       const ColumnId column_id(column_value.column_id());
       const auto& column = VERIFY_RESULT_REF(doc_read_context_->schema.column_by_id(column_id));
-      const DocPath sub_path(
-          column.is_static() ?
-            encoded_hashed_doc_key_.as_slice() : encoded_pk_doc_key_.as_slice(),
-          KeyEntryValue::MakeColumnId(column_id));
 
       if (!column_value.subscript_args().empty()) {
-        const auto control_fields = ValueControlFields {
-          .ttl = request_ttl(),
-          .timestamp = user_timestamp(),
-        };
-        const ColumnSchema& column_schema =
-            VERIFY_RESULT(doc_read_context_->schema.column_by_id(column_id));
-        // Treat delete as an update with value = null. May not be desirable but works for now.
-        RETURN_NOT_OK(ApplyForSubscriptArgs(
-            column_value, *existing_row, data, control_fields, column_schema, column_id));
+        RETURN_NOT_OK(DeleteSubscriptedColumn(data, column, existing_row, column_value, column_id));
       } else {
+        const DocPath sub_path(
+            column.is_static() ? encoded_hashed_doc_key_.as_slice()
+                               : encoded_pk_doc_key_.as_slice(),
+            KeyEntryValue::MakeColumnId(column_id));
         RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(
             sub_path, data.read_time, data.deadline, request_.query_id(), user_timestamp()));
         if (update_indexes_) {
@@ -1136,6 +1128,52 @@ Status QLWriteOperation::ApplyDelete(
                             data.read_time, data.deadline));
     if (update_indexes_) {
       RETURN_NOT_OK(UpdateIndexes(*existing_row, *new_row));
+    }
+  }
+
+  return Status::OK();
+}
+
+Status QLWriteOperation::DeleteSubscriptedColumn(
+    const DocOperationApplyData& data, const yb::ColumnSchema& column, QLTableRow* existing_row,
+    const yb::QLColumnValuePB& column_value, ColumnId column_id) {
+  ValueRef value(ValueEntryType::kTombstone);
+  RETURN_NOT_OK(CheckUserTimestampForCollections(user_timestamp()));
+
+  LOG(INFO) << __func__ << " deletesubs: " << column_id.ToString();
+
+  // Currently we only support two cases here: `DELETE map['key'] ..` and `DELETE list[index] ..`)
+  // Any other case should be rejected by the semantic analyser before getting here
+  DCHECK_EQ(column_value.subscript_args().size(), 1);
+  DCHECK(column_value.subscript_args(0).has_value()) << "An index must be a constant";
+  auto sub_path = MakeSubPath(column, column_id);
+  switch (column.type()->main()) {
+    case MAP: {
+      LOG(INFO) << __func__ << " deletesubs: deleting from the map";
+
+      sub_path.AddSubKey(KeyEntryValue::FromQLValuePB(
+          column_value.subscript_args(0).value(), SortingType::kNotSpecified));
+      RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(
+          sub_path, data.read_time, data.deadline, request_.query_id(), user_timestamp()));
+      break;
+    }
+    case LIST: {
+      LOG(INFO) << __func__ << " deletesubs: deleting from the list";
+
+      MonoDelta default_ttl =
+          doc_read_context_->schema.table_properties().HasDefaultTimeToLive()
+              ? MonoDelta::FromMilliseconds(
+                    doc_read_context_->schema.table_properties().DefaultTimeToLive())
+              : MonoDelta::kMax;
+
+      int target_cql_index = column_value.subscript_args(0).value().int32_value();
+      RETURN_NOT_OK(data.doc_write_batch->ReplaceCqlInList(
+          sub_path, target_cql_index, value, data.read_time, data.deadline, request_.query_id(),
+          default_ttl, ValueControlFields::kMaxTtl));
+      break;
+    }
+    default: {
+      LOG(ERROR) << "Unexpected type for deleting subcolumn: " << column.type()->ToString();
     }
   }
 

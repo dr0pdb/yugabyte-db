@@ -123,8 +123,12 @@ class QLWriteOperation :
       IntentAwareIterator* iter, const SubDocKey& sub_doc_key,
       HybridTime min_hybrid_time);
 
-  Status DeleteRow(const DocPath& row_path, DocWriteBatch* doc_write_batch,
-                   const ReadHybridTime& read_ht, CoarseTimePoint deadline);
+  Status DeleteSubscriptedColumn(
+      const DocOperationApplyData& data, const yb::ColumnSchema& column, QLTableRow* existing_row,
+      const yb::QLColumnValuePB& column_value, ColumnId column_id);
+  Status DeleteRow(
+      const DocPath& row_path, DocWriteBatch* doc_write_batch, const ReadHybridTime& read_ht,
+      CoarseTimePoint deadline);
 
   Result<bool> IsRowDeleted(const QLTableRow& current_row, const QLTableRow& new_row) const;
   UserTimeMicros user_timestamp() const;
