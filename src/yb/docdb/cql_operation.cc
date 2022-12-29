@@ -961,6 +961,9 @@ Status QLWriteOperation::ApplyUpsert(
     .timestamp = user_timestamp(),
   };
 
+  if (request_.type() == QLWriteRequestPB::QL_STMT_INSERT)
+    LOG(INFO) << __func__ << " deletesubs: request body for insert: " << request_.DebugString();
+
   // Add the appropriate liveness column only for inserts.
   // We never use init markers for QL to ensure we perform writes without any reads to
   // ensure our write path is fast while complicating the read path a bit.
@@ -1000,9 +1003,12 @@ Status QLWriteOperation::ApplyUpsert(
     if (!column_value.json_args().empty()) {
       col_map[column_id].emplace_back(idx);
     } else if (!column_value.subscript_args().empty()) {
+      LOG(INFO) << "Applying column_id as subsripted args column" << column_id;
+
       RETURN_NOT_OK(ApplyForSubscriptArgs(
           column_value, existing_row, data, control_fields, column_schema, column_id));
     } else {
+      LOG(INFO) << "Applying column_id as regular column" << column_id;
       RETURN_NOT_OK(ApplyForRegularColumns(
           column_value, existing_row, data, control_fields, column_schema, column_id, new_row,
           OptionalToPointer(&row_packer)));
@@ -1032,6 +1038,9 @@ Status QLWriteOperation::ApplyUpsert(
 
 Status QLWriteOperation::ApplyDelete(
     const DocOperationApplyData& data, QLTableRow* existing_row, QLTableRow* new_row) {
+
+  LOG(INFO) << __func__ << " deletesubs: started for " << request_.DebugString();
+
   // We have three cases:
   // 1. If non-key columns are specified, we delete only those columns.
   // 2. Otherwise, if range cols are missing, this must be a range delete.
@@ -1158,8 +1167,6 @@ Status QLWriteOperation::DeleteSubscriptedColumn(
       break;
     }
     case LIST: {
-      LOG(INFO) << __func__ << " deletesubs: deleting from the list";
-
       MonoDelta default_ttl =
           doc_read_context_->schema.table_properties().HasDefaultTimeToLive()
               ? MonoDelta::FromMilliseconds(
@@ -1167,6 +1174,7 @@ Status QLWriteOperation::DeleteSubscriptedColumn(
               : MonoDelta::kMax;
 
       int target_cql_index = column_value.subscript_args(0).value().int32_value();
+      LOG(INFO) << __func__ << " deletesubs: deleting from the list at index: " << target_cql_index;
       RETURN_NOT_OK(data.doc_write_batch->ReplaceCqlInList(
           sub_path, target_cql_index, value, data.read_time, data.deadline, request_.query_id(),
           default_ttl, ValueControlFields::kMaxTtl));

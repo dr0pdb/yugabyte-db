@@ -45,7 +45,7 @@ constexpr bool IsDocDbDebug() {
 #ifdef DOCDB_DEBUG
   return true;
 #else
-  return false;
+  return true;
 #endif
 }
 
