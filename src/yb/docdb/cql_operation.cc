@@ -1039,10 +1039,8 @@ Status QLWriteOperation::ApplyUpsert(
 Status QLWriteOperation::ApplyDelete(
     const DocOperationApplyData& data, QLTableRow* existing_row, QLTableRow* new_row) {
 
-  LOG(INFO) << __func__ << " deletesubs: started for " << request_.DebugString();
-
   // We have three cases:
-  // 1. If non-key columns are specified, we delete only those columns.
+  // 1. If non-key columns are specified, we delete only those columns/subscripted columns.
   // 2. Otherwise, if range cols are missing, this must be a range delete.
   // 3. Otherwise, this is a normal delete.
   // Analyzer ensures these are the only cases before getting here (e.g. range deletes cannot
@@ -1146,20 +1144,15 @@ Status QLWriteOperation::ApplyDelete(
 Status QLWriteOperation::DeleteSubscriptedColumn(
     const DocOperationApplyData& data, const yb::ColumnSchema& column, QLTableRow* existing_row,
     const yb::QLColumnValuePB& column_value, ColumnId column_id) {
-  ValueRef value(ValueEntryType::kTombstone);
   RETURN_NOT_OK(CheckUserTimestampForCollections(user_timestamp()));
 
-  LOG(INFO) << __func__ << " deletesubs: " << column_id.ToString();
-
   // Currently we only support two cases here: `DELETE map['key'] ..` and `DELETE list[index] ..`)
-  // Any other case should be rejected by the semantic analyser before getting here
+  // Any other case should be rejected by the semantic analyser before getting here.
   DCHECK_EQ(column_value.subscript_args().size(), 1);
   DCHECK(column_value.subscript_args(0).has_value()) << "An index must be a constant";
   auto sub_path = MakeSubPath(column, column_id);
   switch (column.type()->main()) {
     case MAP: {
-      LOG(INFO) << __func__ << " deletesubs: deleting from the map";
-
       sub_path.AddSubKey(KeyEntryValue::FromQLValuePB(
           column_value.subscript_args(0).value(), SortingType::kNotSpecified));
       RETURN_NOT_OK(data.doc_write_batch->DeleteSubDoc(
@@ -1174,10 +1167,10 @@ Status QLWriteOperation::DeleteSubscriptedColumn(
               : MonoDelta::kMax;
 
       int target_cql_index = column_value.subscript_args(0).value().int32_value();
-      LOG(INFO) << __func__ << " deletesubs: deleting from the list at index: " << target_cql_index;
+      // Replace value at target_cql_index with a tombstone.
       RETURN_NOT_OK(data.doc_write_batch->ReplaceCqlInList(
-          sub_path, target_cql_index, value, data.read_time, data.deadline, request_.query_id(),
-          default_ttl, ValueControlFields::kMaxTtl));
+          sub_path, target_cql_index, ValueRef(ValueEntryType::kTombstone), data.read_time,
+          data.deadline, request_.query_id(), default_ttl, ValueControlFields::kMaxTtl));
       break;
     }
     default: {
