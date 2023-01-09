@@ -21,6 +21,7 @@
 
 #include "yb/rpc/rpc_fwd.h"
 
+#include "yb/yql/pggate/fixed_object_pool.h"
 #include "yb/yql/pggate/pg_gate_fwd.h"
 
 namespace yb {
@@ -67,6 +68,10 @@ class PgsqlOp {
     active_ = value;
   }
 
+  void set_is_region_local(bool is_region_local) {
+    is_region_local_ = is_region_local;
+  }
+
   bool is_region_local() const {
     return is_region_local_;
   }
@@ -90,7 +95,7 @@ class PgsqlOp {
   // allowed.
   ThreadSafeArena* arena_;
   bool active_ = false;
-  const bool is_region_local_;
+  bool is_region_local_;
   LWPgsqlResponsePB* response_ = nullptr;
   ReadHybridTime read_time_;
 };
@@ -141,6 +146,7 @@ std::shared_ptr<PgsqlReadRequestPB> InitSelect(
 class PgsqlWriteOp : public PgsqlOp {
  public:
   PgsqlWriteOp(ThreadSafeArena* arena, bool need_transaction, bool is_region_local);
+  PgsqlWriteOp(ThreadSafeArena* arena, FixedObjectPool* object_pool, bool need_transaction, bool is_region_local);
 
   LWPgsqlWriteRequestPB& write_request() {
     return write_request_;
@@ -152,6 +158,12 @@ class PgsqlWriteOp : public PgsqlOp {
 
   bool is_read() const override {
     return false;
+  }
+
+  FixedObjectPool* object_pool() const { return object_pool_; }
+
+  void set_need_transaction(bool need_transaction) {
+    need_transaction_ = need_transaction;
   }
 
   bool need_transaction() const override {
@@ -173,6 +185,7 @@ class PgsqlWriteOp : public PgsqlOp {
  private:
   Status InitPartitionKey(const PgTableDesc& table) override;
 
+  FixedObjectPool* object_pool_;
   LWPgsqlWriteRequestPB write_request_;
   bool need_transaction_;
   HybridTime write_time_;

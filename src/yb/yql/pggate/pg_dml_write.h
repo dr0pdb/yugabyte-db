@@ -52,6 +52,11 @@ class PgDmlWrite : public PgDml {
 
   Status SetWriteTime(const HybridTime& write_time);
 
+  static FixedObjectPool& fixed_object_pool() {
+    static FixedObjectPool object_pool;
+    return object_pool;
+  }
+
  protected:
   // Constructor.
   PgDmlWrite(PgSession::ScopedRefPtr pg_session,

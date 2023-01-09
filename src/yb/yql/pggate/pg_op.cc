@@ -144,8 +144,15 @@ std::string PgsqlReadOp::RequestToString() const {
   return read_request_.ShortDebugString();
 }
 
-PgsqlWriteOp::PgsqlWriteOp(ThreadSafeArena* arena, bool need_transaction, bool is_region_local)
-    : PgsqlOp(arena, is_region_local), write_request_(arena),
+PgsqlWriteOp::PgsqlWriteOp(
+    ThreadSafeArena* arena, bool need_transaction,
+    bool is_region_local)
+    : PgsqlOp(arena, is_region_local),
+      write_request_(arena),
+      need_transaction_(need_transaction) {}
+
+PgsqlWriteOp::PgsqlWriteOp(ThreadSafeArena* arena, FixedObjectPool* object_pool, bool need_transaction, bool is_region_local)
+    : PgsqlOp(arena, is_region_local), object_pool_(object_pool), write_request_(arena),
       need_transaction_(need_transaction) {
 }
 

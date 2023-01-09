@@ -138,8 +138,12 @@ Status PgDmlWrite::SetWriteTime(const HybridTime& write_time) {
 }
 
 void PgDmlWrite::AllocWriteRequest() {
-  auto write_op = ArenaMakeShared<PgsqlWriteOp>(arena_ptr(), &arena(), !is_single_row_txn_,
-                                                is_region_local_);
+  // auto write_op = ArenaMakeShared<PgsqlWriteOp>(arena_ptr(), &arena(), !is_single_row_txn_,
+  //                                               is_region_local_);
+  auto write_op = fixed_object_pool().Alloc(arena_ptr(), !is_single_row_txn_, is_region_local_);
+  LOG(INFO) << __func__ << ": Received the object from the object pool";
+  write_op->set_is_region_local(is_region_local_);
+  write_op->set_need_transaction(!is_single_row_txn_);
 
   write_req_ = std::shared_ptr<LWPgsqlWriteRequestPB>(write_op, &write_op->write_request());
   write_req_->set_stmt_type(stmt_type());

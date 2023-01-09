@@ -394,7 +394,21 @@ class PgClient::Impl {
       if (result.status.ok() && data->resp.has_catalog_read_time()) {
         result.catalog_read_time = ReadHybridTime::FromPB(data->resp.catalog_read_time());
       }
+
+      int deallocs = 0;
+      for (auto& op : data->operations) {
+        if (op->is_read()) continue;
+        auto object_pool = down_cast<PgsqlWriteOp*>(op.get())->object_pool();
+        object_pool->DeAlloc(std::dynamic_pointer_cast<PgsqlWriteOp>(op));
+        deallocs++;
+      }
+
+      if (deallocs)
+        LOG(INFO) << __func__ << ": The number of deallocs done: " << deallocs;
+
       data->callback(result);
+
+      if (deallocs) LOG(INFO) << __func__ << ": Callback executed";
     });
   }
 
