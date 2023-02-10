@@ -170,6 +170,10 @@ class Batcher : public Runnable, public std::enable_shared_from_this<Batcher> {
   // NOTE: If this returns not-OK, does not take ownership of 'write_op'.
   void Add(std::shared_ptr<YBOperation> yb_op);
 
+  void SetPerformGlobalTxnOpsFlag(bool perform_global_txn_ops);
+
+  bool GetPerformGlobalTxnOpsFlag();
+
   bool Has(const std::shared_ptr<YBOperation>& yb_op) const;
 
   // Return true if any operations are still pending. An operation is no longer considered
@@ -318,6 +322,8 @@ class Batcher : public Runnable, public std::enable_shared_from_this<Batcher> {
   std::vector<std::shared_ptr<YBOperation>> ops_;
   std::vector<InFlightOp> ops_queue_;
   InFlightOpsGroupsWithMetadata ops_info_;
+
+  bool perform_global_txn_ops_;
 
   // The absolute deadline for all in-flight ops.
   CoarseTimePoint deadline_;

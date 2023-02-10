@@ -590,6 +590,7 @@ WriteRpc::WriteRpc(const AsyncRpcData& data)
     auto temp = client_id.ToUInt64Pair();
     req_.set_client_id1(temp.first);
     req_.set_client_id2(temp.second);
+    req_.set_perform_global_txn_ops(batcher_->GetPerformGlobalTxnOpsFlag());
     const auto& first_yb_op = ops_.begin()->yb_op;
     if (first_yb_op->request_id().has_value()) {
       req_.set_request_id(first_yb_op->request_id().value());

@@ -310,6 +310,11 @@ void YBSession::Apply(YBOperationPtr yb_op) {
   Batcher().Add(yb_op);
 }
 
+void YBSession::SetPerformGlobalTxnOpsFlag(bool perform_global_txn_ops) {
+  VLOG(5) << "YBSession Setting PerformGlobalTxnOpsFlag to " << perform_global_txn_ops;
+  Batcher().SetPerformGlobalTxnOpsFlag(perform_global_txn_ops);
+}
+
 bool YBSession::IsInProgress(YBOperationPtr yb_op) const {
   if (batcher_ && batcher_->Has(yb_op)) {
     return true;

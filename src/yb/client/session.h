@@ -14,9 +14,11 @@
 #pragma once
 
 #include <future>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "yb/client/client_fwd.h"
+#include "yb/client/yb_op.h"
 
 #include "yb/common/common_fwd.h"
 
@@ -129,6 +131,8 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
   // Applied operations just added to the session and waits to be flushed.
   void Apply(YBOperationPtr yb_op);
 
+  void SetPerformGlobalTxnOpsFlag(bool perform_global_txn_ops);
+
   bool IsInProgress(YBOperationPtr yb_op) const;
 
   void Apply(const std::vector<YBOperationPtr>& ops);
@@ -222,8 +226,29 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
   // It is useful when whole statement is executed using multiple flushes.
   void SetForceConsistentRead(ForceConsistentRead value);
 
+  void SetGlobalWriteTime(uint64_t write_time) { global_write_time_ = write_time; }
+
+  uint64_t GlobalWriteTime() { return global_write_time_; }
+
+  void SetGlobalReadTime(uint64_t read_time) { global_read_time_ = read_time; }
+
+  uint64_t GlobalReadTime() { return global_read_time_; }
+
   const internal::AsyncRpcMetricsPtr& async_rpc_metrics() const {
     return async_rpc_metrics_;
+  }
+
+  void AppendCurrentBatchOpsToGlobalOps(
+      std::vector<std::shared_ptr<client::YBPgsqlOp>> current_batch_ops) {
+    global_transactional_ops_.insert(
+        std::end(global_transactional_ops_), std::begin(current_batch_ops),
+        std::end(current_batch_ops));
+  }
+
+  void ClearGlobalOps() { global_transactional_ops_.clear(); }
+
+  std::vector<std::shared_ptr<client::YBPgsqlOp>>& GlobalTxnOps() {
+    return global_transactional_ops_;
   }
 
   // Called by Batcher when a flush has started/finished.
@@ -268,6 +293,11 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
   // call FlushFinished() before it destructs itself, so we're guaranteed that these
   // pointers stay valid.
   std::unordered_set<internal::BatcherPtr> flushed_batchers_;
+
+  std::vector<std::shared_ptr<client::YBPgsqlOp>> global_transactional_ops_;
+
+  uint64_t global_write_time_;
+  uint64_t global_read_time_;
 
   // Session only one of deadline and timeout could be active.
   // When new batcher is created its deadline is set as session deadline or

@@ -85,6 +85,7 @@ message WriteRequestPB {
   optional fixed64 external_hybrid_time = 19;
 
   optional uint64 batch_idx = 20;
+  optional bool perform_global_txn_ops = 21 [ default = false ]; 
 }
 
 message WriteResponsePB {

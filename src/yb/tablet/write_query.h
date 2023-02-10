@@ -26,6 +26,7 @@
 
 #include "yb/tserver/tserver.fwd.h"
 
+#include "yb/util/debug-util.h"
 #include "yb/util/operation_counter.h"
 
 namespace yb {
@@ -103,6 +104,12 @@ class WriteQuery {
   void set_read_time(const ReadHybridTime& read_time) {
     read_time_ = read_time;
   }
+
+  void set_perform_local_write(const bool perform_local_write) {
+    perform_local_write_ = perform_local_write;
+  }
+
+  bool perform_local_write(const bool perform_local_write) { return perform_local_write_; }
 
   template <class Callback>
   void set_callback(Callback&& callback) {
@@ -228,6 +235,8 @@ class WriteQuery {
   docdb::PrepareDocWriteOperationResult prepare_result_;
   RequestScope request_scope_;
   std::unique_ptr<WriteQuery> self_; // Keep self while Execute is performed.
+
+  bool perform_local_write_;
 };
 
 }  // namespace tablet

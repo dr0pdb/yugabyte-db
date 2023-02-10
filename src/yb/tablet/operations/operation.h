@@ -68,6 +68,7 @@ YB_DEFINE_ENUM(
     ((kSnapshot, consensus::SNAPSHOT_OP))
     ((kTruncate, consensus::TRUNCATE_OP))
     ((kEmpty, consensus::UNKNOWN_OP))
+    ((kNoOp, consensus::NO_OP))
     ((kHistoryCutoff, consensus::HISTORY_CUTOFF_OP))
     ((kSplit, consensus::SPLIT_OP))
     ((kChangeAutoFlagsConfig, consensus::CHANGE_AUTO_FLAGS_CONFIG_OP)));
@@ -209,6 +210,16 @@ class Operation {
     return false;
   }
 
+  void setLeaderSide(bool is_leader_side) {
+    is_leader_side_ = is_leader_side;
+  }
+
+  bool isLeaderSide() const {
+    return is_leader_side_;
+  }
+
+  virtual bool is_local() const { return false; }
+
   // Initialize operation at leader side.
   // op_id - operation id.
   // committed_op_id - current committed operation id.
@@ -272,6 +283,7 @@ class Operation {
 
   ScopedOperation preparing_token_;
 
+  mutable bool is_leader_side_{false};
   mutable std::atomic<bool> log_prefix_initialized_{false};
   mutable simple_spinlock log_prefix_mutex_;
   mutable std::string log_prefix_ GUARDED_BY(log_prefix_mutex_);

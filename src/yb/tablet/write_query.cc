@@ -48,6 +48,8 @@
 
 using namespace std::placeholders;
 
+DEFINE_test_flag(bool, override_op_type_for_raft, false, "test flag");
+
 namespace yb {
 namespace tablet {
 
@@ -147,7 +149,9 @@ std::unique_ptr<WriteOperation> WriteQuery::PrepareSubmit() {
 }
 
 void WriteQuery::DoStartSynchronization(const Status& status) {
+  TRACE_FUNC();
   std::unique_ptr<WriteQuery> self(this);
+
   // Move submit_token_ so it is released after this function.
   ScopedRWOperation submit_token(std::move(submit_token_));
   // If a restart read is required, then we return this fact to caller and don't perform the write
@@ -260,6 +264,7 @@ void WriteQuery::ExecuteDone(const Status& status) {
 }
 
 Result<bool> WriteQuery::PrepareExecute() {
+  TRACE(__func__);
   if (client_request_) {
     auto* request = operation().AllocateRequest();
     SetupKeyValueBatch(*client_request_, request);
@@ -367,6 +372,9 @@ Result<bool> WriteQuery::CqlPrepareExecute() {
 }
 
 Result<bool> WriteQuery::PgsqlPrepareExecute() {
+  TRACE_FUNC();
+  LOG(INFO) << __func__;
+
   auto tablet = VERIFY_RESULT(tablet_safe());
   RETURN_NOT_OK(InitExecute(ExecuteMode::kPgsql));
 
@@ -415,6 +423,7 @@ Result<bool> WriteQuery::PgsqlPrepareExecute() {
 }
 
 void WriteQuery::Execute(std::unique_ptr<WriteQuery> query) {
+  TRACE(__func__);
   auto* query_ptr = query.get();
   query_ptr->self_ = std::move(query);
 
@@ -426,6 +435,14 @@ void WriteQuery::Execute(std::unique_ptr<WriteQuery> query) {
   }
 
   if (!prepare_result.get()) {
+    LOG(INFO) << __func__ << ": prepare_result is false.";
+    return;
+  }
+
+  // For remote operations skip conflict resolution.
+  if (FLAGS_TEST_override_op_type_for_raft && !query_ptr->operation().is_local()) {
+    LOG(INFO) << __func__ << ": skipping DoExecute for remote op.";
+    query_ptr->ExecuteDone(Status::OK());
     return;
   }
 
@@ -476,6 +493,9 @@ docdb::ConflictManagementPolicy GetConflictManagementPolicy(
 }
 
 Status WriteQuery::DoExecute() {
+  TRACE_FUNC();
+  LOG(INFO) << __func__;
+
   auto tablet = VERIFY_RESULT(tablet_safe());
   auto& write_batch = *request().mutable_write_batch();
   isolation_level_ = VERIFY_RESULT(tablet->GetIsolationLevelFromPB(write_batch));
@@ -497,6 +517,7 @@ Status WriteQuery::DoExecute() {
       isolation_level_, kind(), row_mark_type, transactional_table, write_batch.has_transaction(),
       deadline(), partial_range_key_intents, tablet->shared_lock_manager()));
 
+  LOG(INFO) << __func__ << " PreparedDocWriteOps";
   TEST_SYNC_POINT("WriteQuery::DoExecute::PreparedDocWriteOps");
 
   auto* transaction_participant = tablet->transaction_participant();
@@ -585,6 +606,7 @@ void WriteQuery::NonTransactionalConflictsResolved(HybridTime now, HybridTime re
 }
 
 void WriteQuery::TransactionalConflictsResolved() {
+  LOG(INFO) << __func__;
   auto status = DoTransactionalConflictsResolved();
   if (!status.ok()) {
     LOG(DFATAL) << status;
@@ -593,6 +615,8 @@ void WriteQuery::TransactionalConflictsResolved() {
 }
 
 Status WriteQuery::DoTransactionalConflictsResolved() {
+  LOG(INFO) << __func__;
+
   auto tablet = VERIFY_RESULT(tablet_safe());
   if (!read_time_) {
     auto safe_time = VERIFY_RESULT(tablet->SafeTime(RequireLease::kTrue));
@@ -987,6 +1011,8 @@ bool WriteQuery::PgsqlCheckSchemaVersion() {
 }
 
 void WriteQuery::PgsqlExecuteDone(const Status& status) {
+  TRACE_FUNC();
+  LOG(INFO) << __func__;
   if (!PgsqlCheckSchemaVersion()) {
     return;
   }

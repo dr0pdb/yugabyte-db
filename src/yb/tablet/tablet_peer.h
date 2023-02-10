@@ -439,6 +439,8 @@ class TabletPeer : public std::enable_shared_from_this<TabletPeer>,
   // new peer post RBS.
   Status ChangeRole(const std::string& requestor_uuid);
 
+  Result<HybridTime> MajorityReplicatedHybridSafeTime();
+
  protected:
   friend class RefCountedThreadSafe<TabletPeer>;
   friend class TabletPeerTest;

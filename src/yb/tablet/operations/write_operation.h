@@ -61,10 +61,18 @@ class WriteOperation : public OperationBase<OperationType::kWrite, LWWritePB>  {
  public:
   template <class... Args>
   explicit WriteOperation(Args&&... args)
-      : OperationBase(std::forward<Args>(args)...) {}
+      : OperationBase(std::forward<Args>(args)...), is_local_(false) {}
 
   bool use_mvcc() const override {
     return true;
+  }
+
+  void set_is_local(bool is_local) {
+    is_local_ = is_local;
+  }
+
+  bool is_local() const override {
+    return is_local_;
   }
 
  private:
@@ -99,6 +107,8 @@ class WriteOperation : public OperationBase<OperationType::kWrite, LWWritePB>  {
   Status DoAborted(const Status& status) override;
 
   HybridTime WriteHybridTime() const override;
+
+  bool is_local_;
 };
 
 }  // namespace tablet

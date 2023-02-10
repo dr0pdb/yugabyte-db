@@ -219,6 +219,8 @@ DECLARE_bool(TEST_enable_db_catalog_version_mode);
 DEFINE_test_flag(bool, skip_aborting_active_transactions_during_schema_change, false,
                  "Skip aborting active transactions during schema change");
 
+DECLARE_bool(TEST_override_op_type_for_raft);
+
 double TEST_delay_create_transaction_probability = 0;
 
 namespace yb {
@@ -1804,6 +1806,20 @@ Status TabletServiceImpl::PerformWrite(
       tablet.leader_term, context_ptr->GetClientDeadline(), tablet.peer.get(), tablet.tablet,
       context_ptr.get(), resp);
   query->set_client_request(*req);
+
+  // Set hybrid time for local operations. Have to revisit.
+  bool is_local = !req->perform_global_txn_ops();
+  if (FLAGS_TEST_override_op_type_for_raft &&
+      tablet.tablet->table_type() == TableType::PGSQL_TABLE_TYPE) {
+    if (is_local) {
+      auto ht = VERIFY_RESULT(tablet.peer.get()->MajorityReplicatedHybridSafeTime());
+      query->operation().set_hybrid_time(ht);
+    }
+
+    // query->set_perform_local_write(!req->perform_global_txn_ops());
+    query->operation().set_is_local(is_local);
+    LOG(INFO) << __func__ << ": The client request is: " << req->DebugString();
+  }
 
   if (RandomActWithProbability(GetAtomicFlag(&FLAGS_TEST_respond_write_failed_probability))) {
     LOG(INFO) << "Responding with a failure to " << req->DebugString();

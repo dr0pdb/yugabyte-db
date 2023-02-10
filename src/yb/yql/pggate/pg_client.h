@@ -86,7 +86,7 @@ class PgClient {
 
   Result<client::VersionedTablePartitionList> GetTablePartitionList(const PgObjectId& table_id);
 
-  Status FinishTransaction(Commit commit, DdlType ddl_type);
+  Status FinishTransaction(Commit commit, DdlType ddl_type, tserver::PgPerformOptionsPB* options);
 
   Result<master::GetNamespaceInfoResponsePB> GetDatabaseInfo(PgOid oid);
 

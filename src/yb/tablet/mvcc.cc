@@ -56,6 +56,8 @@ DEFINE_test_flag(int64, mvcc_op_trace_num_items, 32,
 DEFINE_test_flag(int32, inject_mvcc_delay_add_leader_pending_ms, 0,
                  "Inject delay after MvccManager::AddLeaderPending read clock.");
 
+DECLARE_bool(TEST_override_op_type_for_raft);
+
 namespace yb {
 namespace tablet {
 
@@ -262,17 +264,19 @@ MvccManager::~MvccManager() {
 
 void MvccManager::Replicated(HybridTime ht, const OpId& op_id) {
   VLOG_WITH_PREFIX(1) << __func__ << "(" << ht << ", " << op_id << ")";
-  CHECK(!op_id.empty());
+  CHECK(FLAGS_TEST_override_op_type_for_raft || !op_id.empty());
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (op_trace_) {
       op_trace_->Add(ReplicatedTraceItem { .ht = ht, .op_id = op_id });
     }
-    CHECK(!queue_.empty()) << InvariantViolationLogPrefix();
-    CHECK_EQ(queue_.front(),
-             (QueueItem{ .hybrid_time = ht, .op_id = op_id })) << InvariantViolationLogPrefix();
-    queue_.pop_front();
+    if (!FLAGS_TEST_override_op_type_for_raft) {
+      CHECK(!queue_.empty()) << InvariantViolationLogPrefix();
+      CHECK_EQ(queue_.front(), (QueueItem{.hybrid_time = ht, .op_id = op_id}))
+          << InvariantViolationLogPrefix();
+      queue_.pop_front();
+    }
     last_replicated_ = ht;
   }
   cond_.notify_all();

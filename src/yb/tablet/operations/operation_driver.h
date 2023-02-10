@@ -204,6 +204,11 @@ class OperationDriver : public RefCountedThreadSafe<OperationDriver>,
 
   size_t ReplicateMsgSize();
 
+  // Returns the mutable state of the operation being executed by
+  // this driver.
+  Operation* mutable_operation();
+
+  int64_t term_;
  private:
   friend class RefCountedThreadSafe<OperationDriver>;
   enum ReplicationState {
@@ -236,10 +241,6 @@ class OperationDriver : public RefCountedThreadSafe<OperationDriver>,
   // Calls Operation::Apply() followed by Consensus::Commit() with the
   // results from the Apply().
   void ApplyTask(int64_t leader_term, OpIds* applied_op_ids);
-
-  // Returns the mutable state of the operation being executed by
-  // this driver.
-  Operation* mutable_operation();
 
   // Return a short string indicating where the operation currently is in the
   // state machine.
