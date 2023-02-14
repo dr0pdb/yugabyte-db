@@ -59,6 +59,7 @@ DECLARE_bool(disable_truncate_table);
 DECLARE_bool(cql_always_return_metadata_in_execute_response);
 DECLARE_bool(cql_check_table_schema_in_paging_state);
 DECLARE_bool(use_cassandra_authentication);
+DECLARE_bool(TEST_override_op_type_for_raft);
 DECLARE_bool(ycql_allow_non_authenticated_password_reset);
 
 namespace yb {
@@ -940,6 +941,21 @@ TEST_F(CqlTest, AlteredPrepareForIndexWithPaging_MetadataInExecResp) {
       /* check_schema_in_paging =*/false,
       /* metadata_in_exec_resp =*/true);
   LOG(INFO) << "Test finished: " << CURRENT_TEST_CASE_AND_TEST_NAME_STR();
+}
+
+TEST_F(CqlTest, RaftNoOpTest) {
+  auto session = ASSERT_RESULT(EstablishSession(driver_.get()));
+  ASSERT_OK(
+      session.ExecuteQuery("CREATE TABLE t1 (i INT, j INT, x INT, v INT, PRIMARY KEY(i, j)) WITH "
+                           "TRANSACTIONS = {'enabled': 'true'} AND CLUSTERING ORDER BY (j ASC)"));
+
+
+  for (int j = 1; j <= 4; ++j) {
+    ASSERT_OK(session.ExecuteQuery(Format("INSERT INTO t1 (i, j, x, v) VALUES (0, $0, 10, 5)", j)));
+  }
+
+  FLAGS_TEST_override_op_type_for_raft = true;
+  ASSERT_OK(session.ExecuteQuery(Format("INSERT INTO t1 (i, j, x, v) VALUES (0, $0, 10, 5)", 5)));
 }
 
 TEST_F(CqlTest, PasswordReset) {

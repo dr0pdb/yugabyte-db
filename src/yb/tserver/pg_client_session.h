@@ -100,13 +100,15 @@ class PgClientSession : public std::enable_shared_from_this<PgClientSession> {
 
   Status Perform(PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context);
 
-  #define PG_CLIENT_SESSION_METHOD_DECLARE(r, data, method) \
-  Status method( \
-      const BOOST_PP_CAT(BOOST_PP_CAT(Pg, method), RequestPB)& req, \
-      BOOST_PP_CAT(BOOST_PP_CAT(Pg, method), ResponsePB)* resp, \
-      rpc::RpcContext* context);
+  Status PerformLocal(
+      PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context);
 
-  BOOST_PP_SEQ_FOR_EACH(PG_CLIENT_SESSION_METHOD_DECLARE, ~, PG_CLIENT_SESSION_METHODS);
+#define PG_CLIENT_SESSION_METHOD_DECLARE(r, data, method) \
+  Status method( \
+      const BOOST_PP_CAT(BOOST_PP_CAT(Pg, method), RequestPB) & req, \
+      BOOST_PP_CAT(BOOST_PP_CAT(Pg, method), ResponsePB) * resp, rpc::RpcContext * context);
+
+      BOOST_PP_SEQ_FOR_EACH(PG_CLIENT_SESSION_METHOD_DECLARE, ~, PG_CLIENT_SESSION_METHODS);
 
  private:
   std::string LogPrefix();

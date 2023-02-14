@@ -557,6 +557,17 @@ void ReleaseOps(Repeated* repeated) {
   }
 }
 
+::yb::tserver::WriteOperationMode GetWriteOperationMode(OperationMode op_mode) {
+  switch (op_mode) {
+    case OperationMode::kLocal:
+      return ::yb::tserver::WriteOperationMode::LOCAL_ONLY_OPERATION;
+    case OperationMode::kRemote:
+      return ::yb::tserver::WriteOperationMode::REMOTE_ONLY_OPERATION;
+    default:
+      return ::yb::tserver::WriteOperationMode::LOCAL_AND_REMOTE_OPERATION;
+  }
+}
+
 WriteRpc::WriteRpc(const AsyncRpcData& data)
     : AsyncRpcBase(data, YBConsistencyLevel::STRONG) {
   TRACE_TO(trace_, "WriteRpc initiated");
@@ -590,6 +601,7 @@ WriteRpc::WriteRpc(const AsyncRpcData& data)
     auto temp = client_id.ToUInt64Pair();
     req_.set_client_id1(temp.first);
     req_.set_client_id2(temp.second);
+    req_.set_operation_mode(GetWriteOperationMode(batcher_->GetOperationMode()));
     const auto& first_yb_op = ops_.begin()->yb_op;
     if (first_yb_op->request_id().has_value()) {
       req_.set_request_id(first_yb_op->request_id().value());

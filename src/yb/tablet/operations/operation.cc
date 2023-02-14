@@ -40,6 +40,7 @@
 #include "yb/tserver/tserver_error.h"
 
 #include "yb/util/async_util.h"
+#include "yb/util/debug-util.h"
 #include "yb/util/logging.h"
 #include "yb/util/size_literals.h"
 #include "yb/util/trace.h"
@@ -78,8 +79,11 @@ std::string Operation::ToString() const {
 }
 
 Status Operation::Replicated(int64_t leader_term, WasPending was_pending) {
+  LOG(INFO) << __func__ << " for request: " << request()->ShortDebugString();
   Status complete_status = Status::OK();
   RETURN_NOT_OK(DoReplicated(leader_term, &complete_status));
+  // LOG(INFO) << __func__ << " status after DoReplicated " << complete_status
+  //           << " for request: " << request()->ShortDebugString();
   Replicated(was_pending);
   Release();
   CompleteWithStatus(complete_status);
@@ -181,6 +185,7 @@ void Operation::Aborted(bool was_pending) {
 }
 
 void Operation::Replicated(WasPending was_pending) {
+  // LOG(INFO) << __func__ << " for request: " << request()->ShortDebugString();
   TabletPtr tablet;
   if (use_mvcc()) {
     if (!GetTabletOrLogError(&tablet, __FUNCTION__)) {
@@ -208,6 +213,7 @@ Result<TabletPtr> Operation::tablet_safe() const {
 }
 
 void Operation::Release() {
+  // LOG(INFO) << __func__ << " for request: " << request()->ShortDebugString();
 }
 
 bool Operation::GetTabletOrLogError(TabletPtr* tablet, const char* state_str) {

@@ -138,6 +138,7 @@ class YBInboundCall : public InboundCall {
     return header_.remote_method;
   }
 
+  Slice service_name() const;
   Slice method_name() const override;
 
   Sidecars& sidecars() {

@@ -174,13 +174,13 @@ ThreadPoolTask* InboundCall::BindTask(InboundCallHandler* handler, int64_t rpc_q
 
 void InboundCall::RecordHandlingCompleted() {
   // Protect against multiple calls.
-  LOG_IF_WITH_PREFIX(DFATAL, timing_.time_completed.Initialized()) << "Already marked as completed";
-  timing_.time_completed = MonoTime::Now();
+  // LOG_IF_WITH_PREFIX(DFATAL, timing_.time_completed.Initialized()) << "Already marked as completed";
+  // timing_.time_completed = MonoTime::Now();
   VLOG_WITH_PREFIX(4) << "Completed handling";
-  if (rpc_method_handler_latency_) {
-    rpc_method_handler_latency_->Increment(
-        (timing_.time_completed - timing_.time_handled).ToMicroseconds());
-  }
+  // if (rpc_method_handler_latency_) {
+  //   rpc_method_handler_latency_->Increment(
+  //       (timing_.time_completed - timing_.time_handled).ToMicroseconds());
+  // }
 }
 
 bool InboundCall::ClientTimedOut() const {

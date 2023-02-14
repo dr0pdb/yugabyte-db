@@ -53,6 +53,7 @@ YBSession::YBSession(YBClient* client, const scoped_refptr<ClockBase>& clock) {
       clock ? std::make_unique<ConsistentReadPoint>(clock) : nullptr;
   const auto metric_entity = client->metric_entity();
   async_rpc_metrics_ = metric_entity ? std::make_shared<AsyncRpcMetrics>(metric_entity) : nullptr;
+  num_tablets_involved_in_txn_ = 1;
 }
 
 void YBSession::RestartNonTxnReadPoint(const Restart restart) {
@@ -308,6 +309,11 @@ internal::Batcher& YBSession::Batcher() {
 void YBSession::Apply(YBOperationPtr yb_op) {
   VLOG(5) << "YBSession Apply yb_op: " << yb_op->ToString();
   Batcher().Add(yb_op);
+}
+
+void YBSession::SetOperationMode(yb::client::internal::OperationMode op_mode) {
+  VLOG(5) << "YBSession Setting OperationMode to " << op_mode;
+  Batcher().SetOperationMode(op_mode);
 }
 
 bool YBSession::IsInProgress(YBOperationPtr yb_op) const {

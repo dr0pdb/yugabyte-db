@@ -62,6 +62,7 @@
 
 #include "yb/common/wire_protocol.h"
 
+#include "yb/common/ybc_util.h"
 #include "yb/gutil/stl_util.h"
 #include "yb/gutil/strings/join.h"
 
@@ -293,6 +294,14 @@ void Batcher::Add(std::shared_ptr<YBOperation> op) {
   ops_.push_back(op);
 }
 
+void Batcher::SetOperationMode(OperationMode op_mode) {
+  operation_mode_ = op_mode;
+}
+
+OperationMode Batcher::GetOperationMode() {
+  return operation_mode_;
+}
+
 void Batcher::CombineError(const InFlightOp& in_flight_op) {
   if (ClientError(in_flight_op.error) == ClientErrorCode::kTablePartitionListIsStale) {
     // MetaCache returns ClientErrorCode::kTablePartitionListIsStale error for tablet lookup request
@@ -482,6 +491,7 @@ void Batcher::AllLookupsDone() {
     return lhs.tablet.get() < rhs.tablet.get();
   });
 
+  YBSessionPtr session = weak_session_.lock();
   auto group_start = ops_queue_.begin();
   auto current_group = (*group_start).yb_op->group();
   const auto* current_tablet = (*group_start).tablet.get();
@@ -497,6 +507,9 @@ void Batcher::AllLookupsDone() {
           (*it).yb_op, it_table_partition_list_version.value(),
           it_tablet->partition_list_version()));
       return;
+    }
+    if (session && current_tablet != it_tablet) {
+      ++session->num_tablets_involved_in_txn_;
     }
     if (current_tablet != it_tablet || current_group != it_group) {
       ops_info_.groups.emplace_back(group_start, it);
@@ -564,6 +577,14 @@ void Batcher::ExecuteOperations(Initial initial) {
         self, group.begin->tablet.get(), group, allow_local_calls, need_consistent_read));
   }
 
+  // Send all of the groups as is with the dummy maked for the transaction so that the intents are
+  // written locally. Also, buffer the ops per tablet at session level so that we have the buffer
+  // across multiple statement too within a txn Should have a way to identify that one of the ops is
+  // commit Upon seeing commit op, we send the last batch of ops too After sending the last grouped
+  // ops, we send the session level per tablet ops as a separate RPC in addition. The request should
+  // have information that this is the global set of ops and they must be replicated as one single
+  // write batch At the time of sending the global rpc, the global map size should be checked. If >
+  // 1, it must be a distributed txn.
   outstanding_rpcs_.store(rpcs.size());
   for (const auto& rpc : rpcs) {
     if (transaction && transaction->trace() && rpc->trace()) {
@@ -571,6 +592,9 @@ void Batcher::ExecuteOperations(Initial initial) {
     }
     rpc->SendRpc();
   }
+  /* YBC_LOG_INFO_STACK_TRACE(
+      "RKNRKN printing stack trace from batcher.cc before sending the grouped ops per tablet rpc");
+   */
 }
 
 rpc::Messenger* Batcher::messenger() const {
