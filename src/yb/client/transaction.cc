@@ -424,6 +424,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
   }
 
   void ExpectOperations(size_t count) EXCLUDES(mutex_) override {
+    LOG(INFO) << __func__ << " expect ops count: " << count;
     std::lock_guard<std::shared_mutex> lock(mutex_);
     running_requests_ += count;
   }

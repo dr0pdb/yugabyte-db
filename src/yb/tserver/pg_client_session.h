@@ -101,7 +101,8 @@ class PgClientSession : public std::enable_shared_from_this<PgClientSession> {
   Status Perform(PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context);
 
   Status PerformLocal(
-      PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context);
+      PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context,
+      uint64_t& num_tablets_used);
 
 #define PG_CLIENT_SESSION_METHOD_DECLARE(r, data, method) \
   Status method( \

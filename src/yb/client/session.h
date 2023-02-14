@@ -240,23 +240,49 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
   }
 
   void AppendCurrentBatchOpsToGlobalOps(
-      std::vector<std::shared_ptr<client::YBPgsqlOp>> current_batch_ops) {
-    global_transactional_ops_.insert(
-        std::end(global_transactional_ops_), std::begin(current_batch_ops),
-        std::end(current_batch_ops));
+      std::vector<std::shared_ptr<client::YBPgsqlWriteOp>> current_batch_ops) {
+    LOG(INFO) << __func__ << " appending current batch to global ops: " << current_batch_ops.size();
+    for (auto& a : current_batch_ops) {
+      LOG(INFO) << __func__ << " the op = " << a->ToDebugString();
+    }
+    for (auto a : current_batch_ops) {
+      global_transactional_ops_.emplace_back(a);
+    }
+    // global_transactional_ops_.insert(
+    //     std::end(global_transactional_ops_), std::begin(current_batch_ops),
+    //     std::end(current_batch_ops));
   }
 
   void ClearGlobalOps() { global_transactional_ops_.clear(); }
 
-  void ResetNumTabletsInvolvedInTxn() { num_tablets_involved_in_txn_ = 1; }
+  void ResetNumTabletsInvolvedInTxn() { tablets_involved_in_txn.clear(); }
 
-  void IncrementNumTabletsInvolvedInTxn() { ++num_tablets_involved_in_txn_; }
-
-  uint64_t GetNumTabletsInvolvedInTxn() { return num_tablets_involved_in_txn_; }
+  void AddTabletInvolvedInTxn(std::string tablet_id) {
+    LOG(INFO) << __func__ << ": adding " << tablet_id;
+    tablets_involved_in_txn.insert(tablet_id);
+  }
 
   std::vector<std::shared_ptr<client::YBPgsqlOp>>& GlobalTxnOps() {
     return global_transactional_ops_;
   }
+
+  void AppendCurrentBatchOpsToGlobalOpsPairs(
+      std::vector<std::shared_ptr<client::YBPgsqlWriteOp>> write_ops) {
+    for (auto& a : write_ops) {
+      global_transactional_ops_pairs_.push_back(std::make_pair(a, a->request()));
+    }
+  }
+
+  void ClearGlobalOpsPairs() { global_transactional_ops_pairs_.clear(); }
+
+  std::vector<std::pair<std::shared_ptr<client::YBPgsqlWriteOp>, PgsqlWriteRequestPB>>&
+  GlobalTxnOpsPairs() {
+    return global_transactional_ops_pairs_;
+  }
+
+  uint64_t GetNumTabletsInvolvedInTxn() { return tablets_involved_in_txn.size(); }
+
+  std::unordered_set<std::string> GetTabletsInvolvedInTxn() { return tablets_involved_in_txn; }
 
   // Called by Batcher when a flush has started/finished.
   void FlushStarted(internal::BatcherPtr batcher);
@@ -302,11 +328,14 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
   std::unordered_set<internal::BatcherPtr> flushed_batchers_;
 
   std::vector<std::shared_ptr<client::YBPgsqlOp>> global_transactional_ops_;
+  std::vector<std::pair<std::shared_ptr<client::YBPgsqlWriteOp>, PgsqlWriteRequestPB>>
+      global_transactional_ops_pairs_;
 
   uint64_t global_write_time_;
   uint64_t global_read_time_;
 
   uint64_t num_tablets_involved_in_txn_;
+  std::unordered_set<std::string> tablets_involved_in_txn;
 
   // Session only one of deadline and timeout could be active.
   // When new batcher is created its deadline is set as session deadline or

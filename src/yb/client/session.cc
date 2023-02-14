@@ -222,7 +222,7 @@ void YBSession::FlushAsync(FlushCallback callback) {
   // Send off any buffered data. Important to do this outside of the lock
   // since the callback may itself try to take the lock, in the case that
   // the batch fails "inline" on the same thread.
-
+  LOG(INFO) << __func__;
   internal::BatcherPtr old_batcher;
   old_batcher.swap(batcher_);
   if (old_batcher) {
