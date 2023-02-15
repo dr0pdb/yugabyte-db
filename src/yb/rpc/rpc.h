@@ -292,6 +292,7 @@ class Rpcs {
 
 template<class Iter>
 void Rpcs::Abort(Iter start, Iter end) {
+  LOG(INFO) << __func__;
   std::vector<RpcCommandPtr> to_abort;
   {
     std::lock_guard<std::mutex> lock(*mutex_);
@@ -303,9 +304,11 @@ void Rpcs::Abort(Iter start, Iter end) {
     }
   }
   if (to_abort.empty()) {
+    LOG(INFO) << __func__ << ": nothing to abort";
     return;
   }
   for (auto& rpc : to_abort) {
+    LOG(INFO) << __func__ << ": calling rpc->Abort on " << rpc->ToString();
     rpc->Abort();
   }
   {

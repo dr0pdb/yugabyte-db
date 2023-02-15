@@ -41,6 +41,7 @@
 
 #include "yb/util/atomic.h"
 #include "yb/util/countdown_latch.h"
+#include "yb/util/debug-util.h"
 #include "yb/util/flags.h"
 #include "yb/util/format.h"
 #include "yb/util/logging.h"
@@ -244,6 +245,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
   }
 
   ~Impl() {
+    LOG(INFO) << __func__;
     std::vector<rpc::Rpcs::Handle *> handles{
         &heartbeat_handle_, &new_heartbeat_handle_, &commit_handle_, &abort_handle_,
         &old_abort_handle_};
@@ -567,6 +569,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
 
   void Abort(CoarseTimePoint deadline) EXCLUDES(mutex_) {
     auto transaction = transaction_->shared_from_this();
+    LOG(INFO) << __func__ << " for transaction: " << transaction->id();
 
     VLOG_WITH_PREFIX(2) << "Abort";
     TRACE_TO(trace_, __func__);
@@ -1230,7 +1233,9 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
       CoarseTimePoint deadline,
       const YBTransactionPtr& transaction,
       internal::RemoteTabletPtr old_status_tablet) {
-    VLOG_WITH_PREFIX(1) << "Sending abort to old status tablet";
+    LOG(INFO) << __func__ << ": sending abort to old status tablet"
+                 " with stack trace:\n"
+              << GetStackTrace();
 
     old_status_tablet_state_.store(OldTransactionState::kAborting, std::memory_order_release);
 
@@ -1257,6 +1262,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
       CoarseTimePoint deadline,
       const YBTransactionPtr& transaction,
       internal::RemoteTabletPtr status_tablet) EXCLUDES(mutex_) {
+    LOG(INFO) << __func__ << " with stack trace:\n" << GetStackTrace();
     tserver::AbortTransactionRequestPB req;
     req.set_tablet_id(status_tablet->tablet_id());
     req.set_propagated_hybrid_time(manager_->Now().ToUint64());

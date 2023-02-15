@@ -1173,6 +1173,9 @@ void TabletServiceImpl::AbortTransaction(const AbortTransactionRequestPB* req,
                                          AbortTransactionResponsePB* resp,
                                          rpc::RpcContext context) {
   TRACE("AbortTransaction");
+  auto transaction_id = CHECK_RESULT(FullyDecodeTransactionId(req->transaction_id()));
+  LOG(INFO) << __func__ << " with req: " << req->DebugString()
+            << " with decoded txn id: " << transaction_id;
 
   UpdateClock(*req, server_->Clock());
 
@@ -1833,7 +1836,7 @@ Status TabletServiceImpl::PerformWrite(
     }
 
     query->operation().set_operation_mode(op_mode);
-    LOG(INFO) << __func__ << ": The client request is: " << req->DebugString();
+    LOG(INFO) << __func__ << ": The client request is\n" << req->DebugString();
     if (req->has_write_batch() && req->write_batch().has_transaction() &&
         req->write_batch().transaction().has_transaction_id()) {
       auto transaction_id =

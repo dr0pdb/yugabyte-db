@@ -806,10 +806,10 @@ Status PgClientSession::FinishTransaction(
     Session(kind)->ResetNumTabletsInvolvedInTxn();
 
     if (num_tablets_touched == 1) {
-      LOG(INFO) << " skipping commit since num_tablets_touched = 1";
       // Sleep for POC purposes, eventually we must wait for PerformLocal to complete i.e. RPC
       // response received before finishing the request.
       SleepFor(MonoDelta::FromMilliseconds(250));
+      LOG(INFO) << " skipping commit since num_tablets_touched = 1";
       return Status::OK();
     }
   }
@@ -959,13 +959,13 @@ Status PgClientSession::PerformLocal(
       if (txn) {
         LOG(INFO) << __func__ << " setting session->SetTransaction to nullptr";
         session->SetTransaction(nullptr);
+        txn = nullptr;
       }
       fast_path = true;
     }
   }
 
   // std::vector<std::shared_ptr<client::YBPgsqlOp>> write_ops;
-  LOG(INFO) << __func__ << " req.options = " << req->options().DebugString() << " and options = " << options.DebugString();
   auto session_info = VERIFY_RESULT(SetupSession(*req, context->GetClientDeadline()));
   auto* session = session_info.first.session.get();
   std::vector<std::shared_ptr<client::YBPgsqlOp>> ops;

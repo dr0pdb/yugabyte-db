@@ -22,6 +22,7 @@
 
 #include "yb/tserver/tserver_service.pb.h"
 
+#include "yb/util/debug-util.h"
 #include "yb/util/flags.h"
 #include "yb/util/logging.h"
 #include "yb/util/trace.h"
@@ -147,6 +148,7 @@ Status RunningTransaction::CheckAborted() const {
 void RunningTransaction::Abort(client::YBClient* client,
                                TransactionStatusCallback callback,
                                std::unique_lock<std::mutex>* lock) {
+  LOG(INFO) << __func__ << " with stacktrace:\n" << GetStackTrace();
   if (last_known_status_ == TransactionStatus::ABORTED ||
       last_known_status_ == TransactionStatus::COMMITTED) {
     // Transaction is already in final state, so no reason to send abort request.
