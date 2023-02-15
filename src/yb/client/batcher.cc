@@ -136,7 +136,7 @@ Batcher::Batcher(YBClient* client,
     transaction_(std::move(transaction)),
     read_point_(read_point),
     force_consistent_read_(force_consistent_read) {
-      LOG(INFO) << __func__ << " init with batcher = " << (session) ? "non-null" : "nullptr";
+  LOG(INFO) << __func__ << " init with batcher = " << (session ? "non-null" : "nullptr");
 }
 
 Batcher::~Batcher() {
@@ -262,7 +262,10 @@ void Batcher::FlushAsync(
     if (status.ok() && yb_op->table()->partition_schema().IsHashPartitioning()) {
       if (in_flight_op.partition_key.empty()) {
         if (!yb_op->read_only()) {
-          LOG(INFO) << __func__ << " hash partition key is empty.";
+          auto write_op_down = down_cast<const client::YBPgsqlWriteOp*>(yb_op.get());
+          LOG(INFO) << __func__
+                    << " hash partition key is empty for write request with statement_id: "
+                    << write_op_down->statement_id();
           status = STATUS_FORMAT(IllegalState, "Hash partition key is empty for $0", yb_op);
         }
       } else {

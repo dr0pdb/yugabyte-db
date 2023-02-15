@@ -488,6 +488,9 @@ class YBPgsqlWriteOp : public YBPgsqlOp {
   YBPgsqlWriteOp(
       const std::shared_ptr<YBTable>& table, rpc::Sidecars* sidecars,
       PgsqlWriteRequestPB* request = nullptr);
+  YBPgsqlWriteOp(
+      const std::shared_ptr<YBTable>& table, rpc::Sidecars* sidecars, uint64_t statement_id,
+      PgsqlWriteRequestPB* request = nullptr);
   ~YBPgsqlWriteOp();
 
   // Note: to avoid memory copy, this PgsqlWriteRequestPB is moved into tserver WriteRequestPB
@@ -501,6 +504,8 @@ class YBPgsqlWriteOp : public YBPgsqlOp {
     request_copy_ = request;
     request_ = &request_copy_;
   }
+
+  uint64_t statement_id() const { return statement_id_; }
 
   std::string ToString() const override;
 
@@ -535,6 +540,7 @@ class YBPgsqlWriteOp : public YBPgsqlOp {
  private:
   friend class YBTable;
 
+  uint64_t statement_id_{0};
   PgsqlWriteRequestPB* request_;
   PgsqlWriteRequestPB request_copy_;
   std::unique_ptr<PgsqlWriteRequestPB> request_holder_;

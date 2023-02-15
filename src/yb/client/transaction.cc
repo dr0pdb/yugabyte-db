@@ -518,6 +518,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
   void Commit(CoarseTimePoint deadline, SealOnly seal_only, CommitCallback callback)
       EXCLUDES(mutex_) {
     auto transaction = transaction_->shared_from_this();
+    LOG(INFO) << __func__ << " for transaction_id: " << transaction->id();
     TRACE_TO(trace_, __func__);
     {
       UNIQUE_LOCK(lock, mutex_);

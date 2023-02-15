@@ -242,10 +242,12 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
   void AppendCurrentBatchOpsToGlobalOps(
       std::vector<std::shared_ptr<client::YBPgsqlWriteOp>> current_batch_ops) {
     LOG(INFO) << __func__ << " appending current batch to global ops: " << current_batch_ops.size();
-    for (auto& a : current_batch_ops) {
-      LOG(INFO) << __func__ << " the op = " << a->ToDebugString();
-    }
+
     for (auto a : current_batch_ops) {
+      // std::string partition_key;
+      // auto s = a->GetPartitionKey(&partition_key);
+      LOG(INFO) << "Appending op = " << a->ToDebugString();
+                // << " with partition key = " << partition_key;
       global_transactional_ops_.emplace_back(a);
     }
     // global_transactional_ops_.insert(

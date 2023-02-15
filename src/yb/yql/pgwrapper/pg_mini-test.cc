@@ -540,17 +540,17 @@ TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(SingleShardVerification)) {
   ASSERT_OK(conn.Execute(
       "CREATE TABLE IF NOT EXISTS t1 (a int PRIMARY KEY, b int) SPLIT INTO 1 TABLETS"));
 
+  LOG(INFO) << "beginning transaction";
   ASSERT_OK(conn.Execute("BEGIN"));
-  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 6, 100));
-  // {
-  //   auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
-  //   auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
-  //   ASSERT_EQ(value, 6);
-  //   value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
-  //   ASSERT_EQ(value, 100);
-  // }
+  LOG(INFO) << "begin txn done";
 
+  LOG(INFO) << "starting insert";
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 6, 100));
+
+  LOG(INFO) << "committing";
   ASSERT_OK(conn.Execute("COMMIT"));
+  LOG(INFO) << "commit done";
+
   {
     auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
     auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
@@ -582,39 +582,66 @@ TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(RaftNoOpTest)) {
   ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 6, 100));
   ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 7, 6));
   ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 8, 6));
-  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 100, 6));
-  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 101, 6));
-  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 200, 6));
-  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 201, 6));
-  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 300, 6));
-  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 350, 6));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 100, 1000));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 101, 1001));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 200, 2000));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 201, 2001));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 300, 3000));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 350, 3500));
 
-  // ASSERT_EQ(ASSERT_RESULT(conn.FetchValue<int64_t>("SELECT COUNT(*) FROM t1 WHERE a = 5")), 1);
+  LOG(INFO) << "done with inserts";
 
-  // {
-  //   auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
-  //   auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
-  //   ASSERT_EQ(value, 6);
-  //   value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
-  //   ASSERT_EQ(value, 100);
-  // }
+  ASSERT_EQ(ASSERT_RESULT(conn.FetchValue<int64_t>("SELECT COUNT(*) FROM t1 WHERE a = 5")), 1);
 
-  // ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET b = 200"));
-  // {
-  //   auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
-  //   auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
-  //   ASSERT_EQ(value, 6);
-  //   value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
-  //   ASSERT_EQ(value, 200);
-  // }
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 6);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 100);
+  }
+
+  LOG(INFO) << "update query";
+  ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET b = 200 WHERE a = 6"));
+  LOG(INFO) << "update query done";
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 6);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 200);
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 100", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 100);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 1000);
+  }
+
   LOG(INFO) << "committing";
-
   ASSERT_OK(conn.Execute("COMMIT"));
-
   LOG(INFO) << "commit done";
 
-  // This also works since the requests are still going to the leader.
-  // ASSERT_EQ(ASSERT_RESULT(conn.FetchValue<int64_t>("SELECT COUNT(*) FROM t1 WHERE a = 5")), 1);
+  ASSERT_EQ(ASSERT_RESULT(conn.FetchValue<int64_t>("SELECT COUNT(*) FROM t1 WHERE a = 5")), 1);
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 6);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 200);
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 100", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 100);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 1000);
+  }
 }
 
 void PgMiniTest::TestReadRestart(const bool deferrable) {

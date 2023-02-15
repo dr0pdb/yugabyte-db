@@ -80,6 +80,7 @@ void YBSession::DeferReadPoint() {
 }
 
 void YBSession::SetTransaction(YBTransactionPtr transaction) {
+  LOG(INFO) << __func__;
   batcher_config_.transaction = std::move(transaction);
   internal::BatcherPtr old_batcher;
   old_batcher.swap(batcher_);
@@ -286,7 +287,9 @@ ConsistentReadPoint* YBSession::read_point() {
 }
 
 internal::Batcher& YBSession::Batcher() {
+  LOG(INFO) << __func__;
   if (!batcher_) {
+    LOG(INFO) << __func__ << " creating a new batcher since it is null right now";
     batcher_config_.session = shared_from_this();
     batcher_ = CreateBatcher(batcher_config_);
     if (deadline_ != CoarseTimePoint()) {
@@ -307,12 +310,12 @@ internal::Batcher& YBSession::Batcher() {
 }
 
 void YBSession::Apply(YBOperationPtr yb_op) {
-  VLOG(5) << "YBSession Apply yb_op: " << yb_op->ToString();
+  LOG(INFO) << "YBSession Apply yb_op: " << yb_op->ToString();
   Batcher().Add(yb_op);
 }
 
 void YBSession::SetOperationMode(yb::client::internal::OperationMode op_mode) {
-  VLOG(5) << "YBSession Setting OperationMode to " << op_mode;
+  LOG(INFO) << "YBSession Setting OperationMode to " << op_mode;
   Batcher().SetOperationMode(op_mode);
 }
 

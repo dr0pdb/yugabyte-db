@@ -930,9 +930,26 @@ YBPgsqlWriteOp::YBPgsqlWriteOp(
     const shared_ptr<YBTable>& table, rpc::Sidecars* sidecars, PgsqlWriteRequestPB* request)
     : YBPgsqlOp(table, sidecars),
       request_(request) {
+  LOG(INFO) << __func__ << " init";
   if (!request) {
+    LOG(INFO) << __func__ << " request is null";
     request_holder_ = std::make_unique<PgsqlWriteRequestPB>();
     request_ = request_holder_.get();
+  } else {
+    LOG(INFO) << __func__ << " request is non-null";
+  }
+}
+
+YBPgsqlWriteOp::YBPgsqlWriteOp(
+    const shared_ptr<YBTable>& table, rpc::Sidecars* sidecars, uint64_t statement_id, PgsqlWriteRequestPB* request)
+    : YBPgsqlOp(table, sidecars), statement_id_(statement_id), request_(request) {
+  LOG(INFO) << __func__ << " init";
+  if (!request) {
+    LOG(INFO) << __func__ << " request is null";
+    request_holder_ = std::make_unique<PgsqlWriteRequestPB>();
+    request_ = request_holder_.get();
+  } else {
+    LOG(INFO) << __func__ << " request is non-null";
   }
 }
 

@@ -304,7 +304,9 @@ Result<PgClientSessionOperations> PrepareOperations(
     } else {
       auto& write = *op.mutable_write();
       RETURN_NOT_OK(GetTable(write.table_id(), table_cache, &table));
-      auto write_op = std::make_shared<client::YBPgsqlWriteOp>(table, sidecars, &write);
+      // LOG(INFO) << __func__ << ": creating YBPgsqlWriteOp "
+      //           << " with write = " << write.DebugString();
+      auto write_op = std::make_shared<client::YBPgsqlWriteOp>(table, sidecars, write.stmt_id(), &write);
       if (write_time) {
         write_op->SetWriteTime(write_time);
         write_time = HybridTime::kInvalid;
@@ -760,7 +762,7 @@ Status PgClientSession::FinishTransaction(
   auto kind = req.ddl_mode() ? PgClientSessionKind::kDdl : PgClientSessionKind::kPlain;
   auto& txn = Transaction(kind);
   if (!txn) {
-    VLOG_WITH_PREFIX_AND_FUNC(2) << "ddl: " << req.ddl_mode() << ", no running transaction";
+    LOG(INFO) << "ddl: " << req.ddl_mode() << ", no running transaction";
     return Status::OK();
   }
 
@@ -769,14 +771,15 @@ Status PgClientSession::FinishTransaction(
     metadata = VERIFY_RESULT(GetDdlTransactionMetadata(true, context->GetClientDeadline()));
     LOG_IF(DFATAL, !metadata) << "metadata is required";
   }
-  const auto txn_value = std::move(txn);
-  Session(kind)->SetTransaction(nullptr);
+
+  // These need to survive the callback execution of PerformLocal. Also allocate the response on the heap.
+  PgPerformRequestPB global_perform_req;
+  auto perform_resp = std::make_shared<PgPerformResponsePB>();
+  // PgPerformResponsePB global_perform_resp;
 
   if (kind == PgClientSessionKind::kPlain) {
     auto write_time = Session(kind)->GlobalWriteTime();
 
-    PgPerformRequestPB global_perform_req;
-    PgPerformResponsePB global_perform_resp;
     global_perform_req.set_session_id(req.session_id());
 
     // TODO: All of the options are not set. Need to revisit
@@ -787,7 +790,7 @@ Status PgClientSession::FinishTransaction(
     // auto context_ptr = std::make_shared<rpc::RpcContext>(std::move(*context));
     uint64_t num_tablets_touched = 0;
     auto global_perform_ops_status =
-        PerformLocal(&global_perform_req, &global_perform_resp, context, num_tablets_touched);
+        PerformLocal(&global_perform_req, perform_resp.get(), context, num_tablets_touched);
     if (!global_perform_ops_status.ok()) {
       return global_perform_ops_status;
     }
@@ -796,15 +799,29 @@ Status PgClientSession::FinishTransaction(
     Session(kind)->ClearGlobalOps();
     Session(kind)->ClearGlobalOpsPairs();
     // Reset back to local and remote as default.
-    Session(kind)->SetOperationMode(yb::client::internal::OperationMode::kLocalAndRemote);
+    // Perhaps we don't need to do this since the underlying batcher is already set to null. Calling
+    // this leads to a new batcher getting created which is not needed and causes non-empty batcher
+    // error in future operations.
+    // Session(kind)->SetOperationMode(yb::client::internal::OperationMode::kLocalAndRemote);
     Session(kind)->ResetNumTabletsInvolvedInTxn();
 
     if (num_tablets_touched == 1) {
       LOG(INFO) << " skipping commit since num_tablets_touched = 1";
-      Session(kind)->SetTransaction(nullptr);
+      // Sleep for POC purposes, eventually we must wait for PerformLocal to complete i.e. RPC
+      // response received before finishing the request.
+      SleepFor(MonoDelta::FromMilliseconds(250));
       return Status::OK();
     }
   }
+
+  // Sleep for some time to allow the PerformLocal ops to finish executing before we go ahead and
+  // commit the transaction.
+  // This is only for POC purposes. Eventually, we must wait for those ops to get processed before
+  // issue a commit request.
+  SleepFor(MonoDelta::FromMilliseconds(1000));
+
+  const auto txn_value = std::move(txn);
+  Session(kind)->SetTransaction(nullptr);
 
   // Using the session instance call the perform function for the global set of ops
   // This should send out a flag to say that the ops should just be replicated and not written to
@@ -814,6 +831,7 @@ Status PgClientSession::FinishTransaction(
       "RKNRKN printing stack trace from finish transaction in pg client session"); */
 
   if (req.commit()) {
+    LOG(INFO) << __func__ << " going to commit";
     const auto commit_status = txn_value->CommitFuture().get();
     LOG(INFO)
         << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id()
@@ -937,9 +955,6 @@ Status PgClientSession::PerformLocal(
       options.set_read_time_manipulation(tserver::ReadTimeManipulation::NONE);
       options.set_active_sub_transaction_id(0);
 
-      // Change it to fourth type.
-      session->SetOperationMode(yb::client::internal::OperationMode::kLocalAndRemote);
-
       auto& txn = Transaction(PgClientSessionKind::kPlain);
       if (txn) {
         LOG(INFO) << __func__ << " setting session->SetTransaction to nullptr";
@@ -949,7 +964,7 @@ Status PgClientSession::PerformLocal(
     }
   }
 
-  std::vector<std::shared_ptr<client::YBPgsqlOp>> write_ops;
+  // std::vector<std::shared_ptr<client::YBPgsqlOp>> write_ops;
   LOG(INFO) << __func__ << " req.options = " << req->options().DebugString() << " and options = " << options.DebugString();
   auto session_info = VERIFY_RESULT(SetupSession(*req, context->GetClientDeadline()));
   auto* session = session_info.first.session.get();
@@ -962,6 +977,10 @@ Status PgClientSession::PerformLocal(
   }
   // auto ops = std::move(session->GlobalTxnOps());
   for (auto& op : ops) {
+    DCHECK(op->type() == client::YBOperation::PGSQL_WRITE);
+    auto write_op_down = down_cast<const client::YBPgsqlWriteOp*>(op.get());
+    LOG(INFO) << __func__ << " retrieved the write op from the cache: ";
+    LOG(INFO) << __func__ << " the statement id is: " << write_op_down->statement_id();
     session->Apply(op);
   }
   auto ops_count = ops.size();

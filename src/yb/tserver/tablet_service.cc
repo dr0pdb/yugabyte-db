@@ -1028,7 +1028,12 @@ void TabletServiceImpl::UpdateTransaction(const UpdateTransactionRequestPB* req,
         (FLAGS_transaction_rpc_timeout_ms + RandomUniformInt(-200, 200)) * 1ms);
   }
 
-  VLOG(1) << "UpdateTransaction: " << req->ShortDebugString()
+  auto transaction_id =
+      CHECK_RESULT(FullyDecodeTransactionId(req->state().transaction_id()));
+  LOG(INFO) << __func__ << " called with txn id = " << transaction_id
+            << " and status = " << req->state().status() << " and context = " << context.ToString();
+
+  VLOG(1) << "UpdateTransaction: " << req->DebugString()
           << ", context: " << context.ToString();
   LOG_IF(DFATAL, !req->has_propagated_hybrid_time())
       << __func__ << " missing propagated hybrid time for "
@@ -1828,7 +1833,14 @@ Status TabletServiceImpl::PerformWrite(
     }
 
     query->operation().set_operation_mode(op_mode);
-    // LOG(INFO) << __func__ << ": The client request is: " << req->DebugString();
+    LOG(INFO) << __func__ << ": The client request is: " << req->DebugString();
+    if (req->has_write_batch() && req->write_batch().has_transaction() &&
+        req->write_batch().transaction().has_transaction_id()) {
+      auto transaction_id =
+          CHECK_RESULT(FullyDecodeTransactionId(req->write_batch().transaction().transaction_id()));
+      LOG(INFO) << __func__
+                << ": The transaction id for the above client request is: " << transaction_id;
+    }
   }
 
   if (RandomActWithProbability(GetAtomicFlag(&FLAGS_TEST_respond_write_failed_probability))) {
