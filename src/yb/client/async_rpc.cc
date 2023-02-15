@@ -563,6 +563,8 @@ void ReleaseOps(Repeated* repeated) {
       return ::yb::tserver::WriteOperationMode::LOCAL_ONLY_OPERATION;
     case OperationMode::kRemote:
       return ::yb::tserver::WriteOperationMode::REMOTE_ONLY_OPERATION;
+    case OperationMode::kSkipIntents:
+      return ::yb::tserver::WriteOperationMode::SKIP_INTENTS_OPERATION;
     default:
       return ::yb::tserver::WriteOperationMode::LOCAL_AND_REMOTE_OPERATION;
   }
@@ -602,6 +604,14 @@ WriteRpc::WriteRpc(const AsyncRpcData& data)
     req_.set_client_id1(temp.first);
     req_.set_client_id2(temp.second);
     req_.set_operation_mode(GetWriteOperationMode(batcher_->GetOperationMode()));
+
+    if (batcher_ && !batcher_->GetTransactionId().empty()) {
+      req_.set_transaction_id(batcher_->GetTransactionId());
+      LOG(INFO) << __func__ << " RKNRKN setting the transaction id to "
+                << batcher_->transaction()->id() << " in write request, and operation mode as "
+                << GetWriteOperationMode(batcher_->GetOperationMode());
+    }
+
     const auto& first_yb_op = ops_.begin()->yb_op;
     if (first_yb_op->request_id().has_value()) {
       req_.set_request_id(first_yb_op->request_id().value());

@@ -958,8 +958,14 @@ Status PgClientSession::PerformLocal(
       auto& txn = Transaction(PgClientSessionKind::kPlain);
       if (txn) {
         LOG(INFO) << __func__ << " setting session->SetTransaction to nullptr";
+        LOG(INFO) << __func__ << " RKNRKN setting the transaction id in batcher to "
+                   << txn->id().ToString()
+                   << "before setting the transaction to null in the session";
+        session->SetTransactionId(txn->id().ToString());
         session->SetTransaction(nullptr);
         txn = nullptr;
+      } else {
+        LOG(INFO) << __func__ << " RKNRKN transaction is null";
       }
       fast_path = true;
     }
@@ -998,16 +1004,25 @@ Status PgClientSession::PerformLocal(
 
   if (fast_path) {
     LOG(INFO) << __func__ << " fast path";
-    session->SetOperationMode(yb::client::internal::OperationMode::kLocalAndRemote);
+    session->SetOperationMode(yb::client::internal::OperationMode::kSkipIntents);
+    LOG(INFO) << __func__ << " RKNRKN setting the operation mode as "
+              << yb::client::internal::OperationMode::kSkipIntents;
   } else {
     LOG(INFO) << __func__ << " std transactional path";
     // Only do remote op since this is called from FinishTransaction.
     session->SetOperationMode(yb::client::internal::OperationMode::kRemote);
     session->SetGlobalReadTime(options.read_time().read_ht());
+    LOG(INFO) << __func__ << " RKNRKN setting the operation mode as "
+              << yb::client::internal::OperationMode::kRemote;
     // session->AppendCurrentBatchOpsToGlobalOps(write_ops);
   }
 
   auto transaction = session_info.first.transaction;
+  if (!transaction) {
+    LOG(INFO) << __func__ << " RKNRKN transaction is NULL";
+  } else {
+    LOG(INFO) << __func__ << " RKNRKN transaction id is " << transaction->id();
+  }
   session->FlushAsync([data, transaction, ops_count](client::FlushStatus* flush_status) {
     data->FlushDone(flush_status);
     if (transaction) {

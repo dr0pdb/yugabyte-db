@@ -1248,6 +1248,13 @@ Status Tablet::ApplyOperation(
       return Status::OK();
     }
 
+    if (operation.operation_mode() == OperationMode::kSkipIntents) {
+      LOG(INFO) << __func__
+                << ": RKNRKN Skipping ApplyOperation for the skip intents op mode for request: "
+                << operation.request()->ShortDebugString();
+      return Status::OK();
+    }
+
     LOG(INFO) << __func__
               << ": Going ahead with the ApplyOperation with mode: " << operation.operation_mode()
               << " and isLeaderSide: " << operation.isLeaderSide()

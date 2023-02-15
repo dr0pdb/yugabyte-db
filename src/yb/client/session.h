@@ -134,6 +134,8 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
 
   void SetOperationMode(yb::client::internal::OperationMode op_mode);
 
+  void SetTransactionId(const std::string transaction_id);
+
   bool IsInProgress(YBOperationPtr yb_op) const;
 
   void Apply(const std::vector<YBOperationPtr>& ops);
@@ -305,6 +307,8 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
 
     ConsistentReadPoint* read_point() const;
   };
+
+  BatcherConfig batcher_config() { return batcher_config_; }
 
  private:
   friend class YBClient;

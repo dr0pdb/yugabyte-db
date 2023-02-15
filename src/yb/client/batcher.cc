@@ -320,6 +320,13 @@ OperationMode Batcher::GetOperationMode() {
   return operation_mode_;
 }
 
+void Batcher::SetTransactionId(std::string transaction_id) {
+  transaction_id_ = transaction_id;
+}
+std::string Batcher::GetTransactionId() {
+  return transaction_id_;
+}
+
 void Batcher::CombineError(const InFlightOp& in_flight_op) {
   if (ClientError(in_flight_op.error) == ClientErrorCode::kTablePartitionListIsStale) {
     // MetaCache returns ClientErrorCode::kTablePartitionListIsStale error for tablet lookup request

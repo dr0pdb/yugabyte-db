@@ -123,12 +123,7 @@ YB_DEFINE_ENUM(
     (kAborted)            // Batcher was aborted.
     );
 
-YB_DEFINE_ENUM(
-    OperationMode,
-    (kLocal)
-    (kRemote)
-    (kLocalAndRemote)
-);
+YB_DEFINE_ENUM(OperationMode, (kLocal)(kRemote)(kSkipIntents)(kLocalAndRemote));
 
 // A Batcher is the class responsible for collecting row operations, routing them to the
 // correct tablet server, and possibly batching them together for better efficiency.
@@ -179,6 +174,9 @@ class Batcher : public Runnable, public std::enable_shared_from_this<Batcher> {
 
   void SetOperationMode(OperationMode op_mode);
   OperationMode GetOperationMode();
+
+  void SetTransactionId(std::string transaction_id);
+  std::string GetTransactionId();
 
   bool Has(const std::shared_ptr<YBOperation>& yb_op) const;
 
@@ -331,6 +329,7 @@ class Batcher : public Runnable, public std::enable_shared_from_this<Batcher> {
 
   bool perform_global_txn_ops_;
   OperationMode operation_mode_;
+  std::string transaction_id_;
 
   // The absolute deadline for all in-flight ops.
   CoarseTimePoint deadline_;

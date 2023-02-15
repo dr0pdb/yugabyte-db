@@ -319,6 +319,12 @@ void YBSession::SetOperationMode(yb::client::internal::OperationMode op_mode) {
   Batcher().SetOperationMode(op_mode);
 }
 
+void YBSession::SetTransactionId(const std::string transaction_id) {
+  LOG(INFO) << __func__ << " RKNRKN YBSession Setting transaction id in batcher to "
+             << transaction_id;
+  Batcher().SetTransactionId(transaction_id);
+}
+
 bool YBSession::IsInProgress(YBOperationPtr yb_op) const {
   if (batcher_ && batcher_->Has(yb_op)) {
     return true;

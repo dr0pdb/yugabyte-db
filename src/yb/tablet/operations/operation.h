@@ -82,6 +82,7 @@ YB_DEFINE_ENUM(
     OperationMode,
     ((kLocal, tserver::WriteOperationMode::LOCAL_ONLY_OPERATION))(
         (kRemote, tserver::WriteOperationMode::REMOTE_ONLY_OPERATION))(
+        (kSkipIntents, tserver::WriteOperationMode::SKIP_INTENTS_OPERATION))(
         (kLocalAndRemote, tserver::WriteOperationMode::LOCAL_AND_REMOTE_OPERATION)));
 
 // Base class for transactions.  There are different implementations for different types (Write,

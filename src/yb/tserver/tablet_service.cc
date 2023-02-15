@@ -1740,6 +1740,8 @@ tablet::OperationMode GetOperationMode(const WriteRequestPB* req) {
       return tablet::OperationMode::kLocal;
     case WriteOperationMode::REMOTE_ONLY_OPERATION:
       return tablet::OperationMode::kRemote;
+    case WriteOperationMode::SKIP_INTENTS_OPERATION:
+      return tablet::OperationMode::kSkipIntents;
     default:
       return tablet::OperationMode::kLocalAndRemote;
   }
@@ -1843,6 +1845,27 @@ Status TabletServiceImpl::PerformWrite(
           CHECK_RESULT(FullyDecodeTransactionId(req->write_batch().transaction().transaction_id()));
       LOG(INFO) << __func__
                 << ": The transaction id for the above client request is: " << transaction_id;
+    }
+    if (query->operation().operation_mode() == yb::tablet::OperationMode::kSkipIntents) {
+      LOG(INFO) << __func__
+                << " RKNRKN the operation mode before setting transaction id is kSkipIntents";
+    } else if (query->operation().operation_mode() == yb::tablet::OperationMode::kLocalAndRemote) {
+      LOG(INFO) << __func__
+                << " RKNRKN the operation mode before setting transaction id is kLocalAndRemote";
+    } else if (query->operation().operation_mode() == yb::tablet::OperationMode::kLocal) {
+      LOG(INFO) << __func__
+                << " RKNRKN the operation mode before setting transaction id is kLocal";
+    } else {
+      LOG(INFO) << __func__
+                << " RKNRKN the operation mode before setting transaction id is kRemote";
+    }
+    if (req->has_transaction_id()) {
+      auto transaction_id = req->transaction_id();
+      LOG(INFO) << __func__ << " RKNRKN setting the transaction id to " << transaction_id;
+      query->operation().set_transaction_id(VERIFY_RESULT(Uuid::FromString(transaction_id)));
+    }
+    else {
+      LOG(INFO) << __func__ << " RKNRKN No transaction id found in the write request";
     }
   }
 

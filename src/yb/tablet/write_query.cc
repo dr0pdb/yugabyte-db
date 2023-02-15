@@ -440,7 +440,9 @@ void WriteQuery::Execute(std::unique_ptr<WriteQuery> query) {
   }
 
   // For remote only operations skip conflict resolution.
-  if (FLAGS_TEST_override_op_type_for_raft && query_ptr->operation().operation_mode() == OperationMode::kRemote) {
+  if (FLAGS_TEST_override_op_type_for_raft &&
+      ((query_ptr->operation().operation_mode() == OperationMode::kRemote) ||
+        (query_ptr->operation().operation_mode() == OperationMode::kSkipIntents))) {
     LOG(INFO) << __func__ << ": skipping DoExecute for remote only op.";
     query_ptr->ExecuteDone(Status::OK());
     return;

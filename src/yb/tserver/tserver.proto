@@ -51,6 +51,7 @@ enum WriteOperationMode {
   LOCAL_ONLY_OPERATION = 1;
   REMOTE_ONLY_OPERATION = 2;
   LOCAL_AND_REMOTE_OPERATION = 3;
+  SKIP_INTENTS_OPERATION = 4;
 };
 
 // A batched set of insert/mutate requests.
@@ -94,6 +95,7 @@ message WriteRequestPB {
 
   optional WriteOperationMode operation_mode = 22;
   optional bool perform_global_txn_ops = 21 [ default = false ];
+  optional bytes transaction_id = 23;
 }
 
 message WriteResponsePB {

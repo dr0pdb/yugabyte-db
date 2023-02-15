@@ -187,7 +187,8 @@ Status PreparerImpl::Submit(OperationDriver* operation_driver) {
   // The check for kWrite is probably redundant since is_local will only be true for PG write ops.
   if (FLAGS_TEST_override_op_type_for_raft &&
       operation_driver->operation_type() == OperationType::kWrite &&
-      operation_driver->operation()->operation_mode() == OperationMode::kLocal) {
+      ((operation_driver->operation()->operation_mode() == OperationMode::kLocal) /* ||
+      (operation_driver->operation()->operation_mode() == OperationMode::kSkipIntents) */)) {
     LOG(INFO) << __func__ << ": local operation.";
     operation_driver->PrepareAndStartTask();
     operation_driver->ReplicationFinished(Status::OK(), operation_driver->term_, nullptr);
