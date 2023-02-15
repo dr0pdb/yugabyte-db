@@ -1262,7 +1262,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
       CoarseTimePoint deadline,
       const YBTransactionPtr& transaction,
       internal::RemoteTabletPtr status_tablet) EXCLUDES(mutex_) {
-    LOG(INFO) << __func__ << " with stack trace:\n" << GetStackTrace();
+    LOG(INFO) << __func__;
     tserver::AbortTransactionRequestPB req;
     req.set_tablet_id(status_tablet->tablet_id());
     req.set_propagated_hybrid_time(manager_->Now().ToUint64());

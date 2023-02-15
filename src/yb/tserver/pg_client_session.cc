@@ -790,9 +790,12 @@ Status PgClientSession::FinishTransaction(
     auto session = Session(kind);
 
     uint64_t num_tablets_touched = 0;
+    std::atomic<bool> callback_executed{false};
+
     auto global_perform_ops_status = PerformLocal(
         &global_perform_req, perform_resp.get(), context, num_tablets_touched,
-        [session, num_tablets_touched, txn, req, metadata, this](const Status status) {
+        [this, session, num_tablets_touched, txn, req, metadata, perform_resp,
+         &callback_executed](const Status status) {
           LOG(INFO) << __func__ << " commit callback triggered by PerformLocal";
           session->SetGlobalWriteTime(0);
           session->ClearGlobalOps();
@@ -841,10 +844,17 @@ Status PgClientSession::FinishTransaction(
                 client().ReportYsqlDdlTxnStatus(*metadata, req.commit()),
                 "Sending ReportYsqlDdlTxnStatus call failed");
           }
+
+          LOG(INFO) << __func__ << ": marking commit callback as executed";
+          callback_executed = true;
         });
 
     if (!global_perform_ops_status.ok()) {
       return global_perform_ops_status;
+    }
+
+    while (!callback_executed) {
+      continue;
     }
   } else {
     const auto txn_value = std::move(txn);
