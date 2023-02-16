@@ -794,29 +794,22 @@ Status PgClientSession::FinishTransaction(
 
     auto global_perform_ops_status = PerformLocal(
         &global_perform_req, perform_resp.get(), context, num_tablets_touched,
-        [this, session, num_tablets_touched, txn, req, metadata, perform_resp,
+        [this, session, &num_tablets_touched, &txn, req, metadata, perform_resp,
          &callback_executed](const Status status) {
           LOG(INFO) << __func__ << " commit callback triggered by PerformLocal";
           session->SetGlobalWriteTime(0);
           session->ClearGlobalOps();
           session->ClearGlobalOpsPairs();
-          // Reset back to local and remote as default.
-          // Perhaps we don't need to do this since the underlying batcher is already set to null.
-          // Calling this leads to a new batcher getting created which is not needed and causes
-          // non-empty batcher error in future operations.
-          // session->SetOperationMode(yb::client::internal::OperationMode::kLocalAndRemote);
           session->ResetNumTabletsInvolvedInTxn();
-
-          if (num_tablets_touched == 1) {
-            // Sleep for POC purposes, eventually we must wait for PerformLocal to complete i.e. RPC
-            // response received before finishing the request.
-            SleepFor(MonoDelta::FromMilliseconds(250));
-            LOG(INFO) << " skipping commit since num_tablets_touched = 1";
-            return;
-          }
 
           const auto txn_value = std::move(txn);
           session->SetTransaction(nullptr);
+
+          if (num_tablets_touched == 1) {
+            LOG(INFO) << " skipping commit since num_tablets_touched = 1";
+            callback_executed = true;
+            return;
+          }
 
           if (req.commit()) {
             LOG(INFO) << __func__ << " going to commit";
@@ -829,6 +822,7 @@ Status PgClientSession::FinishTransaction(
             // in this case. It will run its background task to figure out whether the transaction
             // succeeded or failed.
             if (!commit_status.ok()) {
+              callback_executed = true;
               return;
             }
           } else {
@@ -856,6 +850,7 @@ Status PgClientSession::FinishTransaction(
     while (!callback_executed) {
       continue;
     }
+    LOG(INFO) << __func__ << " callback execution done";
   } else {
     const auto txn_value = std::move(txn);
     Session(kind)->SetTransaction(nullptr);
