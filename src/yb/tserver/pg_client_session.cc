@@ -789,7 +789,7 @@ Status PgClientSession::FinishTransaction(
     uint64_t num_tablets_touched = 0;
     std::atomic<bool> callback_executed{false};
 
-    const auto commit_callback = [this, kind, num_tablets_touched, txn, req, metadata, perform_resp,
+    const auto commit_callback = [this, kind, &num_tablets_touched, &txn, req, metadata, perform_resp,
                             &callback_executed](const Status status) {
       LOG(INFO) << __func__ << " commit callback triggered by PerformLocal";
       Session(kind)->SetGlobalWriteTime(0);
@@ -797,13 +797,14 @@ Status PgClientSession::FinishTransaction(
       Session(kind)->ClearGlobalOpsPairs();
       Session(kind)->ResetNumTabletsInvolvedInTxn();
 
-      if (num_tablets_touched == 1) {
-        LOG(INFO) << " skipping commit since num_tablets_touched = 1";
-        return;
-      }
-
       const auto txn_value = std::move(txn);
       Session(kind)->SetTransaction(nullptr);
+
+      if (num_tablets_touched == 1) {
+        LOG(INFO) << " skipping commit since num_tablets_touched = 1";
+        callback_executed = true;
+        return;
+      }
 
       if (req.commit()) {
         LOG(INFO) << __func__ << " going to commit";
@@ -817,6 +818,7 @@ Status PgClientSession::FinishTransaction(
         // succeeded or failed.
         if (!commit_status.ok()) {
           LOG(INFO) << __func__ << " commit status is not ok";
+          callback_executed = true;
           return;
         }
       }
@@ -1239,6 +1241,10 @@ Status PgClientSession::BeginTransactionIfNecessary(
     txn->Abort();
     session->SetTransaction(nullptr);
     txn = nullptr;
+  } else {
+    LOG(INFO) << __func__ << " there is no transaction to abort, txn: " << txn
+              << " and txn_serial_no = " << txn_serial_no_
+              << " and options.txn_serial_no = " << options.txn_serial_no();
   }
 
   if (isolation == IsolationLevel::NON_TRANSACTIONAL) {
