@@ -775,7 +775,6 @@ Status PgClientSession::FinishTransaction(
   // These need to survive the callback execution of PerformLocal. Also allocate the response on the heap.
   PgPerformRequestPB global_perform_req;
   auto perform_resp = std::make_shared<PgPerformResponsePB>();
-  // PgPerformResponsePB global_perform_resp;
 
   if (kind == PgClientSessionKind::kPlain) {
     auto write_time = Session(kind)->GlobalWriteTime();
@@ -787,75 +786,105 @@ Status PgClientSession::FinishTransaction(
     global_perform_req.set_perform_global_txn_ops(true);
     global_perform_req.set_write_time(write_time);
 
-    // auto context_ptr = std::make_shared<rpc::RpcContext>(std::move(*context));
     uint64_t num_tablets_touched = 0;
-    auto global_perform_ops_status =
-        PerformLocal(&global_perform_req, perform_resp.get(), context, num_tablets_touched);
+    std::atomic<bool> callback_executed{false};
+
+    const auto commit_callback = [this, kind, num_tablets_touched, txn, req, metadata, perform_resp,
+                            &callback_executed](const Status status) {
+      LOG(INFO) << __func__ << " commit callback triggered by PerformLocal";
+      Session(kind)->SetGlobalWriteTime(0);
+      Session(kind)->ClearGlobalOps();
+      Session(kind)->ClearGlobalOpsPairs();
+      Session(kind)->ResetNumTabletsInvolvedInTxn();
+
+      if (num_tablets_touched == 1) {
+        LOG(INFO) << " skipping commit since num_tablets_touched = 1";
+        return;
+      }
+
+      const auto txn_value = std::move(txn);
+      Session(kind)->SetTransaction(nullptr);
+
+      if (req.commit()) {
+        LOG(INFO) << __func__ << " going to commit";
+        const auto commit_status = txn_value->CommitFuture().get();
+        LOG(INFO) << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id()
+                   << ", commit: " << commit_status;
+        // If commit_status is not ok, we cannot be sure whether the commit was successful or
+        // not. It is possible that the commit succeeded at the transaction coordinator but we
+        // failed to get the response back. Thus we will not report any status to the YB-Master
+        // in this case. It will run its background task to figure out whether the transaction
+        // succeeded or failed.
+        if (!commit_status.ok()) {
+          LOG(INFO) << __func__ << " commit status is not ok";
+          return;
+        }
+      }
+      else {
+        LOG(INFO) << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id() << ", abort";
+        txn_value->Abort();
+      }
+      if (metadata) {
+        // If we failed to report the status of this DDL transaction, we can just log and ignore
+        // it, as the poller in the YB-Master will figure out the status of this transaction
+        // using the transaction status tablet and PG catalog.
+        ERROR_NOT_OK(
+            client().ReportYsqlDdlTxnStatus(*metadata, req.commit()),
+            "Sending ReportYsqlDdlTxnStatus call failed");
+      }
+
+      LOG(INFO) << __func__ << ": marking commit callback as executed";
+      callback_executed = true;
+    };
+
+    auto global_perform_ops_status = PerformLocal(
+        &global_perform_req, perform_resp.get(), context, num_tablets_touched, commit_callback);
     if (!global_perform_ops_status.ok()) {
       return global_perform_ops_status;
     }
 
-    Session(kind)->SetGlobalWriteTime(0);
-    Session(kind)->ClearGlobalOps();
-    Session(kind)->ClearGlobalOpsPairs();
-    // Reset back to local and remote as default.
-    // Perhaps we don't need to do this since the underlying batcher is already set to null. Calling
-    // this leads to a new batcher getting created which is not needed and causes non-empty batcher
-    // error in future operations.
-    // Session(kind)->SetOperationMode(yb::client::internal::OperationMode::kLocalAndRemote);
-    Session(kind)->ResetNumTabletsInvolvedInTxn();
-
-    if (num_tablets_touched == 1) {
-      // Sleep for POC purposes, eventually we must wait for PerformLocal to complete i.e. RPC
-      // response received before finishing the request.
-      SleepFor(MonoDelta::FromMilliseconds(250));
-      LOG(INFO) << " skipping commit since num_tablets_touched = 1";
-      return Status::OK();
+    while(!callback_executed) {
+      continue;
     }
-  }
-
-  // Sleep for some time to allow the PerformLocal ops to finish executing before we go ahead and
-  // commit the transaction.
-  // This is only for POC purposes. Eventually, we must wait for those ops to get processed before
-  // issue a commit request.
-  SleepFor(MonoDelta::FromMilliseconds(1000));
-
-  const auto txn_value = std::move(txn);
-  Session(kind)->SetTransaction(nullptr);
-
-  // Using the session instance call the perform function for the global set of ops
-  // This should send out a flag to say that the ops should just be replicated and not written to
-  // intentsdb If everything goes fine, if there is a single tablet involved, we would like to use
-  // the fast path and skip commit process and goes through the fast path.
-  /* YBC_LOG_INFO_STACK_TRACE(
-      "RKNRKN printing stack trace from finish transaction in pg client session"); */
-
-  if (req.commit()) {
-    LOG(INFO) << __func__ << " going to commit";
-    const auto commit_status = txn_value->CommitFuture().get();
-    LOG(INFO)
-        << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id()
-        << ", commit: " << commit_status;
-    // If commit_status is not ok, we cannot be sure whether the commit was successful or not. It
-    // is possible that the commit succeeded at the transaction coordinator but we failed to get
-    // the response back. Thus we will not report any status to the YB-Master in this case. It
-    // will run its background task to figure out whether the transaction succeeded or failed.
-    if (!commit_status.ok()) {
-      return commit_status;
-    }
+    LOG(INFO) << __func__ << " commit callback has been executed";
   } else {
-    LOG(INFO)
-        << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id() << ", abort";
-    txn_value->Abort();
+    const auto txn_value = std::move(txn);
+    Session(kind)->SetTransaction(nullptr);
+
+    // Using the session instance call the perform function for the global set of ops
+    // This should send out a flag to say that the ops should just be replicated and not written to
+    // intentsdb If everything goes fine, if there is a single tablet involved, we would like to use
+    // the fast path and skip commit process and goes through the fast path.
+    /* YBC_LOG_INFO_STACK_TRACE(
+        "RKNRKN printing stack trace from finish transaction in pg client session"); */
+
+    if (req.commit()) {
+      LOG(INFO) << __func__ << " going to commit";
+      const auto commit_status = txn_value->CommitFuture().get();
+      LOG(INFO) << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id()
+                << ", commit: " << commit_status;
+      // If commit_status is not ok, we cannot be sure whether the commit was successful or not. It
+      // is possible that the commit succeeded at the transaction coordinator but we failed to get
+      // the response back. Thus we will not report any status to the YB-Master in this case. It
+      // will run its background task to figure out whether the transaction succeeded or failed.
+      if (!commit_status.ok()) {
+        return commit_status;
+      }
+    } else {
+      LOG(INFO) << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id() << ", abort";
+      txn_value->Abort();
+    }
+
+    if (metadata) {
+      // If we failed to report the status of this DDL transaction, we can just log and ignore it,
+      // as the poller in the YB-Master will figure out the status of this transaction using the
+      // transaction status tablet and PG catalog.
+      ERROR_NOT_OK(
+          client().ReportYsqlDdlTxnStatus(*metadata, req.commit()),
+          "Sending ReportYsqlDdlTxnStatus call failed");
+    }
   }
 
-  if (metadata) {
-    // If we failed to report the status of this DDL transaction, we can just log and ignore it,
-    // as the poller in the YB-Master will figure out the status of this transaction using the
-    // transaction status tablet and PG catalog.
-    ERROR_NOT_OK(client().ReportYsqlDdlTxnStatus(*metadata, req.commit()),
-                 "Sending ReportYsqlDdlTxnStatus call failed");
-  }
   return Status::OK();
 }
 
@@ -922,7 +951,8 @@ Status PgClientSession::Perform(
 }
 
 Status PgClientSession::PerformLocal(
-    PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context, uint64_t& num_tablets_used) {
+    PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context,
+    uint64_t& num_tablets_used, client::PerformLocalCallback callback) {
   LOG(INFO) << __func__ << " with req: " << req->DebugString();
   PgResponseCache::Setter setter;
   PgClientSessionKind kind;
@@ -1008,7 +1038,7 @@ Status PgClientSession::PerformLocal(
   }
 
   auto transaction = session_info.first.transaction;
-  session->FlushAsync([data, transaction, ops_count](client::FlushStatus* flush_status) {
+  session->FlushAsync([data, transaction, ops_count, callback](client::FlushStatus* flush_status) {
     data->FlushDone(flush_status);
     if (transaction) {
       LOG(INFO) << "FlushAsync of " << ops_count << " ops completed with transaction id "
@@ -1017,6 +1047,7 @@ Status PgClientSession::PerformLocal(
       LOG(INFO) << "FlushAsync of " << ops_count << " ops completed for non-distributed "
                 << "transaction";
     }
+    callback(flush_status->status);
   });
   return Status::OK();
 }
