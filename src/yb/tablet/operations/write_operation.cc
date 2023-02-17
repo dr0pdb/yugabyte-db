@@ -35,6 +35,7 @@
 #include "yb/consensus/consensus.messages.h"
 
 #include "yb/tablet/tablet.h"
+#include "yb/tablet/transaction_participant.h"
 
 #include "yb/util/debug-util.h"
 #include "yb/util/debug/trace_event.h"
@@ -75,6 +76,7 @@ Status WriteOperation::DoAborted(const Status& status) {
 Status WriteOperation::DoReplicated(int64_t leader_term, Status* complete_status) {
   TRACE_EVENT0("txn", "WriteOperation::Complete");
   TRACE("APPLY: Starting");
+  LOG(INFO) << __func__ << " for request: " << request()->ShortDebugString();
 
   auto injected_latency = GetAtomicFlag(&FLAGS_TEST_tablet_inject_latency_on_apply_write_txn_ms);
   if (PREDICT_FALSE(injected_latency) > 0) {
@@ -89,6 +91,23 @@ Status WriteOperation::DoReplicated(int64_t leader_term, Status* complete_status
   // Failure is regular case, since could happen because transaction was aborted, while
   // replicating its intents.
   LOG_IF(INFO, !complete_status->ok()) << "Apply operation failed: " << *complete_status;
+
+  LOG(INFO) << __func__ << " RKNRKN before calling cleanup intents, the operstion mode is "
+            << operation_mode() << " is leader side is set to " << isLeaderSide();
+  if (operation_mode() == tablet::OperationMode::kSkipIntents && isLeaderSide()) {
+    auto tablet = VERIFY_RESULT(tablet_safe());
+    auto transaction_participant = tablet->transaction_participant();
+
+    LOG(INFO) << __func__ << " RKNRKN calling cleanup for the transaction with id "
+              << TransactionId(transaction_id());
+
+    Status st = transaction_participant->cleanup_intents(TransactionId(transaction_id()));
+    if (!st.ok()) {
+      LOG(INFO) << __func__ << " RKNRKN the return status of cleanup intents for transaction "
+                << TransactionId(transaction_id()) << " is not ok";
+      return st;
+    }
+  }
 
   // Now that all of the changes have been applied and the commit is durable
   // make the changes visible to readers.

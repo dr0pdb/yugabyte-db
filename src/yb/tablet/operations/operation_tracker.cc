@@ -133,7 +133,7 @@ OperationTracker::Metrics::Metrics(const scoped_refptr<MetricEntity>& entity)
   INSTANTIATE(Empty, empty);
   INSTANTIATE(HistoryCutoff, history_cutoff);
   INSTANTIATE(ChangeAutoFlagsConfig, change_auto_flags_config);
-  static_assert(9== kElementsInOperationType, "Init metrics for all operation types");
+  static_assert(10== kElementsInOperationType, "Init metrics for all operation types");
 }
 #undef INSTANTIATE
 #undef GINIT

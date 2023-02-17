@@ -212,7 +212,12 @@ Status ReadQuery::DoPerform() {
   ADOPT_TRACE(context_.trace());
   TRACE("Start Read");
   TRACE_EVENT1("tserver", "TabletServiceImpl::Read", "tablet_id", req_->tablet_id());
-  VLOG(2) << "Received Read RPC: " << req_->DebugString();
+  if (req_->has_transaction()) {
+    LOG(INFO) << __func__ << " RKNRKN Received Read RPC: " << req_->DebugString();
+    auto transaction_id =
+        CHECK_RESULT(FullyDecodeTransactionId(req_->transaction().transaction_id()));
+    LOG(INFO) << __func__ << "RKNRKN Non-NULL txn in read path with id " << transaction_id;
+  }
   // Unfortunately, determining the isolation level is not as straightforward as it seems. All but
   // the first request to a given tablet by a particular transaction assume that the tablet already
   // has the transaction metadata, including the isolation level, and those requests expect us to

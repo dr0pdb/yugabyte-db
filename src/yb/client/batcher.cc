@@ -62,6 +62,7 @@
 
 #include "yb/common/wire_protocol.h"
 
+#include "yb/common/ybc_util.h"
 #include "yb/gutil/stl_util.h"
 #include "yb/gutil/strings/join.h"
 
@@ -135,6 +136,7 @@ Batcher::Batcher(YBClient* client,
     transaction_(std::move(transaction)),
     read_point_(read_point),
     force_consistent_read_(force_consistent_read) {
+      LOG(INFO) << __func__ << " init with batcher = " << (session) ? "non-null" : "nullptr";
 }
 
 Batcher::~Batcher() {
@@ -176,6 +178,7 @@ size_t Batcher::CountBufferedOperations() const {
 }
 
 void Batcher::FlushFinished() {
+  LOG(INFO) << __func__;
   if (state_ != BatcherState::kAborted) {
     state_ = BatcherState::kComplete;
   }
@@ -214,7 +217,7 @@ void Batcher::RunCallback() {
 
 void Batcher::FlushAsync(
     StatusFunctor callback, const IsWithinTransactionRetry is_within_transaction_retry) {
-  VLOG_WITH_PREFIX_AND_FUNC(4) << "is_within_transaction_retry: " << is_within_transaction_retry;
+  LOG(INFO) << "is_within_transaction_retry: " << is_within_transaction_retry;
 
   CHECK_EQ(state_, BatcherState::kGatheringOps);
   state_ = BatcherState::kResolvingTablets;
@@ -226,6 +229,7 @@ void Batcher::FlushAsync(
   auto session = weak_session_.lock();
 
   if (session) {
+    LOG(INFO) << __func__ << " calling FlushStarted";
     // Important to do this outside of the lock so that we don't have
     // a lock inversion deadlock -- the session lock should always
     // come before the batcher lock.
@@ -233,14 +237,24 @@ void Batcher::FlushAsync(
   }
 
   auto transaction = this->transaction();
+  if (transaction) {
+    LOG(INFO) << __func__ << " transaction non-null";
+  } else {
+    LOG(INFO) << __func__ << " transaction is null";
+  }
+
   // If YBSession retries previously failed ops within the same transaction, these ops are already
   // expected by transaction.
   if (transaction && !is_within_transaction_retry) {
     transaction->batcher_if().ExpectOperations(operations_count);
   }
 
+  LOG(INFO) << __func__ << " the ops_ size is " << ops_.size();
   ops_queue_.reserve(ops_.size());
   for (auto& yb_op : ops_) {
+    LOG(INFO) << __func__ << " emplacing back op: " << (yb_op ? "non-null" : "null");
+    LOG(INFO) << __func__ << " emplacing back op: " << yb_op->ToString();
+
     ops_queue_.emplace_back(yb_op, ops_queue_.size());
     auto& in_flight_op = ops_queue_.back();
     auto status = yb_op->GetPartitionKey(&in_flight_op.partition_key);
@@ -248,6 +262,10 @@ void Batcher::FlushAsync(
     if (status.ok() && yb_op->table()->partition_schema().IsHashPartitioning()) {
       if (in_flight_op.partition_key.empty()) {
         if (!yb_op->read_only()) {
+          auto write_op_down = down_cast<const client::YBPgsqlWriteOp*>(yb_op.get());
+          LOG(INFO) << __func__
+                    << " hash partition key is empty for write request with statement_id: "
+                    << write_op_down->statement_id();
           status = STATUS_FORMAT(IllegalState, "Hash partition key is empty for $0", yb_op);
         }
       } else {
@@ -256,6 +274,7 @@ void Batcher::FlushAsync(
     }
 
     if (!status.ok()) {
+      LOG(INFO) << __func__ << " error in getting partition key for op";
       combined_error_ = status;
       FlushFinished();
       return;
@@ -263,8 +282,8 @@ void Batcher::FlushAsync(
   }
 
   for (auto& op : ops_queue_) {
-    VLOG_WITH_PREFIX(4) << "Looking up tablet for " << op.ToString()
-                        << " partition key: " << Slice(op.partition_key).ToDebugHexString();
+    // LOG(INFO) << "Looking up tablet for " << op.ToString()
+    //                     << " partition key: " << Slice(op.partition_key).ToDebugHexString();
 
     if (op.yb_op->tablet()) {
       TabletLookupFinished(&op, op.yb_op->tablet());
@@ -292,6 +311,18 @@ void Batcher::Add(std::shared_ptr<YBOperation> op) {
 
   ops_.push_back(op);
 }
+
+void Batcher::SetOperationMode(OperationMode op_mode) {
+  operation_mode_ = op_mode;
+}
+
+OperationMode Batcher::GetOperationMode() {
+  return operation_mode_;
+}
+
+void Batcher::SetTransactionId(std::string transaction_id) { transaction_id_ = transaction_id; }
+
+std::string Batcher::GetTransactionId() { return transaction_id_; }
 
 void Batcher::CombineError(const InFlightOp& in_flight_op) {
   if (ClientError(in_flight_op.error) == ClientErrorCode::kTablePartitionListIsStale) {
@@ -325,8 +356,8 @@ void Batcher::LookupTabletFor(InFlightOp* op) {
 
 void Batcher::TabletLookupFinished(
     InFlightOp* op, Result<internal::RemoteTabletPtr> lookup_result) {
-  VLOG_WITH_PREFIX_AND_FUNC(lookup_result.ok() ? 4 : 3)
-      << "Op: " << op->ToString() << ", result: " << AsString(lookup_result);
+  // LOG(INFO)
+  //     << "Op: " << op->ToString() << ", result: " << AsString(lookup_result);
 
   if (lookup_result.ok()) {
     op->tablet = *lookup_result;
@@ -411,6 +442,7 @@ std::pair<std::map<PartitionKey, Status>, std::map<RetryableRequestId, Status>>
 }
 
 void Batcher::AllLookupsDone() {
+  LOG(INFO) << __func__;
   // We're only ready to flush if both of the following conditions are true:
   // 1. The batcher is in the "resolving tablets" state (i.e. FlushAsync was called).
   // 2. All outstanding ops have finished lookup. Why? To avoid a situation
@@ -427,10 +459,11 @@ void Batcher::AllLookupsDone() {
 
   state_ = BatcherState::kTransactionPrepare;
 
-  VLOG_WITH_PREFIX_AND_FUNC(4)
+  LOG(INFO)
       << "Errors: " << errors_by_partition_key.size() << ", ops queue: " << ops_queue_.size();
 
   if (!errors_by_partition_key.empty()) {
+    LOG(INFO) << __func__ << ": errors by partition key is non-empty";
     // If some operation tablet lookup failed - set this error for all operations designated for
     // the same partition key. We are doing this to keep guarantee on the order of ops for the
     // same partition key (see InFlightOp::sequence_number_).
@@ -482,6 +515,9 @@ void Batcher::AllLookupsDone() {
     return lhs.tablet.get() < rhs.tablet.get();
   });
 
+  LOG(INFO) << __func__ << ": sorting done";
+
+  YBSessionPtr session = weak_session_.lock();
   auto group_start = ops_queue_.begin();
   auto current_group = (*group_start).yb_op->group();
   const auto* current_tablet = (*group_start).tablet.get();
@@ -498,7 +534,11 @@ void Batcher::AllLookupsDone() {
           it_tablet->partition_list_version()));
       return;
     }
+    if (session) {
+      session->AddTabletInvolvedInTxn(current_tablet->tablet_id());
+    }
     if (current_tablet != it_tablet || current_group != it_group) {
+      LOG(INFO) << __func__ << ": creating new group. " << current_tablet->ToString() << " " << it_tablet->ToString();
       ops_info_.groups.emplace_back(group_start, it);
       group_start = it;
       current_group = it_group;
@@ -506,14 +546,16 @@ void Batcher::AllLookupsDone() {
     }
   }
   ops_info_.groups.emplace_back(group_start, ops_queue_.end());
+  LOG(INFO) << __func__ << ": grouping done with num_groups = " << ops_info_.groups.size();
 
   ExecuteOperations(Initial::kTrue);
 }
 
 void Batcher::ExecuteOperations(Initial initial) {
-  VLOG_WITH_PREFIX_AND_FUNC(3) << "initial: " << initial;
+  LOG(INFO) << __func__ << ": initial: " << initial;
   auto transaction = this->transaction();
   if (transaction) {
+    LOG(INFO) << __func__ << ": transaction present";
     // If this Batcher is executed in context of transaction,
     // then this transaction should initialize metadata used by RPC calls.
     //
@@ -532,8 +574,12 @@ void Batcher::ExecuteOperations(Initial initial) {
     // transaction is required. Use current time as a read time.
     // Note: read_point_ is null in case of initdb. Nothing to do in this case.
     read_point_->SetCurrentReadTime();
-    VLOG_WITH_PREFIX_AND_FUNC(3) << "Set current read time as a read time: "
+    LOG(INFO) << "Set current read time as a read time: "
                                  << read_point_->GetReadTime();
+  }
+
+  if (GetOperationMode() == OperationMode::kSkipIntents) {
+    ops_info_.metadata = {};
   }
 
   if (state_ != BatcherState::kTransactionPrepare) {
@@ -564,6 +610,16 @@ void Batcher::ExecuteOperations(Initial initial) {
         self, group.begin->tablet.get(), group, allow_local_calls, need_consistent_read));
   }
 
+  LOG(INFO) << __func__ << ": RPCs created";
+
+  // Send all of the groups as is with the dummy maked for the transaction so that the intents are
+  // written locally. Also, buffer the ops per tablet at session level so that we have the buffer
+  // across multiple statement too within a txn Should have a way to identify that one of the ops is
+  // commit Upon seeing commit op, we send the last batch of ops too After sending the last grouped
+  // ops, we send the session level per tablet ops as a separate RPC in addition. The request should
+  // have information that this is the global set of ops and they must be replicated as one single
+  // write batch At the time of sending the global rpc, the global map size should be checked. If >
+  // 1, it must be a distributed txn.
   outstanding_rpcs_.store(rpcs.size());
   for (const auto& rpc : rpcs) {
     if (transaction && transaction->trace() && rpc->trace()) {
@@ -571,6 +627,10 @@ void Batcher::ExecuteOperations(Initial initial) {
     }
     rpc->SendRpc();
   }
+  LOG(INFO) << __func__ << ": RPCs sent";
+  /* YBC_LOG_INFO_STACK_TRACE(
+      "RKNRKN printing stack trace from batcher.cc before sending the grouped ops per tablet rpc");
+   */
 }
 
 rpc::Messenger* Batcher::messenger() const {
@@ -631,10 +691,16 @@ std::shared_ptr<AsyncRpc> Batcher::CreateRpc(
   switch (op_group) {
     case OpGroup::kWrite:
       return std::make_shared<WriteRpc>(data);
-    case OpGroup::kLeaderRead:
-      return std::make_shared<ReadRpc>(data, YBConsistencyLevel::STRONG);
-    case OpGroup::kConsistentPrefixRead:
-      return std::make_shared<ReadRpc>(data, YBConsistencyLevel::CONSISTENT_PREFIX);
+    case OpGroup::kLeaderRead: {
+      auto val = std::make_shared<ReadRpc>(data, YBConsistencyLevel::STRONG);
+      LOG(INFO) << __func__ << " RKNRKN printing the request " << val->req().DebugString();
+      return val;
+    }
+    case OpGroup::kConsistentPrefixRead: {
+      auto val = std::make_shared<ReadRpc>(data, YBConsistencyLevel::CONSISTENT_PREFIX);
+      LOG(INFO) << __func__ << " RKNRKN printing the request " << val->req().DebugString();
+      return val;
+    }
   }
   FATAL_INVALID_ENUM_VALUE(OpGroup, op_group);
 }

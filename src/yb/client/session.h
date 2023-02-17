@@ -14,9 +14,11 @@
 #pragma once
 
 #include <future>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "yb/client/client_fwd.h"
+#include "yb/client/yb_op.h"
 
 #include "yb/common/common_fwd.h"
 
@@ -24,6 +26,7 @@
 
 #include "yb/util/locks.h"
 #include "yb/util/monotime.h"
+#include "yb/client/batcher.h"
 
 namespace yb {
 
@@ -129,6 +132,10 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
   // Applied operations just added to the session and waits to be flushed.
   void Apply(YBOperationPtr yb_op);
 
+  void SetOperationMode(yb::client::internal::OperationMode op_mode);
+
+  void SetTransactionId(const std::string transaction_id);
+
   bool IsInProgress(YBOperationPtr yb_op) const;
 
   void Apply(const std::vector<YBOperationPtr>& ops);
@@ -222,9 +229,64 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
   // It is useful when whole statement is executed using multiple flushes.
   void SetForceConsistentRead(ForceConsistentRead value);
 
+  void SetGlobalWriteTime(uint64_t write_time) { global_write_time_ = write_time; }
+
+  uint64_t GlobalWriteTime() { return global_write_time_; }
+
+  void SetGlobalReadTime(uint64_t read_time) { global_read_time_ = read_time; }
+
+  uint64_t GlobalReadTime() { return global_read_time_; }
+
   const internal::AsyncRpcMetricsPtr& async_rpc_metrics() const {
     return async_rpc_metrics_;
   }
+
+  void AppendCurrentBatchOpsToGlobalOps(
+      std::vector<std::shared_ptr<client::YBPgsqlWriteOp>> current_batch_ops) {
+    LOG(INFO) << __func__ << " appending current batch to global ops: " << current_batch_ops.size();
+
+    for (auto a : current_batch_ops) {
+      // std::string partition_key;
+      // auto s = a->GetPartitionKey(&partition_key);
+      LOG(INFO) << "Appending op = " << a->ToDebugString();
+                // << " with partition key = " << partition_key;
+      global_transactional_ops_.emplace_back(a);
+    }
+    // global_transactional_ops_.insert(
+    //     std::end(global_transactional_ops_), std::begin(current_batch_ops),
+    //     std::end(current_batch_ops));
+  }
+
+  void ClearGlobalOps() { global_transactional_ops_.clear(); }
+
+  void ResetNumTabletsInvolvedInTxn() { tablets_involved_in_txn.clear(); }
+
+  void AddTabletInvolvedInTxn(std::string tablet_id) {
+    LOG(INFO) << __func__ << ": adding " << tablet_id;
+    tablets_involved_in_txn.insert(tablet_id);
+  }
+
+  std::vector<std::shared_ptr<client::YBPgsqlOp>>& GlobalTxnOps() {
+    return global_transactional_ops_;
+  }
+
+  void AppendCurrentBatchOpsToGlobalOpsPairs(
+      std::vector<std::shared_ptr<client::YBPgsqlWriteOp>> write_ops) {
+    for (auto& a : write_ops) {
+      global_transactional_ops_pairs_.push_back(std::make_pair(a, a->request()));
+    }
+  }
+
+  void ClearGlobalOpsPairs() { global_transactional_ops_pairs_.clear(); }
+
+  std::vector<std::pair<std::shared_ptr<client::YBPgsqlWriteOp>, PgsqlWriteRequestPB>>&
+  GlobalTxnOpsPairs() {
+    return global_transactional_ops_pairs_;
+  }
+
+  uint64_t GetNumTabletsInvolvedInTxn() { return tablets_involved_in_txn.size(); }
+
+  std::unordered_set<std::string> GetTabletsInvolvedInTxn() { return tablets_involved_in_txn; }
 
   // Called by Batcher when a flush has started/finished.
   void FlushStarted(internal::BatcherPtr batcher);
@@ -245,6 +307,10 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
 
     ConsistentReadPoint* read_point() const;
   };
+
+  BatcherConfig batcher_config() { return batcher_config_; }
+
+  internal::BatcherPtr& GetBatcher() { return batcher_; }
 
  private:
   friend class YBClient;
@@ -268,6 +334,16 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
   // call FlushFinished() before it destructs itself, so we're guaranteed that these
   // pointers stay valid.
   std::unordered_set<internal::BatcherPtr> flushed_batchers_;
+
+  std::vector<std::shared_ptr<client::YBPgsqlOp>> global_transactional_ops_;
+  std::vector<std::pair<std::shared_ptr<client::YBPgsqlWriteOp>, PgsqlWriteRequestPB>>
+      global_transactional_ops_pairs_;
+
+  uint64_t global_write_time_;
+  uint64_t global_read_time_;
+
+  uint64_t num_tablets_involved_in_txn_;
+  std::unordered_set<std::string> tablets_involved_in_txn;
 
   // Session only one of deadline and timeout could be active.
   // When new batcher is created its deadline is set as session deadline or

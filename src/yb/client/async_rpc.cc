@@ -353,6 +353,8 @@ void SetMetadata(const InFlightOpsTransactionMetadata& metadata,
   }
   dest->set_deprecated_may_have_metadata(true);
 
+  LOG(INFO) << __func__ << " RKNRKN setting the metadata in dest" << GetStackTrace();
+
   if (metadata.subtransaction && !metadata.subtransaction->IsDefaultState()) {
     metadata.subtransaction->ToPB(dest->mutable_subtransaction());
   }
@@ -399,6 +401,9 @@ AsyncRpcBase<Req, Resp>::AsyncRpcBase(
   }
   const auto& metadata = batcher_->in_flight_ops().metadata;
   if (!metadata.transaction.transaction_id.IsNil()) {
+    LOG(INFO) << __func__
+              << " RKNRKN setting the metadata in the request, and the transaction id is "
+              << metadata.transaction.transaction_id;
     SetMetadata(metadata, data.need_metadata, &req_);
     bool serializable = metadata.transaction.isolation == IsolationLevel::SERIALIZABLE_ISOLATION;
     LOG_IF(DFATAL, has_read_time && serializable)
@@ -557,6 +562,19 @@ void ReleaseOps(Repeated* repeated) {
   }
 }
 
+::yb::tserver::WriteOperationMode GetWriteOperationMode(OperationMode op_mode) {
+  switch (op_mode) {
+    case OperationMode::kLocal:
+      return ::yb::tserver::WriteOperationMode::LOCAL_ONLY_OPERATION;
+    case OperationMode::kRemote:
+      return ::yb::tserver::WriteOperationMode::REMOTE_ONLY_OPERATION;
+    case OperationMode::kSkipIntents:
+      return ::yb::tserver::WriteOperationMode::SKIP_INTENTS_OPERATION;
+    default:
+      return ::yb::tserver::WriteOperationMode::LOCAL_AND_REMOTE_OPERATION;
+  }
+}
+
 WriteRpc::WriteRpc(const AsyncRpcData& data)
     : AsyncRpcBase(data, YBConsistencyLevel::STRONG) {
   TRACE_TO(trace_, "WriteRpc initiated");
@@ -590,6 +608,15 @@ WriteRpc::WriteRpc(const AsyncRpcData& data)
     auto temp = client_id.ToUInt64Pair();
     req_.set_client_id1(temp.first);
     req_.set_client_id2(temp.second);
+    req_.set_operation_mode(GetWriteOperationMode(batcher_->GetOperationMode()));
+
+    if (batcher_ && !batcher_->GetTransactionId().empty()) {
+      req_.set_transaction_id(batcher_->GetTransactionId());
+      LOG(INFO) << __func__ << " RKNRKN setting the transaction id to "
+                << batcher_->transaction()->id() << " in write request, and operation mode as "
+                << GetWriteOperationMode(batcher_->GetOperationMode());
+    }
+
     const auto& first_yb_op = ops_.begin()->yb_op;
     if (first_yb_op->request_id().has_value()) {
       req_.set_request_id(first_yb_op->request_id().value());

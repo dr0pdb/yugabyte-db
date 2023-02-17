@@ -32,6 +32,7 @@
 #include "yb/common/schema.h"
 #include "yb/common/wire_protocol.h"
 
+#include "yb/common/ybc_util.h"
 #include "yb/rpc/rpc_context.h"
 #include "yb/rpc/sidecars.h"
 
@@ -279,7 +280,7 @@ Status GetTable(const TableId& table_id, PgTableCache* cache, client::YBTablePtr
 
 Result<PgClientSessionOperations> PrepareOperations(
     PgPerformRequestPB* req, client::YBSession* session, rpc::Sidecars* sidecars,
-    PgTableCache* table_cache) {
+    PgTableCache* table_cache, std::vector<std::shared_ptr<client::YBPgsqlWriteOp>>& write_ops) {
   auto write_time = HybridTime::FromPB(req->write_time());
   std::vector<std::shared_ptr<client::YBPgsqlOp>> ops;
   ops.reserve(req->ops().size());
@@ -303,13 +304,17 @@ Result<PgClientSessionOperations> PrepareOperations(
     } else {
       auto& write = *op.mutable_write();
       RETURN_NOT_OK(GetTable(write.table_id(), table_cache, &table));
-      auto write_op = std::make_shared<client::YBPgsqlWriteOp>(table, sidecars, &write);
+      // LOG(INFO) << __func__ << ": creating YBPgsqlWriteOp "
+      //           << " with write = " << write.DebugString();
+      auto write_op = std::make_shared<client::YBPgsqlWriteOp>(table, sidecars, write.stmt_id(), &write);
       if (write_time) {
         write_op->SetWriteTime(write_time);
         write_time = HybridTime::kInvalid;
       }
       ops.push_back(write_op);
+      write_ops.push_back(write_op);
       session->Apply(std::move(write_op));
+      session->SetGlobalWriteTime(write_time.ToUint64());
     }
   }
   finished = true;
@@ -343,6 +348,75 @@ struct PerformData {
                    IsFailure(!status.ok()));
     }
     context.RespondSuccess();
+  }
+
+ private:
+  Status ProcessResponse() {
+    int idx = 0;
+    for (const auto& op : ops) {
+      const auto status = HandleResponse(session_id, *op, resp, used_read_time);
+      if (!status.ok()) {
+        if (PgsqlRequestStatus(status) == PgsqlResponsePB::PGSQL_STATUS_SCHEMA_VERSION_MISMATCH) {
+          table_cache->Invalidate(op->table()->id());
+        }
+        VLOG(2) << SessionLogPrefix(session_id) << "Failed op " << idx << ": " << status;
+        return status.CloneAndAddErrorCode(OpIndex(idx));
+      }
+      if (op->response().is_backfill_batch_done() &&
+          op->type() == client::YBOperation::Type::PGSQL_READ &&
+          down_cast<const client::YBPgsqlReadOp&>(*op).request().is_for_backfill()) {
+        // After backfill table schema version is updated, so we reset cache in advance.
+        table_cache->Invalidate(op->table()->id());
+      }
+      ++idx;
+    }
+    auto& responses = *resp->mutable_responses();
+    responses.Reserve(narrow_cast<int>(ops.size()));
+    for (const auto& op : ops) {
+      auto& op_resp = *responses.Add();
+      op_resp.Swap(op->mutable_response());
+      if (op->has_sidecar()) {
+        op_resp.set_rows_data_sidecar(narrow_cast<int>(op->sidecar_index()));
+      }
+      op_resp.set_partition_list_version(op->table()->GetPartitionListVersion());
+    }
+
+    return Status::OK();
+  }
+};
+
+struct PerformDataLocal {
+  uint64_t session_id;
+  PgPerformResponsePB* resp;
+  rpc::RpcContext* context;
+  PgClientSessionOperations ops;
+  PgTableCache* table_cache;
+  PgClientSession::UsedReadTimePtr used_read_time;
+  PgResponseCache::Setter cache_setter;
+  bool perform_global_txn_ops;
+  bool callRespondSuccess = true;
+
+  void FlushDone(client::FlushStatus* flush_status) {
+    auto status = CombineErrorsToStatus(flush_status->errors, flush_status->status);
+    if (status.ok()) {
+      status = ProcessResponse();
+    }
+    if (!status.ok()) {
+      StatusToPB(status, resp->mutable_status());
+    }
+    if (cache_setter) {
+      std::vector<RefCntSlice> rows_data;
+      rows_data.reserve(ops.size());
+      for (const auto& op : ops) {
+        rows_data.emplace_back(context->sidecars().Extract(op->sidecar_index()));
+      }
+      cache_setter(
+          PgResponseCache::Response{PgPerformResponsePB(*resp), std::move(rows_data)},
+          IsFailure(!status.ok()));
+    }
+    if (callRespondSuccess) {
+      context->RespondSuccess();
+    }
   }
 
  private:
@@ -688,7 +762,7 @@ Status PgClientSession::FinishTransaction(
   auto kind = req.ddl_mode() ? PgClientSessionKind::kDdl : PgClientSessionKind::kPlain;
   auto& txn = Transaction(kind);
   if (!txn) {
-    VLOG_WITH_PREFIX_AND_FUNC(2) << "ddl: " << req.ddl_mode() << ", no running transaction";
+    LOG(INFO) << "ddl: " << req.ddl_mode() << ", no running transaction";
     return Status::OK();
   }
 
@@ -697,39 +771,134 @@ Status PgClientSession::FinishTransaction(
     metadata = VERIFY_RESULT(GetDdlTransactionMetadata(true, context->GetClientDeadline()));
     LOG_IF(DFATAL, !metadata) << "metadata is required";
   }
-  const auto txn_value = std::move(txn);
-  Session(kind)->SetTransaction(nullptr);
 
-  if (req.commit()) {
-    const auto commit_status = txn_value->CommitFuture().get();
-    VLOG_WITH_PREFIX_AND_FUNC(2)
-        << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id()
-        << ", commit: " << commit_status;
-    // If commit_status is not ok, we cannot be sure whether the commit was successful or not. It
-    // is possible that the commit succeeded at the transaction coordinator but we failed to get
-    // the response back. Thus we will not report any status to the YB-Master in this case. It
-    // will run its background task to figure out whether the transaction succeeded or failed.
-    if (!commit_status.ok()) {
-      return commit_status;
+  // These need to survive the callback execution of PerformLocal. Also allocate the response on the heap.
+  PgPerformRequestPB global_perform_req;
+  auto perform_resp = std::make_shared<PgPerformResponsePB>();
+  // PgPerformResponsePB global_perform_resp;
+
+  if (kind == PgClientSessionKind::kPlain) {
+    auto write_time = Session(kind)->GlobalWriteTime();
+
+    global_perform_req.set_session_id(req.session_id());
+
+    // TODO: All of the options are not set. Need to revisit
+    *global_perform_req.mutable_options() = req.options();
+    global_perform_req.set_perform_global_txn_ops(true);
+    global_perform_req.set_write_time(write_time);
+
+    auto session = Session(kind);
+
+    uint64_t num_tablets_touched = 0;
+    std::atomic<bool> callback_executed{false};
+
+    auto global_perform_ops_status = PerformLocal(
+        &global_perform_req, perform_resp.get(), context, num_tablets_touched,
+        [this, &session, &num_tablets_touched, &txn, req, metadata, perform_resp,
+         &callback_executed](const Status status) {
+          LOG(INFO) << __func__ << " commit callback triggered by PerformLocal";
+          session->SetGlobalWriteTime(0);
+          session->ClearGlobalOps();
+          session->ClearGlobalOpsPairs();
+          // Reset back to local and remote as default.
+          // Perhaps we don't need to do this since the underlying batcher is already set to null.
+          // Calling this leads to a new batcher getting created which is not needed and causes
+          // non-empty batcher error in future operations.
+          // session->SetOperationMode(yb::client::internal::OperationMode::kLocalAndRemote);
+          session->ResetNumTabletsInvolvedInTxn();
+
+          const auto txn_value = std::move(txn);
+          session->SetTransaction(nullptr);
+
+          if (num_tablets_touched == 1) {
+            LOG(INFO) << " skipping commit since num_tablets_touched = 1";
+            session->SetTransactionId("");
+            callback_executed = true;
+            return;
+          }
+
+          if (req.commit()) {
+            LOG(INFO) << __func__ << " going to commit";
+            const auto commit_status = txn_value->CommitFuture().get();
+            LOG(INFO) << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id()
+                      << ", commit: " << commit_status;
+            // If commit_status is not ok, we cannot be sure whether the commit was successful or
+            // not. It is possible that the commit succeeded at the transaction coordinator but we
+            // failed to get the response back. Thus we will not report any status to the YB-Master
+            // in this case. It will run its background task to figure out whether the transaction
+            // succeeded or failed.
+            if (!commit_status.ok()) {
+              callback_executed = true;
+              return;
+            }
+          } else {
+            LOG(INFO) << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id() << ", abort";
+            txn_value->Abort();
+          }
+
+          if (metadata) {
+            // If we failed to report the status of this DDL transaction, we can just log and ignore
+            // it, as the poller in the YB-Master will figure out the status of this transaction
+            // using the transaction status tablet and PG catalog.
+            ERROR_NOT_OK(
+                client().ReportYsqlDdlTxnStatus(*metadata, req.commit()),
+                "Sending ReportYsqlDdlTxnStatus call failed");
+          }
+
+          LOG(INFO) << __func__ << ": marking commit callback as executed";
+          callback_executed = true;
+        });
+
+    if (!global_perform_ops_status.ok()) {
+      return global_perform_ops_status;
+    }
+
+    while (!callback_executed) {
+      continue;
     }
   } else {
-    VLOG_WITH_PREFIX_AND_FUNC(2)
-        << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id() << ", abort";
-    txn_value->Abort();
+    const auto txn_value = std::move(txn);
+    Session(kind)->SetTransaction(nullptr);
+
+    if (req.commit()) {
+      LOG(INFO) << __func__ << " going to commit";
+      const auto commit_status = txn_value->CommitFuture().get();
+      LOG(INFO) << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id()
+                << ", commit: " << commit_status;
+      // If commit_status is not ok, we cannot be sure whether the commit was successful or not. It
+      // is possible that the commit succeeded at the transaction coordinator but we failed to get
+      // the response back. Thus we will not report any status to the YB-Master in this case. It
+      // will run its background task to figure out whether the transaction succeeded or failed.
+      if (!commit_status.ok()) {
+        return commit_status;
+      }
+    } else {
+      LOG(INFO) << "ddl: " << req.ddl_mode() << ", txn: " << txn_value->id() << ", abort";
+      txn_value->Abort();
+    }
+
+    if (metadata) {
+      // If we failed to report the status of this DDL transaction, we can just log and ignore it,
+      // as the poller in the YB-Master will figure out the status of this transaction using the
+      // transaction status tablet and PG catalog.
+      ERROR_NOT_OK(
+          client().ReportYsqlDdlTxnStatus(*metadata, req.commit()),
+          "Sending ReportYsqlDdlTxnStatus call failed");
+    }
   }
 
-  if (metadata) {
-    // If we failed to report the status of this DDL transaction, we can just log and ignore it,
-    // as the poller in the YB-Master will figure out the status of this transaction using the
-    // transaction status tablet and PG catalog.
-    ERROR_NOT_OK(client().ReportYsqlDdlTxnStatus(*metadata, req.commit()),
-                 "Sending ReportYsqlDdlTxnStatus call failed");
-  }
   return Status::OK();
 }
 
 Status PgClientSession::Perform(
     PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context) {
+  bool all_read = true;
+  for (auto& op : req->ops()) {
+    all_read &= op.has_read();
+  }
+  if (!all_read) {
+    LOG(INFO) << __func__ << ": with req: " << req->DebugString();
+  }
   PgResponseCache::Setter setter;
   auto& options = *req->mutable_options();
   if (options.has_caching_info()) {
@@ -740,30 +909,162 @@ Status PgClientSession::Perform(
     }
   }
 
+  std::vector<std::shared_ptr<client::YBPgsqlWriteOp>> write_ops;
   auto session_info = VERIFY_RESULT(SetupSession(*req, context->GetClientDeadline()));
   auto* session = session_info.first.session.get();
-  auto ops = VERIFY_RESULT(PrepareOperations(req, session, &context->sidecars(), &table_cache_));
+  auto ops = VERIFY_RESULT(
+      PrepareOperations(req, session, &context->sidecars(), &table_cache_, write_ops));
   auto ops_count = ops.size();
-  auto data = std::make_shared<PerformData>(PerformData {
-    .session_id = id_,
-    .resp = resp,
-    .context = std::move(*context),
-    .ops = std::move(ops),
-    .table_cache = &table_cache_,
-    .used_read_time = session_info.second,
-    .cache_setter = std::move(setter)
-  });
+  auto data = std::make_shared<PerformData>(PerformData{
+      .session_id = id_,
+      .resp = resp,
+      .context = std::move(*context),
+      .ops = std::move(ops),
+      .table_cache = &table_cache_,
+      .used_read_time = session_info.second,
+      .cache_setter = std::move(setter)});
 
   auto transaction = session_info.first.transaction;
+  if (!options.use_catalog_session() && !options.ddl_mode() && transaction) {
+    // session->AppendCurrentBatchOpsToGlobalOps(write_ops);
+    session->AppendCurrentBatchOpsToGlobalOpsPairs(write_ops);
+  }
+
+  if (!options.use_catalog_session() && !options.ddl_mode() && transaction) {
+    // Distributed transaction case, perform locally here. Remote op will sent from FinishTransaction.
+    session->SetOperationMode(yb::client::internal::OperationMode::kLocal);
+  } else {
+    // Existing flow, perform both local and remote for DDL and non-transactional/single shard.
+    session->SetOperationMode(yb::client::internal::OperationMode::kLocalAndRemote);
+  }
+
   session->FlushAsync([this, data, transaction, ops_count](client::FlushStatus* flush_status) {
     data->FlushDone(flush_status);
     if (transaction) {
-      VLOG_WITH_PREFIX(2) << "FlushAsync of " << ops_count << " ops completed with transaction id "
-                          << transaction->id();
+      VLOG_WITH_PREFIX(2) << "FlushAsync of " << ops_count
+                          << " ops completed with transaction id " << transaction->id();
     } else {
-      VLOG_WITH_PREFIX(2) << "FlushAsync of " << ops_count << " ops completed for non-distributed "
+      VLOG_WITH_PREFIX(2) << "FlushAsync of " << ops_count
+                          << " ops completed for non-distributed "
                           << "transaction";
     }
+  });
+  return Status::OK();
+}
+
+Status PgClientSession::PerformLocal(
+    PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context,
+    uint64_t& num_tablets_used, client::PerformLocalCallback callback) {
+  LOG(INFO) << __func__ << " with req: " << req->DebugString();
+  PgResponseCache::Setter setter;
+  PgClientSessionKind kind;
+  auto& options = *req->mutable_options();
+  if (options.has_caching_info()) {
+    setter = response_cache_.Get(
+        std::move(*options.mutable_caching_info()->mutable_key()), resp, context);
+    if (!setter) {
+      return Status::OK();
+    }
+  }
+
+  bool fast_path = false;
+  if (!options.use_catalog_session() && !options.ddl_mode()) {
+    kind = PgClientSessionKind::kPlain;
+    auto session = Session(kind).get();
+    LOG(INFO) << __func__ << " RKNRKN the total number of tablets involved are "
+              << session->GetNumTabletsInvolvedInTxn();
+    std::string tablets = "";
+    for (auto&s : session->GetTabletsInvolvedInTxn()) {
+      tablets += s;
+      tablets += "\n";
+    }
+    LOG(INFO) << __func__ << " RKNRKN the tablet involved are: " << tablets;
+    num_tablets_used = session->GetNumTabletsInvolvedInTxn();
+    if (session->GetNumTabletsInvolvedInTxn() == 1) {
+      options.set_isolation(IsolationLevel::NON_TRANSACTIONAL);
+      options.set_in_txn_limit_ht(kInvalidHybridTimeValue);
+      options.set_priority(0);
+      options.set_read_time_manipulation(tserver::ReadTimeManipulation::NONE);
+      options.set_active_sub_transaction_id(0);
+
+      auto& txn = Transaction(PgClientSessionKind::kPlain);
+      if (txn) {
+        LOG(INFO) << __func__ << " setting session->SetTransaction to nullptr";
+        LOG(INFO) << __func__ << " RKNRKN setting the transaction id in batcher to "
+                  << txn->id().ToString()
+                  << "before setting the transaction to null in the session";
+        session->SetTransactionId(txn->id().ToString());
+        // session->SetTransaction(nullptr);
+        txn = nullptr;
+      } else {
+        LOG(INFO) << __func__ << " RKNRKN transaction is null";
+      }
+      fast_path = true;
+    }
+  }
+
+  // std::vector<std::shared_ptr<client::YBPgsqlOp>> write_ops;
+  auto session_info = VERIFY_RESULT(SetupSession(*req, context->GetClientDeadline()));
+  auto* session = session_info.first.session.get();
+  std::vector<std::shared_ptr<client::YBPgsqlOp>> ops;
+  auto ops_pairs = std::move(session->GlobalTxnOpsPairs());
+  for (auto& a : ops_pairs) {
+    auto op = a.first;
+    op->set_request_copy(a.second);
+    ops.push_back(op);
+  }
+  // auto ops = std::move(session->GlobalTxnOps());
+  for (auto& op : ops) {
+    DCHECK(op->type() == client::YBOperation::PGSQL_WRITE);
+    auto write_op_down = down_cast<const client::YBPgsqlWriteOp*>(op.get());
+    LOG(INFO) << __func__ << " retrieved the write op from the cache: ";
+    LOG(INFO) << __func__ << " the statement id is: " << write_op_down->statement_id();
+    session->Apply(op);
+  }
+  auto ops_count = ops.size();
+  LOG(INFO) << __func__ << " ops_count= " << ops_count;
+  auto data = std::make_shared<PerformDataLocal>(PerformDataLocal{
+      .session_id = id_,
+      .resp = resp,
+      .context = context,
+      .ops = std::move(ops),
+      .table_cache = &table_cache_,
+      .used_read_time = session_info.second,
+      .cache_setter = std::move(setter),
+      .perform_global_txn_ops = req->perform_global_txn_ops(),
+      .callRespondSuccess = false});
+
+  if (fast_path) {
+    LOG(INFO) << __func__ << " fast path";
+    session->SetOperationMode(yb::client::internal::OperationMode::kSkipIntents);
+    LOG(INFO) << __func__ << " RKNRKN setting the operation mode as "
+              << yb::client::internal::OperationMode::kSkipIntents;
+  } else {
+    LOG(INFO) << __func__ << " std transactional path";
+    // Only do remote op since this is called from FinishTransaction.
+    session->SetOperationMode(yb::client::internal::OperationMode::kRemote);
+    session->SetGlobalReadTime(options.read_time().read_ht());
+    LOG(INFO) << __func__ << " RKNRKN setting the operation mode as "
+              << yb::client::internal::OperationMode::kRemote;
+    // session->AppendCurrentBatchOpsToGlobalOps(write_ops);
+  }
+
+  auto transaction = session_info.first.transaction;
+  if (!transaction) {
+    LOG(INFO) << __func__ << " RKNRKN transaction is NULL";
+  } else {
+    LOG(INFO) << __func__ << " RKNRKN transaction id is " << transaction->id();
+  }
+  session->FlushAsync([data, transaction, ops_count, callback](client::FlushStatus* flush_status) {
+    data->FlushDone(flush_status);
+    if (transaction) {
+      LOG(INFO) << "FlushAsync of " << ops_count << " ops completed with transaction id "
+                << transaction->id();
+    } else {
+      LOG(INFO) << "FlushAsync of " << ops_count << " ops completed for non-distributed "
+                << "transaction";
+    }
+    callback(Status::OK());
   });
   return Status::OK();
 }
@@ -830,6 +1131,7 @@ Status PgClientSession::UpdateReadPointForXClusterConsistentReads(
 
 Result<std::pair<PgClientSession::SessionData, PgClientSession::UsedReadTimePtr>>
 PgClientSession::SetupSession(const PgPerformRequestPB& req, CoarseTimePoint deadline) {
+  LOG(INFO) << __func__ << " with options: " << req.options().DebugString();
   const auto& options = req.options();
   PgClientSessionKind kind;
   if (options.use_catalog_session()) {
@@ -847,16 +1149,18 @@ PgClientSession::SetupSession(const PgPerformRequestPB& req, CoarseTimePoint dea
   auto session = Session(kind).get();
   client::YBTransaction* transaction = Transaction(kind).get();
 
-  VLOG_WITH_PREFIX(4) << __func__ << ": " << options.ShortDebugString();
+  LOG(INFO) << __func__ << ": " << options.ShortDebugString();
 
   UsedReadTimePtr used_read_time;
   if (options.restart_transaction()) {
+    LOG(INFO) << __func__ << ": restart transaction case";
     if(options.ddl_mode()) {
       return STATUS(NotSupported, "Not supported to restart DDL transaction");
     }
     Transaction(kind) = VERIFY_RESULT(RestartTransaction(session, transaction));
     transaction = Transaction(kind).get();
   } else {
+    LOG(INFO) << __func__ << ": not a restart transaction case";
     RSTATUS_DCHECK(
         kind == PgClientSessionKind::kPlain ||
         options.read_time_manipulation() == ReadTimeManipulation::NONE,
@@ -864,6 +1168,7 @@ PgClientSession::SetupSession(const PgPerformRequestPB& req, CoarseTimePoint dea
         "Read time manipulation can't be specified for kDdl/ kCatalog transactions");
     ProcessReadTimeManipulation(options.read_time_manipulation());
     if (options.has_read_time() || options.use_catalog_session()) {
+      LOG(INFO) << __func__ << ": has_read_time or use_catalog_session is true";
       const auto read_time = options.has_read_time() && options.read_time().has_read_ht()
           ? ReadHybridTime::FromPB(options.read_time()) : ReadHybridTime();
       session->SetReadPoint(read_time);
@@ -874,8 +1179,11 @@ PgClientSession::SetupSession(const PgPerformRequestPB& req, CoarseTimePoint dea
       }
     } else if (!transaction &&
                (options.ddl_mode() || txn_serial_no_ != options.txn_serial_no())) {
+      LOG(INFO) << __func__ << ": transaction is null and op is ddl_mode or txn_serial_no != options.txn_serial_no";
       session->SetReadPoint(ReadHybridTime());
       if (kind == PgClientSessionKind::kPlain) {
+        LOG(INFO)
+            << __func__ << ": Also kind is kPlain";
         used_read_time = std::weak_ptr<UsedReadTime>(
             std::shared_ptr<UsedReadTime>(shared_from_this(), &plain_session_used_read_time_));
         std::lock_guard<simple_spinlock>  guard(plain_session_used_read_time_.lock);
@@ -883,6 +1191,12 @@ PgClientSession::SetupSession(const PgPerformRequestPB& req, CoarseTimePoint dea
       }
       VLOG_WITH_PREFIX(3) << "Reset read time: " << session->read_point()->GetReadTime();
     } else {
+      LOG(INFO)
+          << __func__
+          << ": Else part";
+      // if (req.perform_global_txn_ops()) {
+      // }
+      plain_session_used_read_time_.value = ReadHybridTime::FromUint64(6864693936528302080);
       if (!transaction && kind == PgClientSessionKind::kPlain) {
         RETURN_NOT_OK(CheckPlainSessionReadTime());
       }
@@ -898,6 +1212,7 @@ PgClientSession::SetupSession(const PgPerformRequestPB& req, CoarseTimePoint dea
   }
 
   if (!options.ddl_mode() && !options.use_catalog_session()) {
+    LOG(INFO) << __func__ << ": ddl_mode and use_catalog_session both are false";
     txn_serial_no_ = options.txn_serial_no();
 
     const auto in_txn_limit = HybridTime::FromPB(options.in_txn_limit_ht());
@@ -911,6 +1226,7 @@ PgClientSession::SetupSession(const PgPerformRequestPB& req, CoarseTimePoint dea
 
   if (transaction) {
     DCHECK_GE(options.active_sub_transaction_id(), 0);
+    LOG(INFO) << __func__ << ": setting active sub transaction id to " << options.active_sub_transaction_id();
     transaction->SetActiveSubTransaction(options.active_sub_transaction_id());
   }
 
@@ -929,7 +1245,8 @@ Status PgClientSession::BeginTransactionIfNecessary(
   auto& session = EnsureSession(PgClientSessionKind::kPlain);
   auto& txn = Transaction(PgClientSessionKind::kPlain);
   if (txn && txn_serial_no_ != options.txn_serial_no()) {
-    VLOG_WITH_PREFIX(2)
+    LOG(INFO) << __func__ << ": older txn id is: " << txn->id();
+    LOG(INFO)
         << "Abort previous transaction, use existing priority: " << options.use_existing_priority()
         << ", new isolation: " << IsolationLevel_Name(isolation);
 
@@ -942,6 +1259,7 @@ Status PgClientSession::BeginTransactionIfNecessary(
   }
 
   if (isolation == IsolationLevel::NON_TRANSACTIONAL) {
+    LOG(INFO) << __func__ << " returning since this is a non-transactional operation";
     return Status::OK();
   }
 

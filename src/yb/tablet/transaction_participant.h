@@ -169,6 +169,8 @@ class TransactionParticipant : public TransactionStatusManager {
 
   Status ProcessReplicated(const ReplicatedData& data);
 
+  Status cleanup_intents(const TransactionId& transaction_id);
+
   void SetDB(
       const docdb::DocDB& db, const docdb::KeyBounds* key_bounds,
       RWOperationCounter* pending_op_counter);

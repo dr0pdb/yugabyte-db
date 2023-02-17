@@ -264,7 +264,7 @@ DECLARE_uint64(rocksdb_max_file_size_for_compaction);
 DECLARE_int64(apply_intents_task_injected_delay_ms);
 DECLARE_string(regular_tablets_data_block_key_value_encoding);
 DECLARE_int64(cdc_intent_retention_ms);
-
+DECLARE_bool(TEST_override_op_type_for_raft);
 DEFINE_test_flag(uint64, inject_sleep_before_applying_intents_ms, 0,
                  "Sleep before applying intents to docdb after transaction commit");
 
@@ -1218,11 +1218,12 @@ Result<std::unique_ptr<docdb::YQLRowwiseIteratorIf>> Tablet::NewRowIterator(
 
 Status Tablet::ApplyRowOperations(
     WriteOperation* operation, AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+  LOG(INFO) << __func__;
   const auto& write_request =
       operation->consensus_round() && operation->consensus_round()->replicate_msg()
           // Online case.
           ? operation->consensus_round()->replicate_msg()->write()
-          // Bootstrap case.
+          // Bootstrap/local op case.
           : *operation->request();
   const auto& put_batch = write_request.write_batch();
   if (metrics_) {
@@ -1239,6 +1240,27 @@ Status Tablet::ApplyOperation(
     const Operation& operation, int64_t batch_idx,
     const docdb::LWKeyValueWriteBatchPB& write_batch,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+  if (FLAGS_TEST_override_op_type_for_raft) {
+    if (operation.operation_mode() == OperationMode::kRemote && operation.isLeaderSide()) {
+      LOG(INFO) << __func__
+                << ": Skipping ApplyOperation for the remote only op on the leader for request: "
+                << operation.request()->ShortDebugString();
+      return Status::OK();
+    }
+
+    if (operation.operation_mode() == OperationMode::kSkipIntents &&
+        write_batch.has_transaction()) {
+      LOG(INFO) << __func__
+                << ": RKNRKN Skipping ApplyOperation for the skip intents op mode for request: "
+                << operation.request()->ShortDebugString();
+      return Status::OK();
+    }
+
+    LOG(INFO) << __func__
+              << ": Going ahead with the ApplyOperation with mode: " << operation.operation_mode()
+              << " and isLeaderSide: " << operation.isLeaderSide()
+              << " and request: " << operation.request()->ShortDebugString();
+  }
   auto hybrid_time = operation.WriteHybridTime();
 
   docdb::ConsensusFrontiers frontiers;
@@ -1270,9 +1292,11 @@ Status Tablet::WriteTransactionalBatch(
     const docdb::LWKeyValueWriteBatchPB& put_batch,
     HybridTime hybrid_time,
     const rocksdb::UserFrontiers* frontiers) {
+  LOG(INFO) << __func__ << " start";
   auto transaction_id = CHECK_RESULT(
       FullyDecodeTransactionId(put_batch.transaction().transaction_id()));
 
+  LOG(INFO) << __func__ << " txn id is: " << transaction_id;
   bool store_metadata = false;
   if (put_batch.transaction().has_isolation()) {
     // Store transaction metadata (status tablet, isolation level etc.)
@@ -1310,12 +1334,14 @@ Status Tablet::WriteTransactionalBatch(
   write_batch.SetDirectWriter(&writer);
   RequestScope request_scope = VERIFY_RESULT(RequestScope::Create(transaction_participant_.get()));
 
+  LOG(INFO) << __func__ << " txn id is: " << transaction_id << ", going to write to intents db";
   WriteToRocksDB(frontiers, &write_batch, StorageDbType::kIntents);
+  LOG(INFO) << __func__ << " txn id is: " << transaction_id << ", done writing to intents db";
 
   last_batch_data.hybrid_time = hybrid_time;
   last_batch_data.next_write_id = writer.intra_txn_write_id();
   transaction_participant()->BatchReplicated(transaction_id, last_batch_data);
-
+  LOG(INFO) << __func__ << " txn id is: " << transaction_id << ", done calling BatchReplicated()";
   return Status::OK();
 }
 
@@ -1362,6 +1388,7 @@ Status Tablet::ApplyKeyValueRowOperations(
     const rocksdb::UserFrontiers* frontiers,
     const HybridTime hybrid_time,
     AlreadyAppliedToRegularDB already_applied_to_regular_db) {
+  LOG(INFO) << __func__;
   if (put_batch.write_pairs().empty() && put_batch.read_pairs().empty() &&
       put_batch.apply_external_transactions().empty()) {
     return Status::OK();
@@ -1372,7 +1399,13 @@ Status Tablet::ApplyKeyValueRowOperations(
   // In all other cases we should crash instead of skipping apply.
 
   if (put_batch.has_transaction()) {
-    RETURN_NOT_OK(WriteTransactionalBatch(batch_idx, put_batch, hybrid_time, frontiers));
+    auto s = WriteTransactionalBatch(batch_idx, put_batch, hybrid_time, frontiers);
+    if (!s.ok()) {
+      LOG(INFO) << __func__ << " writing txn batch failed with error: " << s.message();
+    } else {
+      LOG(INFO) << __func__ << " wrote txn batch successfully";
+    }
+    RETURN_NOT_OK(s);
   } else {
     rocksdb::WriteBatch regular_write_batch;
     auto* regular_write_batch_ptr = !already_applied_to_regular_db ? &regular_write_batch : nullptr;
@@ -1800,6 +1833,7 @@ Status Tablet::CreatePagingStateForRead(const PgsqlReadRequestPB& pgsql_read_req
 
 void Tablet::AcquireLocksAndPerformDocOperations(std::unique_ptr<WriteQuery> query) {
   TRACE(__func__);
+  LOG(INFO) << __func__;
   if (table_type_ == TableType::TRANSACTION_STATUS_TABLE_TYPE) {
     query->Cancel(
         STATUS(NotSupported, "Transaction status table does not support write"));

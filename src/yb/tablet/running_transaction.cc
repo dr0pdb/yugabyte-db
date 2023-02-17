@@ -187,6 +187,7 @@ std::string RunningTransaction::ToString() const {
 void RunningTransaction::ScheduleRemoveIntents(
     const RunningTransactionPtr& shared_self, RemoveReason reason) {
   if (remove_intents_task_.Prepare(shared_self, reason)) {
+    LOG(INFO) << __func__ << " RKNRKN enqueing the remove intents task";
     context_.participant_context_.StrandEnqueue(&remove_intents_task_);
     VLOG_WITH_PREFIX(1) << "Intents should be removed asynchronously";
   }
