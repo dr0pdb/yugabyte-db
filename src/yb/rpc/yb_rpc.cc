@@ -393,7 +393,6 @@ void YBInboundCall::RespondFailure(ErrorStatusPB::RpcErrorCodePB error_code,
   ErrorStatusPB err;
   err.set_message(status.ToString());
   err.set_code(error_code);
-
   Respond(AnyMessageConstPtr(&err), false);
 }
 
@@ -430,9 +429,22 @@ void YBInboundCall::Respond(AnyMessageConstPtr response, bool is_success) {
     return;
   }
 
+  // auto service = service_name().ToBuffer();
+  // auto method = method_name();
+  // if (!method.compare("Write") || !method.compare("Perform")) {
+  //   LOG(INFO) << "Response for service::method" << service << "::" << method
+  //             << "\nResponse\n"
+  //             << (response.is_lightweight() ? response.lightweight()->ShortDebugString()
+  //                                           : response.protobuf()->DebugString());
+  // }
   TRACE_EVENT_ASYNC_END1("rpc", "InboundCall", this, "method", method_name().ToBuffer());
 
   QueueResponse(is_success);
+}
+
+Slice YBInboundCall::service_name() const {
+  auto parsed_remote_method = ParseRemoteMethod(header_.remote_method);
+  return parsed_remote_method.ok() ? parsed_remote_method->service : Slice();
 }
 
 Slice YBInboundCall::method_name() const {

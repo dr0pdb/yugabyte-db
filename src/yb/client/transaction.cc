@@ -363,6 +363,8 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
                         << AsString(ops_info->groups) << ")";
     TRACE_TO(trace_, "Preparing $0 ops", AsString(ops_info->groups.size()));
     VTRACE_TO(2, trace_, "Preparing $0 ops", AsString(ops_info->groups));
+    /* LOG(INFO) << " RKNRKN printing stack trace in transaction.cc ";
+    YBC_LOG_INFO_STACK_TRACE("printing stack trace"); */
 
     {
       UNIQUE_LOCK(lock, mutex_);
@@ -422,6 +424,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
   }
 
   void ExpectOperations(size_t count) EXCLUDES(mutex_) override {
+    // LOG(INFO) << __func__ << " expect ops count: " << count;
     std::lock_guard<std::shared_mutex> lock(mutex_);
     running_requests_ += count;
   }
@@ -557,6 +560,8 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
     }
 
     DoCommit(deadline, seal_only, Status::OK(), transaction);
+    /* LOG(INFO) << "RKNRKN printing stack trace from commit function in transaction.cc";
+    YBC_LOG_INFO_STACK_TRACE("printing stack trace"); */
   }
 
   void Abort(CoarseTimePoint deadline) EXCLUDES(mutex_) {
@@ -617,6 +622,7 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
         has_metadata = it != tablets_.end() && it->second.has_metadata;
       }
       group.need_metadata = !has_metadata;
+      group.need_metadata = true;  // TODO: RKNRKN Hardcoded for POC, need to revisit
     }
   }
 

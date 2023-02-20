@@ -523,8 +523,11 @@ Status PgsqlWriteOperation::Apply(const DocOperationApplyData& data) {
     case PgsqlWriteRequestPB::PGSQL_INSERT:
       return ApplyInsert(data, IsUpsert::kFalse);
 
-    case PgsqlWriteRequestPB::PGSQL_UPDATE:
+    case PgsqlWriteRequestPB::PGSQL_UPDATE: {
+      // LOG(INFO) << __func__ << " RKNRKN received update request and the corresponding data is "
+      // << data.ToString();
       return ApplyUpdate(data);
+    }
 
     case PgsqlWriteRequestPB::PGSQL_DELETE:
       return ApplyDelete(data, request_.is_delete_persist_needed());
@@ -585,16 +588,20 @@ Status PgsqlWriteOperation::ApplyInsert(const DocOperationApplyData& data, IsUps
         return Status::OK();
       }
     } else {
-      // Non-backfill requests shouldn't use HasDuplicateUniqueIndexValue because
-      // - they should error even if the conflicting row matches
-      // - retrieving and calculating whether the conflicting row matches is a waste
-      RETURN_NOT_OK(ReadColumns(data, &table_row));
-      if (!table_row.IsEmpty()) {
-        VLOG(4) << "Duplicate row: " << table_row.ToString();
-        // Primary key or unique index value found.
-        response_->set_status(PgsqlResponsePB::PGSQL_STATUS_DUPLICATE_KEY_ERROR);
-        response_->set_error_message("Duplicate key found in primary key or unique index");
-        return Status::OK();
+      if (data.op_mode == yb::tablet::OperationMode::kRemote) {
+        LOG(INFO) << __func__ << " skipping duplicate check for kRemote operation mode";
+      } else {
+        // Non-backfill requests shouldn't use HasDuplicateUniqueIndexValue because
+        // - they should error even if the conflicting row matches
+        // - retrieving and calculating whether the conflicting row matches is a waste
+        RETURN_NOT_OK(ReadColumns(data, &table_row));
+        if (!table_row.IsEmpty()) {
+          VLOG(4) << "Duplicate row: " << table_row.ToString();
+          // Primary key or unique index value found.
+          response_->set_status(PgsqlResponsePB::PGSQL_STATUS_DUPLICATE_KEY_ERROR);
+          response_->set_error_message("Duplicate key found in primary key or unique index");
+          return Status::OK();
+        }
       }
     }
   }

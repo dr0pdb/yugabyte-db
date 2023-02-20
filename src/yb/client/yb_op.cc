@@ -106,9 +106,12 @@ void SetKey(const Slice& value, PgsqlPartitionBound* bound) {
 
 template <typename Req>
 void GetPartitionKey(const Req& request, std::string* partition_key) {
+  // LOG(INFO) << __func__;
   if (request.has_partition_key()) {
+    LOG(INFO) << " req has partition key";
     *partition_key = request.partition_key();
   } else {
+    LOG(INFO) << " req doesn't have partition key";
     partition_key->clear();
   }
 }
@@ -927,9 +930,27 @@ YBPgsqlWriteOp::YBPgsqlWriteOp(
     const shared_ptr<YBTable>& table, rpc::Sidecars* sidecars, PgsqlWriteRequestPB* request)
     : YBPgsqlOp(table, sidecars),
       request_(request) {
+  // LOG(INFO) << __func__ << " init";
   if (!request) {
+    // LOG(INFO) << __func__ << " request is null";
     request_holder_ = std::make_unique<PgsqlWriteRequestPB>();
     request_ = request_holder_.get();
+  } else {
+    // LOG(INFO) << __func__ << " request is non-null";
+  }
+}
+
+YBPgsqlWriteOp::YBPgsqlWriteOp(
+    const shared_ptr<YBTable>& table, rpc::Sidecars* sidecars, uint64_t statement_id,
+    PgsqlWriteRequestPB* request)
+    : YBPgsqlOp(table, sidecars), statement_id_(statement_id), request_(request) {
+  // LOG(INFO) << __func__ << " init";
+  if (!request) {
+    // LOG(INFO) << __func__ << " request is null";
+    request_holder_ = std::make_unique<PgsqlWriteRequestPB>();
+    request_ = request_holder_.get();
+  } else {
+    // LOG(INFO) << __func__ << " request is non-null";
   }
 }
 
@@ -973,6 +994,12 @@ YBPgsqlWriteOpPtr YBPgsqlWriteOp::NewFetchSequence(const std::shared_ptr<YBTable
 
 std::string YBPgsqlWriteOp::ToString() const {
   return Format(
+          "PGSQL_WRITE $0",
+          (write_time_ ? " write_time: " + write_time_.ToString() : ""));
+}
+
+std::string YBPgsqlWriteOp::ToDebugString() const {
+  return Format(
       "PGSQL_WRITE $0$1$2", request_->ShortDebugString(),
       (write_time_ ? " write_time: " + write_time_.ToString() : ""), ResponseSuffix(response()));
 }
@@ -982,7 +1009,9 @@ void YBPgsqlWriteOp::SetHashCode(const uint16_t hash_code) {
 }
 
 Status YBPgsqlWriteOp::GetPartitionKey(std::string* partition_key) const {
+  // LOG(INFO) << __func__;
   if (!request_holder_) {
+    LOG(INFO) << " request holder is none";
     client::GetPartitionKey(*request_, partition_key);
     return Status::OK();
   }

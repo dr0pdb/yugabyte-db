@@ -20,6 +20,7 @@
 
 #include "yb/docdb/docdb_fwd.h"
 
+#include "yb/tablet/operations/operation.h"
 #include "yb/util/monotime.h"
 #include "yb/util/ref_cnt_buffer.h"
 
@@ -31,6 +32,7 @@ struct DocOperationApplyData {
   CoarseTimePoint deadline;
   ReadHybridTime read_time;
   HybridTime* restart_read_ht;
+  yb::tablet::OperationMode op_mode = tablet::OperationMode::kLocalAndRemote;
 
   std::string ToString() const {
     return YB_STRUCT_TO_STRING(deadline, read_time, restart_read_ht);

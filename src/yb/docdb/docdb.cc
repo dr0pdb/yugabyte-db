@@ -289,12 +289,16 @@ Status AssembleDocWriteBatch(const vector<unique_ptr<DocOperation>>& doc_write_o
                              InitMarkerBehavior init_marker_behavior,
                              std::atomic<int64_t>* monotonic_counter,
                              HybridTime* restart_read_ht,
-                             const string& table_name) {
+                             const string& table_name,
+                             const yb::tablet::OperationMode op_mode) {
   DCHECK_ONLY_NOTNULL(restart_read_ht);
   DocWriteBatch doc_write_batch(doc_db, init_marker_behavior, monotonic_counter);
-  DocOperationApplyData data = {&doc_write_batch, deadline, read_time, restart_read_ht};
+  DocOperationApplyData data = {&doc_write_batch, deadline, read_time, restart_read_ht, op_mode};
   for (const unique_ptr<DocOperation>& doc_op : doc_write_ops) {
     Status s = doc_op->Apply(data);
+    // if (!s.ok()) {
+    //   LOG(INFO) << __func__ << " RKNRKN apply failed for data: " << data.ToString();
+    // }
     if (s.IsQLError() && doc_op->OpType() == DocOperation::Type::QL_WRITE_OPERATION) {
       std::string error_msg;
       if (ql::GetErrorCode(s) == ql::ErrorCode::CONDITION_NOT_SATISFIED) {

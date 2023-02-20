@@ -52,6 +52,8 @@
 #include "yb/util/operation_counter.h"
 #include "yb/util/opid.h"
 
+#include "yb/tserver/tserver.pb.h"
+
 namespace yb {
 
 class Synchronizer;
@@ -68,12 +70,20 @@ YB_DEFINE_ENUM(
     ((kSnapshot, consensus::SNAPSHOT_OP))
     ((kTruncate, consensus::TRUNCATE_OP))
     ((kEmpty, consensus::UNKNOWN_OP))
+    ((kNoOp, consensus::NO_OP))
     ((kHistoryCutoff, consensus::HISTORY_CUTOFF_OP))
     ((kSplit, consensus::SPLIT_OP))
     ((kChangeAutoFlagsConfig, consensus::CHANGE_AUTO_FLAGS_CONFIG_OP)));
 
 YB_STRONGLY_TYPED_BOOL(WasPending);
 YB_STRONGLY_TYPED_BOOL(IsLeaderSide);
+
+YB_DEFINE_ENUM(
+    OperationMode,
+    ((kLocal, tserver::WriteOperationMode::LOCAL_ONLY_OPERATION))(
+        (kRemote, tserver::WriteOperationMode::REMOTE_ONLY_OPERATION))(
+        (kSkipIntents, tserver::WriteOperationMode::SKIP_INTENTS_OPERATION))(
+        (kLocalAndRemote, tserver::WriteOperationMode::LOCAL_AND_REMOTE_OPERATION)));
 
 // Base class for transactions.  There are different implementations for different types (Write,
 // AlterSchema, etc.) OperationDriver implementations use Operations along with Consensus to execute
@@ -209,6 +219,16 @@ class Operation {
     return false;
   }
 
+  void setLeaderSide(bool is_leader_side) {
+    is_leader_side_ = is_leader_side;
+  }
+
+  bool isLeaderSide() const {
+    return is_leader_side_;
+  }
+
+  virtual yb::tablet::OperationMode operation_mode() const {return OperationMode::kLocalAndRemote; }
+
   // Initialize operation at leader side.
   // op_id - operation id.
   // committed_op_id - current committed operation id.
@@ -272,6 +292,7 @@ class Operation {
 
   ScopedOperation preparing_token_;
 
+  mutable bool is_leader_side_{false};
   mutable std::atomic<bool> log_prefix_initialized_{false};
   mutable simple_spinlock log_prefix_mutex_;
   mutable std::string log_prefix_ GUARDED_BY(log_prefix_mutex_);

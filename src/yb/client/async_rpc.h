@@ -144,6 +144,8 @@ class AsyncRpcBase : public AsyncRpc {
   AsyncRpcBase(const AsyncRpcData& data, YBConsistencyLevel consistency_level);
   ~AsyncRpcBase();
 
+  Req& req() { return req_; }
+
   const Resp& resp() const { return resp_; }
   Resp& resp() { return resp_; }
 

@@ -41,6 +41,7 @@
 #include "yb/common/common_fwd.h"
 #include "yb/common/common_types.pb.h"
 #include "yb/common/partial_row.h"
+#include "yb/common/pgsql_protocol.pb.h"
 #include "yb/common/read_hybrid_time.h"
 #include "yb/common/retryable_request.h"
 #include "yb/common/transaction.pb.h"
@@ -108,6 +109,9 @@ class YBOperation {
   void ResetTable(std::shared_ptr<YBTable> new_table);
 
   virtual std::string ToString() const = 0;
+  virtual std::string ToDebugString() const {
+    return "EMPTY";
+  }
   virtual Type type() const = 0;
   virtual bool read_only() const = 0;
   virtual bool succeeded() const = 0;
@@ -484,6 +488,9 @@ class YBPgsqlWriteOp : public YBPgsqlOp {
   YBPgsqlWriteOp(
       const std::shared_ptr<YBTable>& table, rpc::Sidecars* sidecars,
       PgsqlWriteRequestPB* request = nullptr);
+  YBPgsqlWriteOp(
+      const std::shared_ptr<YBTable>& table, rpc::Sidecars* sidecars, uint64_t statement_id,
+      PgsqlWriteRequestPB* request = nullptr);
   ~YBPgsqlWriteOp();
 
   // Note: to avoid memory copy, this PgsqlWriteRequestPB is moved into tserver WriteRequestPB
@@ -493,9 +500,20 @@ class YBPgsqlWriteOp : public YBPgsqlOp {
 
   PgsqlWriteRequestPB* mutable_request() { return request_; }
 
+  void set_request_copy(PgsqlWriteRequestPB request) {
+    request_copy_ = request;
+    request_ = &request_copy_;
+  }
+
+  uint64_t statement_id() const { return statement_id_; }
+
   std::string ToString() const override;
 
-  bool read_only() const override { return false; };
+  std::string ToDebugString() const override;
+
+  bool read_only() const override {
+    return false;
+  };
 
   // TODO check for e.g. returning clause.
   bool returns_sidecar() override { return true; }
@@ -522,7 +540,9 @@ class YBPgsqlWriteOp : public YBPgsqlOp {
  private:
   friend class YBTable;
 
+  uint64_t statement_id_{0};
   PgsqlWriteRequestPB* request_;
+  PgsqlWriteRequestPB request_copy_;
   std::unique_ptr<PgsqlWriteRequestPB> request_holder_;
   // Whether this operation should be run as a single row txn.
   // Else could be distributed transaction (or non-transactional) depending on target table type.

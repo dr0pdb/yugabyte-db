@@ -53,6 +53,7 @@ YBSession::YBSession(YBClient* client, const scoped_refptr<ClockBase>& clock) {
       clock ? std::make_unique<ConsistentReadPoint>(clock) : nullptr;
   const auto metric_entity = client->metric_entity();
   async_rpc_metrics_ = metric_entity ? std::make_shared<AsyncRpcMetrics>(metric_entity) : nullptr;
+  num_tablets_involved_in_txn_ = 1;
 }
 
 void YBSession::RestartNonTxnReadPoint(const Restart restart) {
@@ -221,7 +222,7 @@ void YBSession::FlushAsync(FlushCallback callback) {
   // Send off any buffered data. Important to do this outside of the lock
   // since the callback may itself try to take the lock, in the case that
   // the batch fails "inline" on the same thread.
-
+  // LOG(INFO) << __func__;
   internal::BatcherPtr old_batcher;
   old_batcher.swap(batcher_);
   if (old_batcher) {
@@ -308,6 +309,17 @@ internal::Batcher& YBSession::Batcher() {
 void YBSession::Apply(YBOperationPtr yb_op) {
   VLOG(5) << "YBSession Apply yb_op: " << yb_op->ToString();
   Batcher().Add(yb_op);
+}
+
+void YBSession::SetOperationMode(yb::client::internal::OperationMode op_mode) {
+  VLOG(5) << "YBSession Setting OperationMode to " << op_mode;
+  Batcher().SetOperationMode(op_mode);
+}
+
+void YBSession::SetTransactionId(const std::string transaction_id) {
+  /* LOG(INFO) << __func__ << " RKNRKN YBSession Setting transaction id in batcher to "
+            << transaction_id; */
+  Batcher().SetTransactionId(transaction_id);
 }
 
 bool YBSession::IsInProgress(YBOperationPtr yb_op) const {

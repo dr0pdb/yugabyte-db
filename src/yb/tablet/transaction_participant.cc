@@ -58,6 +58,7 @@
 #include "yb/util/scope_exit.h"
 #include "yb/util/status_format.h"
 #include "yb/util/status_log.h"
+#include "yb/util/trace.h"
 #include "yb/util/tsan_util.h"
 #include "yb/util/unique_lock.h"
 
@@ -98,6 +99,8 @@ DEFINE_UNKNOWN_bool(transactions_poll_check_aborted, true,
 DECLARE_int64(transaction_abort_check_timeout_ms);
 
 DECLARE_int64(cdc_intent_retention_ms);
+
+DECLARE_bool(TEST_override_op_type_for_raft);
 
 METRIC_DEFINE_simple_counter(
     tablet, transaction_not_found, "Total number of missing transactions during load",
@@ -1118,6 +1121,30 @@ class TransactionParticipant::Impl
     return lock_and_iterator.transaction().external_transaction();
   }
 
+  Status cleanup_intents(const TransactionId& transaction_id) NO_THREAD_SAFETY_ANALYSIS {
+    // std::lock_guard<std::mutex> lock(mutex_);
+    docdb::ApplyTransactionState apply_state;
+    MinRunningNotifier min_running_notifier(&applier_);
+    // LOG(INFO) << __func__ << " RKNRKN cleaning up intents for transaction id " << transaction_id;
+    auto lock_and_iterator = LockAndFind(
+        transaction_id, "apply"s, TransactionLoadFlags{TransactionLoadFlag::kMustExist});
+    if (lock_and_iterator.found()) {
+      /* LOG(INFO) << __func__ << " RKNRKN found lock and iterator for the transaction "
+                << transaction_id; */
+      /* auto it = transactions_.find(transaction_id);
+      if (it == transactions_.end()) {
+        LOG(INFO) << __func__ << " RKNRKN couldn't fine the transaction " << transaction_id
+                  << " in the list";
+        return Status::OK();
+      } */
+      // LOG(INFO) << __func__ << " RKNRKN Before placing a lock for RemoveUnlocked";
+      // std::lock_guard<std::mutex> lock(mutex_);
+      RemoveUnlocked(
+          lock_and_iterator.iterator, RemoveReason::kApplied, &min_running_notifier, true);
+    }
+    return Status::OK();
+  }
+
  private:
   class AbortCheckTimeTag;
   class StartTimeTag;
@@ -1318,19 +1345,31 @@ class TransactionParticipant::Impl
 
   bool RemoveUnlocked(
       const Transactions::iterator& it, RemoveReason reason,
-      MinRunningNotifier* min_running_notifier) REQUIRES(mutex_) {
+      MinRunningNotifier* min_running_notifier, bool remove_intents_unconditionally = false)
+      REQUIRES(mutex_) {
+    // LOG(INFO) << __func__ << " RKNRKN Just started RemoveUnlocked";
     TransactionId txn_id = (**it).id();
-    OpId checkpoint_op_id = GetLatestCheckPoint();
-    OpId op_id = (**it).GetApplyOpId();
-
-    if (running_requests_.empty() && op_id < checkpoint_op_id) {
+    if (remove_intents_unconditionally) {
+      /* LOG(INFO) << __func__ << " RKNRKN about to schedule remove intents for transaction "
+                << (**it).ToString(); */
       (**it).ScheduleRemoveIntents(*it, reason);
       RemoveTransaction(it, reason, min_running_notifier);
       VLOG_WITH_PREFIX(2) << "Cleaned transaction: " << txn_id << ", reason: " << reason
-                          << " , apply record op_id: " << op_id
-                          << ", checkpoint_op_id: " << checkpoint_op_id
                           << ", left: " << transactions_.size();
       return true;
+    } else {
+      OpId checkpoint_op_id = GetLatestCheckPoint();
+      OpId op_id = (**it).GetApplyOpId();
+
+      if (running_requests_.empty() && op_id < checkpoint_op_id) {
+        (**it).ScheduleRemoveIntents(*it, reason);
+        RemoveTransaction(it, reason, min_running_notifier);
+        VLOG_WITH_PREFIX(2) << "Cleaned transaction: " << txn_id << ", reason: " << reason
+                            << " , apply record op_id: " << op_id
+                            << ", checkpoint_op_id: " << checkpoint_op_id
+                            << ", left: " << transactions_.size();
+        return true;
+      }
     }
 
     // We cannot remove the transaction at this point, because there are running requests
@@ -1340,10 +1379,10 @@ class TransactionParticipant::Impl
     // Since we try to remove the transaction after all its records are removed from the provisional
     // DB, it is safe to complete removal at this point, because it means that there will be no more
     // queries to status of this transactions.
-    immediate_cleanup_queue_.push_back(ImmediateCleanupQueueEntry {
-      .request_id = request_serial_,
-      .transaction_id = (**it).id(),
-      .reason = reason,
+    immediate_cleanup_queue_.push_back(ImmediateCleanupQueueEntry{
+        .request_id = request_serial_,
+        .transaction_id = (**it).id(),
+        .reason = reason,
     });
     VLOG_WITH_PREFIX(2) << "Queued for cleanup: " << (**it).id() << ", reason: " << reason;
     return false;
@@ -1371,33 +1410,52 @@ class TransactionParticipant::Impl
       const TransactionId& id, const std::string& reason, TransactionLoadFlags flags) {
     loader_.WaitLoaded(id);
     bool recently_removed;
+    /* LOG(INFO) << __func__ << " RKNRKN for transaction id " << id << " and the stack trace is "
+              << GetStackTrace(); */
     {
       std::unique_lock<std::mutex> lock(mutex_);
       auto it = transactions_.find(id);
       if (it != transactions_.end()) {
+        // LOG(INFO) << __func__ << " RKNRKN found the transaction " << id << "in transactions
+        // list";
         if (!(**it).external_transaction() &&
             (**it).start_ht() <= ignore_all_transactions_started_before_) {
           YB_LOG_WITH_PREFIX_EVERY_N_SECS(INFO, 1)
               << "Ignore transaction for '" << reason << "' because of limit: "
               << ignore_all_transactions_started_before_ << ", txn: " << AsString(**it);
+          /* LOG(INFO) << __func__ << "Ignore transaction for '" << reason
+                    << "' because of limit: " << ignore_all_transactions_started_before_
+                    << ", txn: " << AsString(**it); */
           return LockAndFindResult{};
         }
         return LockAndFindResult{ std::move(lock), it };
+      } else {
+        /* LOG(INFO) << __func__
+                  << " RKNRKN couldn't find the transaction in the transaction list. The list of "
+                     "transactions are "; */
+        for (auto a : transactions_) {
+          LOG(INFO) << a->id() << std::endl;
+        }
       }
       recently_removed = WasTransactionRecentlyRemoved(id);
     }
     if (recently_removed) {
       VLOG_WITH_PREFIX(1)
           << "Attempt to load recently removed transaction: " << id << ", for: " << reason;
+      /* LOG(INFO) << __func__ << " RKNRKN Attempt to load recently removed transaction: " << id
+                << ", for: " << reason; */
       return LockAndFindResult{};
     }
     metric_transaction_not_found_->Increment();
     if (flags.Test(TransactionLoadFlag::kMustExist)) {
       YB_LOG_WITH_PREFIX_EVERY_N_SECS(WARNING, 1)
           << "Transaction not found: " << id << ", for: " << reason;
+      /* LOG(INFO) << __func__ << " RKNRKN with must exist flag, transaction not found: " << id
+                << ", for: " << reason; */
     } else {
       YB_LOG_WITH_PREFIX_EVERY_N_SECS(INFO, 1)
           << "Transaction not found: " << id << ", for: " << reason;
+      // LOG(INFO) << __func__ << " RKNRKN Transaction not found: " << id << ", for: " << reason;
     }
     if (flags.Test(TransactionLoadFlag::kCleanup)) {
       VLOG_WITH_PREFIX(2) << "Schedule cleanup for: " << id;
@@ -1466,6 +1524,8 @@ class TransactionParticipant::Impl
                          MinRunningNotifier* min_running_notifier)
       REQUIRES(mutex_) {
     auto now = CoarseMonoClock::now();
+    /* LOG(INFO) << __func__ << " RKNRKN about to cleanup the transaction with id "
+              << (**it).ToString(); */
     CleanupRecentlyRemovedTransactions(now);
     auto& transaction = **it;
     DumpRemove(transaction, reason);
@@ -1485,6 +1545,7 @@ class TransactionParticipant::Impl
   }
 
   bool WasTransactionRecentlyRemoved(const TransactionId& id) {
+    // LOG(INFO) << __func__ << "RKNRKN transaction id " << id;
     CleanupRecentlyRemovedTransactions(CoarseMonoClock::now());
     return recently_removed_transactions_.count(id) != 0;
   }
@@ -1869,6 +1930,10 @@ Result<IsExternalTransaction> TransactionParticipant::IsExternalTransactionResul
 
 Status TransactionParticipant::ProcessReplicated(const ReplicatedData& data) {
   return impl_->ProcessReplicated(data);
+}
+
+Status TransactionParticipant::cleanup_intents(const TransactionId& transaction_id) {
+  return impl_->cleanup_intents(transaction_id);
 }
 
 Status TransactionParticipant::CheckAborted(const TransactionId& id) {

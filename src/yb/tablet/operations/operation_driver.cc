@@ -75,6 +75,8 @@ DEFINE_test_flag(int32, delay_execute_async_ms, 0,
                  "Delay execution of ExecuteAsync for specified amount of milliseconds during "
                      "tests");
 
+DECLARE_bool(TEST_override_op_type_for_raft);
+
 namespace yb {
 namespace tablet {
 
@@ -121,11 +123,16 @@ Status OperationDriver::Init(std::unique_ptr<Operation>* operation, int64_t term
     replication_state_ = REPLICATING;
   } else {
     if (consensus_) {  // sometimes NULL in tests
-      consensus::ReplicateMsgPtr replicate_msg = operation_->NewReplicateMsg();
-      auto round = make_scoped_refptr<ConsensusRound>(consensus_, std::move(replicate_msg));
-      round->BindToTerm(term);
-      round->SetCallback(this);
-      mutable_operation()->set_consensus_round(std::move(round));
+      if (FLAGS_TEST_override_op_type_for_raft &&
+          operation_->operation_mode() == OperationMode::kLocal) {
+        // LOG(INFO) << __func__ << ": skipping consensus for the local operation";
+      } else {
+        consensus::ReplicateMsgPtr replicate_msg = operation_->NewReplicateMsg();
+        auto round = make_scoped_refptr<ConsensusRound>(consensus_, std::move(replicate_msg));
+        round->BindToTerm(term);
+        round->SetCallback(this);
+        mutable_operation()->set_consensus_round(std::move(round));
+      }
     }
   }
 
@@ -314,7 +321,13 @@ void OperationDriver::HandleFailure(const Status& status) {
 
 void OperationDriver::ReplicationFinished(
     const Status& status, int64_t leader_term, OpIds* applied_op_ids) {
-  LOG_IF(DFATAL, status.ok() && !GetOpId().valid()) << "Invalid op id after replication";
+  LOG_IF(DFATAL, status.ok() && !GetOpId().valid() && !FLAGS_TEST_override_op_type_for_raft)
+      << "Invalid op id after replication";
+  TRACE_FUNC();
+  /* if (FLAGS_TEST_override_op_type_for_raft && applied_op_ids == nullptr) {
+    LOG(INFO) << __func__ << " called with nullptr applied ops for request: "
+              << operation_->request()->ShortDebugString();
+  } */
 
   PrepareState prepare_state_copy;
   {
@@ -323,7 +336,11 @@ void OperationDriver::ReplicationFinished(
       LOG_IF(DFATAL, status.ok()) << "Successfully replicated operation that was previously failed";
       return;
     }
-    CHECK_EQ(replication_state_, REPLICATING);
+    // We skip replication for local operations.
+    if (!(FLAGS_TEST_override_op_type_for_raft &&
+          operation_->operation_mode() == OperationMode::kLocal)) {
+      CHECK_EQ(replication_state_, REPLICATING);
+    }
     if (status.ok()) {
       replication_state_ = REPLICATED;
     } else {
@@ -336,7 +353,7 @@ void OperationDriver::ReplicationFinished(
   // Note that if we set the state to REPLICATION_FAILED above, ApplyOperation() will actually abort
   // the operation, i.e. ApplyTask() will never be called and the operation will never be applied to
   // the tablet.
-  if (prepare_state_copy != PrepareState::PREPARED) {
+  if (prepare_state_copy != PrepareState::PREPARED && !FLAGS_TEST_override_op_type_for_raft) {
     LOG(DFATAL) << "Replicating an operation that has not been prepared: " << AsString(this);
 
     LOG(ERROR) << "Attempting to wait for the operation to be prepared";
@@ -387,6 +404,11 @@ void OperationDriver::TEST_Abort(const Status& status) {
 void OperationDriver::ApplyTask(int64_t leader_term, OpIds* applied_op_ids) {
   TRACE_EVENT_FLOW_END0("operation", "ApplyTask", this);
   ADOPT_TRACE(trace());
+  /*if (FLAGS_TEST_override_op_type_for_raft && applied_op_ids == nullptr) {
+    LOG(INFO) << __func__
+              << " called with nullptr applied ops for request: " <<
+  operation_->request()->ShortDebugString();
+  } */
 
 #ifndef NDEBUG
   {

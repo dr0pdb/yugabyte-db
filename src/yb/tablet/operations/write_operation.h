@@ -36,6 +36,7 @@
 #include <string>
 #include <vector>
 
+#include "yb/common/transaction.h"
 #include "yb/tablet/operations/operation.h"
 #include "yb/tablet/operations.messages.h"
 
@@ -61,11 +62,20 @@ class WriteOperation : public OperationBase<OperationType::kWrite, LWWritePB>  {
  public:
   template <class... Args>
   explicit WriteOperation(Args&&... args)
-      : OperationBase(std::forward<Args>(args)...) {}
+      : OperationBase(std::forward<Args>(args)...),
+        operation_mode_(OperationMode::kLocalAndRemote) {}
 
-  bool use_mvcc() const override {
-    return true;
+  bool use_mvcc() const override { return true; }
+
+  void set_operation_mode(OperationMode operation_mode) {
+    operation_mode_ = operation_mode;
   }
+
+  OperationMode operation_mode() const override { return operation_mode_; }
+
+  void set_transaction_id(yb::Uuid transaction_id) { transaction_id_ = transaction_id; }
+
+  yb::Uuid transaction_id() const { return transaction_id_; }
 
  private:
   // Executes a Prepare for a write transaction
@@ -99,6 +109,10 @@ class WriteOperation : public OperationBase<OperationType::kWrite, LWWritePB>  {
   Status DoAborted(const Status& status) override;
 
   HybridTime WriteHybridTime() const override;
+
+  OperationMode operation_mode_;
+
+  yb::Uuid transaction_id_;
 };
 
 }  // namespace tablet

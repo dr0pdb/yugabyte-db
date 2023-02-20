@@ -44,6 +44,8 @@ DEFINE_UNKNOWN_double(estimated_replicate_msg_size_percentage, 0.95,
 DEFINE_test_flag(int32, preparer_batch_inject_latency_ms, 0,
                  "Inject latency before replicating batch.");
 
+DECLARE_bool(TEST_override_op_type_for_raft);
+
 DECLARE_int32(protobuf_message_total_bytes_limit);
 DECLARE_uint64(rpc_max_message_size);
 
@@ -173,6 +175,24 @@ Status PreparerImpl::Submit(OperationDriver* operation_driver) {
   }
 
   const bool leader_side = operation_driver->is_leader_side();
+  // operation_driver->operation() can be null!
+  if (FLAGS_TEST_override_op_type_for_raft &&
+      operation_driver->operation_type() == OperationType::kWrite &&
+      operation_driver->mutable_operation() != nullptr) {
+    // LOG(INFO) << __func__ << ": Setting the value of leader_side as: " << leader_side;
+    operation_driver->mutable_operation()->setLeaderSide(leader_side);
+  }
+
+  // It means this was a local write operation without replication. Quit early.
+  // The check for kWrite is probably redundant since is_local will only be true for PG write ops.
+  if (FLAGS_TEST_override_op_type_for_raft &&
+      operation_driver->operation_type() == OperationType::kWrite &&
+      ((operation_driver->operation()->operation_mode() == OperationMode::kLocal))) {
+    // LOG(INFO) << __func__ << ": local operation.";
+    operation_driver->PrepareAndStartTask();
+    operation_driver->ReplicationFinished(Status::OK(), operation_driver->term_, nullptr);
+    return Status::OK();
+  }
 
   // When a leader becomes a follower, we expect the leader-side operations still in the preparer's
   // queue to fail to be prepared because their term will be too old as we try to add them to the
@@ -246,6 +266,7 @@ bool ShouldApplySeparately(OperationType operation_type) {
     case OperationType::kTruncate: FALLTHROUGH_INTENDED;
     case OperationType::kSplit: FALLTHROUGH_INTENDED;
     case OperationType::kEmpty: FALLTHROUGH_INTENDED;
+    case OperationType::kNoOp: FALLTHROUGH_INTENDED;
     case OperationType::kHistoryCutoff: FALLTHROUGH_INTENDED;
     case OperationType::kChangeAutoFlagsConfig:
       return true;

@@ -354,7 +354,14 @@ Status PgTxnManager::FinishTransaction(Commit commit) {
   }
 
   VLOG_TXN_STATE(2) << (commit ? "Committing" : "Aborting") << " transaction.";
-  Status status = client_->FinishTransaction(commit, DdlType::NonDdl);
+
+  tserver::PgPerformOptionsPB options;
+  SetupPerformOptions(&options);
+  options.set_use_xcluster_database_consistency(
+      yb_xcluster_consistency_level == XCLUSTER_CONSISTENCY_DATABASE && !(IsDdlMode()));
+
+  // client_->Flush(); vs client_->Perform.
+  Status status = client_->FinishTransaction(commit, DdlType::NonDdl, &options);
   VLOG_TXN_STATE(2) << "Transaction " << (commit ? "commit" : "abort") << " status: " << status;
   ResetTxnAndSession();
   return status;
@@ -393,7 +400,7 @@ Status PgTxnManager::ExitSeparateDdlTxnMode(Commit commit) {
     RSTATUS_DCHECK(!commit, IllegalState, "Commit ddl txn called when not in a DDL transaction");
     return Status::OK();
   }
-  RETURN_NOT_OK(client_->FinishTransaction(commit, ddl_type_));
+  RETURN_NOT_OK(client_->FinishTransaction(commit, ddl_type_, nullptr));
   ddl_type_ = DdlType::NonDdl;
   return Status::OK();
 }

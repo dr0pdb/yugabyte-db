@@ -97,6 +97,8 @@ DECLARE_uint64(max_clock_skew_usec);
 
 DECLARE_bool(ysql_enable_packed_row);
 DECLARE_bool(ysql_enable_packed_row_for_colocated_table);
+DECLARE_bool(TEST_docdb_log_write_batches);
+DECLARE_bool(TEST_override_op_type_for_raft);
 
 namespace yb {
 namespace pgwrapper {
@@ -528,6 +530,265 @@ TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(With)) {
   ASSERT_OK(conn.Execute(
       "WITH test2 AS (UPDATE test SET v = 2 WHERE k = 1) "
       "UPDATE test SET v = 3 WHERE k = 1"));
+}
+
+TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(SingleShardVerification)) {
+  auto conn = ASSERT_RESULT(Connect());
+
+  FLAGS_TEST_override_op_type_for_raft = true;
+  FLAGS_TEST_docdb_log_write_batches = true;
+  ASSERT_OK(conn.Execute(
+      "CREATE TABLE IF NOT EXISTS t1 (a int PRIMARY KEY, b int) SPLIT INTO 1 TABLETS"));
+
+  LOG(INFO) << "beginning transaction";
+  ASSERT_OK(conn.Execute("BEGIN"));
+  LOG(INFO) << "begin txn done";
+
+  LOG(INFO) << "starting insert";
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 6, 100));
+
+  auto peers = ListTabletPeers(cluster_.get(), ListPeersFilter::kAll);
+  for (const auto& peer : peers) {
+    auto tp = peer->tablet()->transaction_participant();
+    if (tp) {
+      const auto count_intents_result = tp->TEST_CountIntents();
+      const auto count_intents = count_intents_result.ok() ? count_intents_result->first : 0;
+      LOG(INFO) << peer->LogPrefix() << "RKNRKN Intents Count: " << count_intents;
+    }
+  }
+
+  LOG(INFO) << "committing";
+  ASSERT_OK(conn.Execute("COMMIT"));
+  LOG(INFO) << "commit done";
+
+  ASSERT_OK(WaitFor(
+      [this] {
+        auto intents_count = CountIntents(cluster_.get());
+        LOG(INFO) << "Intents count: " << intents_count;
+
+        return intents_count == 0;
+      },
+      20s, "RKNRKN Intents cleanup", 200ms));
+
+  for (const auto& peer : peers) {
+    auto tp = peer->tablet()->transaction_participant();
+    if (tp) {
+      const auto count_intents_result = tp->TEST_CountIntents();
+      const auto count_intents = count_intents_result.ok() ? count_intents_result->first : 0;
+      LOG(INFO) << peer->LogPrefix() << "RKNRKN Intents Count: " << count_intents;
+    }
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 6);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 100);
+  }
+}
+
+TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(ColocatedVerification)) {
+  auto conn = ASSERT_RESULT(Connect());
+
+  ASSERT_OK(conn.ExecuteFormat("CREATE DATABASE $0 with colocation=true", "rkn"));
+  conn = ASSERT_RESULT(ConnectToDB("rkn"));
+
+  FLAGS_TEST_override_op_type_for_raft = true;
+  FLAGS_TEST_docdb_log_write_batches = true;
+  ASSERT_OK(conn.Execute("CREATE TABLE IF NOT EXISTS t1 (a int PRIMARY KEY, b int)"));
+
+  LOG(INFO) << "beginning transaction";
+  ASSERT_OK(conn.Execute("BEGIN"));
+  LOG(INFO) << "begin txn done";
+
+  LOG(INFO) << "starting insert";
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 6, 100));
+
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 7, 200));
+
+  auto peers = ListTabletPeers(cluster_.get(), ListPeersFilter::kAll);
+  for (const auto& peer : peers) {
+    auto tp = peer->tablet()->transaction_participant();
+    if (tp) {
+      const auto count_intents_result = tp->TEST_CountIntents();
+      const auto count_intents = count_intents_result.ok() ? count_intents_result->first : 0;
+      LOG(INFO) << peer->LogPrefix() << "RKNRKN Intents Count: " << count_intents;
+    }
+  }
+
+  LOG(INFO) << "committing";
+  ASSERT_OK(conn.Execute("COMMIT"));
+  LOG(INFO) << "commit done";
+
+  ASSERT_OK(WaitFor(
+      [this] {
+        auto intents_count = CountIntents(cluster_.get());
+        LOG(INFO) << "Intents count: " << intents_count;
+
+        return intents_count == 0;
+      },
+      20s, "RKNRKN Intents cleanup", 200ms));
+
+  for (const auto& peer : peers) {
+    auto tp = peer->tablet()->transaction_participant();
+    if (tp) {
+      const auto count_intents_result = tp->TEST_CountIntents();
+      const auto count_intents = count_intents_result.ok() ? count_intents_result->first : 0;
+      LOG(INFO) << peer->LogPrefix() << "RKNRKN Intents Count: " << count_intents;
+    }
+  }
+
+  LOG(INFO) << "beginning transaction 2";
+  ASSERT_OK(conn.Execute("BEGIN"));
+  LOG(INFO) << "begin txn 2 done";
+
+  LOG(INFO) << "starting insert 2";
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 8, 300));
+
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 9, 400));
+
+  ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET b=b+1 where a=$0", 6));
+
+  LOG(INFO) << "committing";
+  ASSERT_OK(conn.Execute("COMMIT"));
+  LOG(INFO) << "commit done";
+
+  std::vector<std::pair<int, int>> expected = {{6, 101}, {7, 200}, {8, 300}, {9, 400}};
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 ORDER BY a", 4, 2));
+    for (int i = 0; i < 4; i++) {
+      auto value = ASSERT_RESULT(GetInt32(result.get(), i, 0));
+      ASSERT_EQ(value, expected[i].first);
+      value = ASSERT_RESULT(GetInt32(result.get(), i, 1));
+      ASSERT_EQ(value, expected[i].second);
+    }
+  }
+}
+
+TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(RaftNoOpTest)) {
+  auto conn = ASSERT_RESULT(Connect());
+  FLAGS_TEST_override_op_type_for_raft = true;
+
+  LOG(INFO) << "creating table";
+
+  ASSERT_OK(conn.Execute(
+      "CREATE TABLE IF NOT EXISTS t1 (a int PRIMARY KEY, b int) SPLIT INTO 10 TABLETS"));
+
+  LOG(INFO) << "beginning transaction";
+  ASSERT_OK(conn.Execute("BEGIN"));
+  LOG(INFO) << "begin txn done";
+
+  LOG(INFO) << "starting inserts";
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 5, 6));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 6, 100));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 7, 6));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 8, 6));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 100, 1000));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 101, 1001));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 200, 2000));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 201, 2001));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 300, 3000));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 350, 3500));
+  LOG(INFO) << "done with inserts";
+
+  std::vector<std::pair<int, int>> expected = {
+    {5, 6},
+    {6, 100},
+    {7, 6},
+    {8, 6},
+    {100, 1000},
+    {101, 1001},
+    {200, 2000},
+    {201, 2001},
+    {300, 3000},
+    {350, 3500}
+  };
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 ORDER BY a", 10, 2));
+    for (int i = 0; i < 10; i++) {
+      auto value = ASSERT_RESULT(GetInt32(result.get(), i, 0));
+      ASSERT_EQ(value, expected[i].first);
+      value = ASSERT_RESULT(GetInt32(result.get(), i, 1));
+      ASSERT_EQ(value, expected[i].second);
+    }
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 6);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 100);
+  }
+
+  LOG(INFO) << "update query";
+  ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET b = b+100 WHERE a = 6"));
+  LOG(INFO) << "update query done";
+
+  expected[1].second = 200;
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 6);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 200);
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 100", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 100);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 1000);
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 ORDER BY a", 10, 2));
+    for (int i = 0; i < 10; i++) {
+      auto value = ASSERT_RESULT(GetInt32(result.get(), i, 0));
+      ASSERT_EQ(value, expected[i].first);
+      value = ASSERT_RESULT(GetInt32(result.get(), i, 1));
+      ASSERT_EQ(value, expected[i].second);
+    }
+  }
+
+  LOG(INFO) << "committing";
+  ASSERT_OK(conn.Execute("COMMIT"));
+  LOG(INFO) << "commit done";
+
+  ASSERT_OK(conn.Execute("BEGIN"));
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 ORDER BY a", 10, 2));
+    for (int i = 0; i < 10; i++) {
+      auto value = ASSERT_RESULT(GetInt32(result.get(), i, 0));
+      ASSERT_EQ(value, expected[i].first);
+      value = ASSERT_RESULT(GetInt32(result.get(), i, 1));
+      ASSERT_EQ(value, expected[i].second);
+    }
+  }
+  ASSERT_OK(conn.Execute("COMMIT"));
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 ORDER BY a", 10, 2));
+    for (int i = 0; i < 10; i++) {
+      auto value = ASSERT_RESULT(GetInt32(result.get(), i, 0));
+      ASSERT_EQ(value, expected[i].first);
+      value = ASSERT_RESULT(GetInt32(result.get(), i, 1));
+      ASSERT_EQ(value, expected[i].second);
+    }
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 100", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 100);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 1000);
+  }
 }
 
 void PgMiniTest::TestReadRestart(const bool deferrable) {

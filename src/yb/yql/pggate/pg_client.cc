@@ -19,6 +19,7 @@
 #include "yb/client/tablet_server.h"
 #include "yb/client/yb_table_name.h"
 
+#include "yb/common/ybc_util.h"
 #include "yb/gutil/casts.h"
 
 #include "yb/rpc/poller.h"
@@ -227,15 +228,21 @@ class PgClient::Impl {
     return BuildTablePartitionList(resp.partitions(), table_id);
   }
 
-  Status FinishTransaction(Commit commit, DdlType ddl_type) {
+  Status FinishTransaction(Commit commit, DdlType ddl_type, tserver::PgPerformOptionsPB* options) {
     tserver::PgFinishTransactionRequestPB req;
     req.set_session_id(session_id_);
     req.set_commit(commit);
     req.set_ddl_mode(ddl_type != DdlType::NonDdl);
     req.set_has_docdb_schema_changes(ddl_type == DdlType::DdlWithDocdbSchemaChanges);
+    if (options) {
+      *req.mutable_options() = std::move(*options);
+    }
 
     tserver::PgFinishTransactionResponsePB resp;
 
+    /* YBC_LOG_INFO(
+        "RKNRKN printing the log from FinishTransaction with session id: %llu", session_id_);
+    YBC_LOG_INFO_STACK_TRACE("printing stack trace"); */
     RETURN_NOT_OK(proxy_->FinishTransaction(req, &resp, PrepareController()));
     return ResponseStatus(resp);
   }
@@ -707,8 +714,9 @@ Result<client::VersionedTablePartitionList> PgClient::GetTablePartitionList(
   return impl_->GetTablePartitionList(table_id);
 }
 
-Status PgClient::FinishTransaction(Commit commit, DdlType ddl_type) {
-  return impl_->FinishTransaction(commit, ddl_type);
+Status PgClient::FinishTransaction(
+    Commit commit, DdlType ddl_type, tserver::PgPerformOptionsPB* options) {
+  return impl_->FinishTransaction(commit, ddl_type, options);
 }
 
 Result<master::GetNamespaceInfoResponsePB> PgClient::GetDatabaseInfo(uint32_t oid) {

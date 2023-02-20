@@ -67,6 +67,7 @@ class YBRedisWriteOp;
 class YBSession;
 typedef std::shared_ptr<YBSession> YBSessionPtr;
 struct FlushStatus;
+using PerformLocalCallback = boost::function<void(const Status)>;
 using FlushCallback = boost::function<void(FlushStatus*)>;
 using CommitCallback = boost::function<void(const Status&)>;
 using CreateCallback = boost::function<void(const Status&)>;

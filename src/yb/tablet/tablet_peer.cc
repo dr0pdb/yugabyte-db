@@ -371,6 +371,13 @@ Result<FixedHybridTimeLease> TabletPeer::HybridTimeLease(
   };
 }
 
+Result<HybridTime> TabletPeer::MajorityReplicatedHybridSafeTime() {
+  // Get the current majority-replicated HT leader lease without any waiting.
+  auto ht_lease = VERIFY_RESULT(HybridTimeLease(
+      /* min_allowed= */ HybridTime::kMin, /* deadline */ CoarseTimePoint::max()));
+  return tablet_->mvcc_manager()->SafeTime(ht_lease);
+}
+
 Result<HybridTime> TabletPeer::PreparePeerRequest() {
   auto leader_term = consensus_->GetLeaderState(/* allow_stale= */ true).term;
   if (leader_term >= 0) {
@@ -393,10 +400,7 @@ Result<HybridTime> TabletPeer::PreparePeerRequest() {
     return HybridTime::kInvalid;
   }
 
-  // Get the current majority-replicated HT leader lease without any waiting.
-  auto ht_lease = VERIFY_RESULT(HybridTimeLease(
-      /* min_allowed= */ HybridTime::kMin, /* deadline */ CoarseTimePoint::max()));
-  return tablet_->mvcc_manager()->SafeTime(ht_lease);
+  return MajorityReplicatedHybridSafeTime();
 }
 
 void TabletPeer::MajorityReplicated() {
@@ -881,6 +885,9 @@ consensus::OperationType MapOperationTypeToPB(OperationType operation_type) {
     case OperationType::kChangeAutoFlagsConfig:
       return consensus::CHANGE_AUTO_FLAGS_CONFIG_OP;
 
+    case OperationType::kNoOp:
+      return consensus::NO_OP;
+
     case OperationType::kEmpty:
       LOG(FATAL) << "OperationType::kEmpty cannot be converted to consensus::OperationType";
   }
@@ -1273,7 +1280,6 @@ std::unique_ptr<Operation> TabletPeer::CreateOperation(consensus::LWReplicateMsg
              " operation must receive an AutoFlagsConfigPB";
       return std::make_unique<ChangeAutoFlagsConfigOperation>(
           tablet, replicate_msg->mutable_auto_flags_config());
-
     case consensus::UNKNOWN_OP: FALLTHROUGH_INTENDED;
     case consensus::NO_OP: FALLTHROUGH_INTENDED;
     case consensus::CHANGE_CONFIG_OP:
@@ -1366,6 +1372,7 @@ Result<OperationDriverPtr> TabletPeer::NewReplicaOperationDriver(
 Result<OperationDriverPtr> TabletPeer::NewOperationDriver(std::unique_ptr<Operation>* operation,
                                                           int64_t term) {
   auto operation_driver = CreateOperationDriver();
+  operation_driver->term_ = term;
   RETURN_NOT_OK(operation_driver->Init(operation, term));
   return operation_driver;
 }

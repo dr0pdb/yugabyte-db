@@ -219,6 +219,8 @@ DECLARE_bool(TEST_enable_db_catalog_version_mode);
 DEFINE_test_flag(bool, skip_aborting_active_transactions_during_schema_change, false,
                  "Skip aborting active transactions during schema change");
 
+DECLARE_bool(TEST_override_op_type_for_raft);
+
 double TEST_delay_create_transaction_probability = 0;
 
 namespace yb {
@@ -1724,6 +1726,19 @@ bool EmptyWriteBatch(const docdb::KeyValueWriteBatchPB& write_batch) {
   return write_batch.write_pairs().empty() && write_batch.apply_external_transactions().empty();
 }
 
+tablet::OperationMode GetOperationMode(const WriteRequestPB* req) {
+  switch (req->operation_mode()) {
+    case WriteOperationMode::LOCAL_ONLY_OPERATION:
+      return tablet::OperationMode::kLocal;
+    case WriteOperationMode::REMOTE_ONLY_OPERATION:
+      return tablet::OperationMode::kRemote;
+    case WriteOperationMode::SKIP_INTENTS_OPERATION:
+      return tablet::OperationMode::kSkipIntents;
+    default:
+      return tablet::OperationMode::kLocalAndRemote;
+  }
+}
+
 Status TabletServiceImpl::PerformWrite(
     const WriteRequestPB* req, WriteResponsePB* resp, rpc::RpcContext* context) {
   if (req->include_trace()) {
@@ -1804,6 +1819,46 @@ Status TabletServiceImpl::PerformWrite(
       tablet.leader_term, context_ptr->GetClientDeadline(), tablet.peer.get(), tablet.tablet,
       context_ptr.get(), resp);
   query->set_client_request(*req);
+
+  // Set hybrid time for local operations. Have to revisit.
+  if (FLAGS_TEST_override_op_type_for_raft &&
+      tablet.tablet->table_type() == TableType::PGSQL_TABLE_TYPE) {
+    tablet::OperationMode op_mode = GetOperationMode(req);
+    if (op_mode == tablet::OperationMode::kLocal) {
+      auto ht = VERIFY_RESULT(tablet.peer.get()->MajorityReplicatedHybridSafeTime());
+      query->operation().set_hybrid_time(ht);
+    }
+
+    query->operation().set_operation_mode(op_mode);
+    /* if (query->operation().operation_mode() == yb::tablet::OperationMode::kSkipIntents) {
+      LOG(INFO) << __func__
+                << " RKNRKN the operation mode before setting transaction id is kSkipIntents";
+    } else if (query->operation().operation_mode() == yb::tablet::OperationMode::kLocalAndRemote) {
+      LOG(INFO) << __func__
+                << " RKNRKN the operation mode before setting transaction id is kLocalAndRemote";
+    } else if (query->operation().operation_mode() == yb::tablet::OperationMode::kLocal) {
+      LOG(INFO) << __func__ << " RKNRKN the operation mode before setting transaction id is kLocal";
+    } else {
+      LOG(INFO) << __func__
+                << " RKNRKN the operation mode before setting transaction id is kRemote";
+    }
+    if (req->has_write_batch() && req->write_batch().has_transaction()) {
+      auto transaction_id =
+          CHECK_RESULT(FullyDecodeTransactionId(req->write_batch().transaction().transaction_id()));
+      LOG(INFO) << __func__
+                << " RKNRKN write request also has transaction within the write batch and the "
+                   "transaction id within the write batch is "
+                << transaction_id;
+    }
+    LOG(INFO) << __func__ << ": The client request is: " << req->DebugString(); */
+    if (req->has_transaction_id()) {
+      auto transaction_id = req->transaction_id();
+      // LOG(INFO) << __func__ << " RKNRKN setting the transaction id to " << transaction_id;
+      query->operation().set_transaction_id(VERIFY_RESULT(Uuid::FromString(transaction_id)));
+    } else {
+      // LOG(INFO) << __func__ << " RKNRKN No transaction id found in the write request";
+    }
+  }
 
   if (RandomActWithProbability(GetAtomicFlag(&FLAGS_TEST_respond_write_failed_probability))) {
     LOG(INFO) << "Responding with a failure to " << req->DebugString();
