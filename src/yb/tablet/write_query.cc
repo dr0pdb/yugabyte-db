@@ -245,6 +245,7 @@ void WriteQuery::Complete(const Status& status) {
 }
 
 void WriteQuery::ExecuteDone(const Status& status) {
+  LOG(INFO) << __func__;
   scoped_read_operation_.Reset();
   switch (execute_mode_) {
     case ExecuteMode::kSimple:
@@ -439,15 +440,6 @@ void WriteQuery::Execute(std::unique_ptr<WriteQuery> query) {
     return;
   }
 
-  // For remote only operations skip conflict resolution.
-  if (FLAGS_TEST_override_op_type_for_raft &&
-      ((query_ptr->operation().operation_mode() == OperationMode::kRemote) /* ||
-       (query_ptr->operation().operation_mode() == OperationMode::kSkipIntents) */ )) {
-    LOG(INFO) << __func__ << ": skipping DoExecute for remote/skip intents only op.";
-    query_ptr->ExecuteDone(Status::OK());
-    return;
-  }
-
   auto status = query_ptr->DoExecute();
   if (!status.ok()) {
     query_ptr->ExecuteDone(status);
@@ -538,7 +530,8 @@ Status WriteQuery::DoExecute() {
     auto now = tablet->clock()->Now();
     auto conflict_management_policy = GetConflictManagementPolicy(
         tablet->wait_queue(), write_batch);
-    if (operation().operation_mode() == OperationMode::kSkipIntents) {
+    if (FLAGS_TEST_override_op_type_for_raft &&
+        operation().operation_mode() == OperationMode::kSkipIntents) {
       LOG(INFO)
           << __func__
           << " RKNRKN non-txn flow, conflict resolution skipped for kSkipIntents operation mode";
@@ -586,6 +579,15 @@ Status WriteQuery::DoExecute() {
 
   auto conflict_management_policy = GetConflictManagementPolicy(
       tablet->wait_queue(), write_batch);
+
+  if (FLAGS_TEST_override_op_type_for_raft && operation().operation_mode() == OperationMode::kRemote) {
+    LOG(INFO)
+        << __func__
+        << " RKNRKN skipping conflict resolution for kRemote op.";
+    TransactionalConflictsResolved();
+    TRACE("TransactionalConflictsResolved");
+    return Status::OK();
+  }
 
   // TODO(wait-queues): Ensure that wait_queue respects deadline() during conflict resolution.
   return docdb::ResolveTransactionConflicts(
@@ -650,10 +652,12 @@ Status WriteQuery::DoTransactionalConflictsResolved() {
 }
 
 void WriteQuery::CompleteExecute() {
+  LOG(INFO) << __func__;
   ExecuteDone(DoCompleteExecute());
 }
 
 Status WriteQuery::DoCompleteExecute() {
+  LOG(INFO) << __func__;
   auto tablet = VERIFY_RESULT(tablet_safe());
   auto read_op = prepare_result_.need_read_snapshot
       ? VERIFY_RESULT(ScopedReadOperation::Create(tablet.get(),
@@ -681,7 +685,7 @@ Status WriteQuery::DoCompleteExecute() {
         doc_ops_, deadline(), real_read_time, tablet->doc_db(),
         request().mutable_write_batch(), init_marker_behavior,
         tablet->monotonic_counter(), &restart_read_ht_,
-        tablet->metadata()->table_name()));
+        tablet->metadata()->table_name(), operation().operation_mode()));
 
     // For serializable isolation we don't fix read time, so could do read restart locally,
     // instead of failing whole transaction.

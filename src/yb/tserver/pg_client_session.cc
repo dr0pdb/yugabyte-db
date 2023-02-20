@@ -1194,9 +1194,6 @@ PgClientSession::SetupSession(const PgPerformRequestPB& req, CoarseTimePoint dea
       LOG(INFO)
           << __func__
           << ": Else part";
-      // if (req.perform_global_txn_ops()) {
-      // }
-      plain_session_used_read_time_.value = ReadHybridTime::FromUint64(6864693936528302080);
       if (!transaction && kind == PgClientSessionKind::kPlain) {
         RETURN_NOT_OK(CheckPlainSessionReadTime());
       }

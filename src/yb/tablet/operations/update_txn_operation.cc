@@ -51,7 +51,7 @@ Result<TransactionCoordinator*> UpdateTxnOperation::transaction_coordinator() co
 }
 
 Status UpdateTxnOperation::DoReplicated(int64_t leader_term, Status* complete_status) {
-  VLOG_WITH_PREFIX(2) << "Replicated";
+  LOG(INFO) << __func__ << " request: " << request()->ShortDebugString();
 
   auto tablet = VERIFY_RESULT(tablet_safe());
   auto transaction_participant = tablet->transaction_participant();

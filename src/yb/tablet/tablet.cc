@@ -229,7 +229,7 @@ DEFINE_test_flag(bool, tablet_verify_flushed_frontier_after_modifying, false,
                  "After modifying the flushed frontier in RocksDB, verify that the restored value "
                  "of it is as expected. Used for testing.");
 
-DEFINE_test_flag(bool, docdb_log_write_batches, false,
+DEFINE_test_flag(bool, docdb_log_write_batches, true,
                  "Dump write batches being written to RocksDB");
 
 DEFINE_test_flag(bool, export_intentdb_metrics, false,
@@ -1296,21 +1296,30 @@ Status Tablet::WriteTransactionalBatch(
   auto transaction_id = CHECK_RESULT(
       FullyDecodeTransactionId(put_batch.transaction().transaction_id()));
 
-  LOG(INFO) << __func__ << " txn id is: " << transaction_id;
+  LOG(INFO) << __func__ << " the put_batch.transaction() details are: "
+            << put_batch.transaction().ShortDebugString() << " txn id is: " << transaction_id;
   bool store_metadata = false;
   if (put_batch.transaction().has_isolation()) {
+    LOG(INFO) << __func__ << " going to add the metadata for the transaction: " << transaction_id;
+
     // Store transaction metadata (status tablet, isolation level etc.)
     auto metadata = VERIFY_RESULT(TransactionMetadata::FromPB(put_batch.transaction()));
     auto add_result = transaction_participant()->Add(metadata);
     if (!add_result.ok()) {
+      LOG(INFO) << __func__ << " txn metadata couldn't be added for txn: " << transaction_id;
       return add_result.status();
     }
     store_metadata = add_result.get();
+  } else {
+    LOG(INFO) << __func__ << " put batch doesn't have isolation for the transaction: " << transaction_id;
   }
+
+  LOG(INFO) << __func__ << " preparing batch data, txn: " << transaction_id;
   boost::container::small_vector<uint8_t, 16> encoded_replicated_batch_idx_set;
   auto prepare_batch_data = transaction_participant()->PrepareBatchData(
       transaction_id, batch_idx, &encoded_replicated_batch_idx_set);
   if (!prepare_batch_data) {
+    LOG(INFO) << __func__ << " batch data couldn't be prepared for txn: " << transaction_id;
     // If metadata is missing it could be caused by aborted and removed transaction.
     // In this case we should not add new intents for it.
     return STATUS(TryAgain,
@@ -1334,14 +1343,19 @@ Status Tablet::WriteTransactionalBatch(
   write_batch.SetDirectWriter(&writer);
   RequestScope request_scope = VERIFY_RESULT(RequestScope::Create(transaction_participant_.get()));
 
-  LOG(INFO) << __func__ << " txn id is: " << transaction_id << ", going to write to intents db";
+  LOG(INFO) << __func__
+            << " Going to write to kIntents with last_batch_data: " << last_batch_data.ToString()
+            << " and transaction_id: " << transaction_id;
   WriteToRocksDB(frontiers, &write_batch, StorageDbType::kIntents);
-  LOG(INFO) << __func__ << " txn id is: " << transaction_id << ", done writing to intents db";
+  LOG(INFO) << __func__
+            << " Done writing to kIntents with transaction_id: " << transaction_id;
 
   last_batch_data.hybrid_time = hybrid_time;
   last_batch_data.next_write_id = writer.intra_txn_write_id();
   transaction_participant()->BatchReplicated(transaction_id, last_batch_data);
-  LOG(INFO) << __func__ << " txn id is: " << transaction_id << ", done calling BatchReplicated()";
+  LOG(INFO) << __func__
+            << " Done calling BatchReplicated. New last_batch_data: " << last_batch_data.ToString()
+            << " and transaction_id: " << transaction_id;
   return Status::OK();
 }
 

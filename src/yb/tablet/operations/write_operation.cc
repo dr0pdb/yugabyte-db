@@ -92,9 +92,9 @@ Status WriteOperation::DoReplicated(int64_t leader_term, Status* complete_status
   // replicating its intents.
   LOG_IF(INFO, !complete_status->ok()) << "Apply operation failed: " << *complete_status;
 
-  LOG(INFO) << __func__ << " RKNRKN before calling cleanup intents, the operstion mode is "
-            << operation_mode() << " is leader side is set to " << isLeaderSide();
   if (operation_mode() == tablet::OperationMode::kSkipIntents && isLeaderSide()) {
+  LOG(INFO) << __func__ << " RKNRKN before calling cleanup intents, the operstion mode is "
+        << operation_mode() << " is leader side is set to " << isLeaderSide();
     auto tablet = VERIFY_RESULT(tablet_safe());
     auto transaction_participant = tablet->transaction_participant();
 

@@ -610,18 +610,18 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
       const auto& tablet = first_op.tablet;
       const auto& tablet_id = tablet->tablet_id();
 
-      bool has_metadata;
+      // bool has_metadata;
       if (initial && should_add_intents) {
         auto& tablet_state = tablets_[tablet_id];
         // TODO(dtxn) Handle skipped writes, i.e. writes that did not write anything (#3220)
         first_op.batch_idx = tablet_state.num_batches;
         ++tablet_state.num_batches;
-        has_metadata = tablet_state.has_metadata;
+        // has_metadata = tablet_state.has_metadata;
       } else {
-        const auto it = tablets_.find(tablet_id);
-        has_metadata = it != tablets_.end() && it->second.has_metadata;
+        // const auto it = tablets_.find(tablet_id);
+        // has_metadata = it != tablets_.end() && it->second.has_metadata;
       }
-      group.need_metadata = !has_metadata;
+      group.need_metadata = true;
     }
   }
 

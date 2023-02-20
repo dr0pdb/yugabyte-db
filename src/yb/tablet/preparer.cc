@@ -23,6 +23,7 @@
 #include <boost/range/iterator_range_core.hpp>
 
 #include "yb/consensus/consensus.h"
+#include "yb/consensus/consensus.messages.h"
 #include "yb/consensus/consensus.pb.h"
 
 #include "yb/gutil/macros.h"
@@ -205,6 +206,11 @@ Status PreparerImpl::Submit(OperationDriver* operation_driver) {
     // ReplicaState lock once and append multiple operations.
     active_tasks_.fetch_add(1, std::memory_order_release);
     queue_.Push(operation_driver);
+    if (FLAGS_TEST_override_op_type_for_raft) {
+      LOG(INFO)
+          << __func__ << " raft message pushed on the preparer thread queue with message: "
+          << operation_driver->operation()->consensus_round()->replicate_msg()->ShortDebugString();
+    }
   } else {
     // For follower-side operations, there would be no benefit in preparing them on the preparer
     // thread.

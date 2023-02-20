@@ -353,7 +353,7 @@ void SetMetadata(const InFlightOpsTransactionMetadata& metadata,
   }
   dest->set_deprecated_may_have_metadata(true);
 
-  LOG(INFO) << __func__ << " RKNRKN setting the metadata in dest" << GetStackTrace();
+  LOG(INFO) << __func__ << " RKNRKN setting the metadata in dest";
 
   if (metadata.subtransaction && !metadata.subtransaction->IsDefaultState()) {
     metadata.subtransaction->ToPB(dest->mutable_subtransaction());

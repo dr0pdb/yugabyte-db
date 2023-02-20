@@ -219,7 +219,7 @@ class TransactionParticipant::Impl
           "Transaction was recently aborted: $0", metadata.transaction_id);
       return status.CloneAndAddErrorCode(TransactionError(TransactionErrorCode::kAborted));
     }
-    VLOG_WITH_PREFIX(4) << "Create new transaction: " << metadata.transaction_id;
+    LOG(INFO) << "Create new transaction: " << metadata.transaction_id;
     if (metadata.external_transaction && metadata.status_tablet.empty()) {
       return STATUS(InvalidArgument, Format("For external transaction $0, status tablet is empty",
                                              metadata.transaction_id));
@@ -325,8 +325,10 @@ class TransactionParticipant::Impl
     auto lock_and_iterator = LockAndFind(
         id, "metadata with write id"s, TransactionLoadFlags{TransactionLoadFlag::kMustExist});
     if (!lock_and_iterator.found()) {
+      LOG(INFO) << __func__ << ": transaction was not found, id: " << id.ToString();
       return boost::none;
     }
+    LOG(INFO) << __func__ << ": transaction found, id: " << id.ToString();
     auto& transaction = lock_and_iterator.transaction();
     transaction.AddReplicatedBatch(batch_idx, encoded_replicated_batches);
     return std::make_pair(transaction.metadata().isolation, transaction.last_batch_data());
@@ -570,6 +572,8 @@ class TransactionParticipant::Impl
     }
 
     auto id = FullyDecodeTransactionId(data.state.transaction_id());
+    LOG(INFO) << __func__ << " for transaction_id: " << id
+              << " with status: " << data.state.status();
     if (!id.ok()) {
       LOG(ERROR) << "Could not decode transaction details, whose apply record OpId was: "
                  << data.op_id;
@@ -1410,31 +1414,31 @@ class TransactionParticipant::Impl
       const TransactionId& id, const std::string& reason, TransactionLoadFlags flags) {
     loader_.WaitLoaded(id);
     bool recently_removed;
-    LOG(INFO) << __func__ << " RKNRKN for transaction id " << id << " and the stack trace is "
-              << GetStackTrace();
+    // LOG(INFO) << __func__ << " RKNRKN for transaction id " << id << " and the stack trace is "
+    //           << GetStackTrace();
     {
       std::unique_lock<std::mutex> lock(mutex_);
       auto it = transactions_.find(id);
       if (it != transactions_.end()) {
-        LOG(INFO) << __func__ << " RKNRKN found the transaction " << id << "in transactions list";
+        // LOG(INFO) << __func__ << " RKNRKN found the transaction " << id << "in transactions list";
         if (!(**it).external_transaction() &&
             (**it).start_ht() <= ignore_all_transactions_started_before_) {
           YB_LOG_WITH_PREFIX_EVERY_N_SECS(INFO, 1)
               << "Ignore transaction for '" << reason << "' because of limit: "
               << ignore_all_transactions_started_before_ << ", txn: " << AsString(**it);
-          LOG(INFO) << __func__ << "Ignore transaction for '" << reason
-                    << "' because of limit: " << ignore_all_transactions_started_before_
-                    << ", txn: " << AsString(**it);
+          // LOG(INFO) << __func__ << "Ignore transaction for '" << reason
+          //           << "' because of limit: " << ignore_all_transactions_started_before_
+          //           << ", txn: " << AsString(**it);
           return LockAndFindResult{};
         }
         return LockAndFindResult{ std::move(lock), it };
       } else {
-        LOG(INFO) << __func__
-                  << " RKNRKN couldn't find the transaction in the transaction list. The list of "
-                     "transactions are ";
-        for (auto a : transactions_) {
-          LOG(INFO) << a->id() << std::endl;
-        }
+        // LOG(INFO) << __func__
+        //           << " RKNRKN couldn't find the transaction in the transaction list. The list of "
+        //              "transactions are ";
+        // for (auto a : transactions_) {
+        //   LOG(INFO) << a->id() << std::endl;
+        // }
       }
       recently_removed = WasTransactionRecentlyRemoved(id);
     }
@@ -1449,12 +1453,12 @@ class TransactionParticipant::Impl
     if (flags.Test(TransactionLoadFlag::kMustExist)) {
       YB_LOG_WITH_PREFIX_EVERY_N_SECS(WARNING, 1)
           << "Transaction not found: " << id << ", for: " << reason;
-      LOG(INFO) << __func__ << " RKNRKN with must exist flag, transaction not found: " << id
-                << ", for: " << reason;
+      // LOG(INFO) << __func__ << " RKNRKN with must exist flag, transaction not found: " << id
+      //           << ", for: " << reason;
     } else {
       YB_LOG_WITH_PREFIX_EVERY_N_SECS(INFO, 1)
           << "Transaction not found: " << id << ", for: " << reason;
-      LOG(INFO) << __func__ << " RKNRKN Transaction not found: " << id << ", for: " << reason;
+      // LOG(INFO) << __func__ << " RKNRKN Transaction not found: " << id << ", for: " << reason;
     }
     if (flags.Test(TransactionLoadFlag::kCleanup)) {
       VLOG_WITH_PREFIX(2) << "Schedule cleanup for: " << id;
@@ -1544,7 +1548,6 @@ class TransactionParticipant::Impl
   }
 
   bool WasTransactionRecentlyRemoved(const TransactionId& id) {
-    LOG(INFO) << __func__ << "RKNRKN transaction id " << id;
     CleanupRecentlyRemovedTransactions(CoarseMonoClock::now());
     return recently_removed_transactions_.count(id) != 0;
   }

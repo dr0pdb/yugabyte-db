@@ -1281,6 +1281,7 @@ class TransactionCoordinator::Impl : public TransactionStateContext,
     if (!id.ok()) {
       return std::move(id.status());
     }
+    LOG(INFO) << __func__ << " for transaction_id: " << *id;
 
     bool last_transaction = false;
     PostponedLeaderActions actions;

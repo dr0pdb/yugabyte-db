@@ -79,19 +79,9 @@ std::string Operation::ToString() const {
 }
 
 Status Operation::Replicated(int64_t leader_term, WasPending was_pending) {
-  LOG(INFO) << __func__ << " for request: " << request()->ShortDebugString();
+  LOG(INFO) << __func__ << " for request: " << request()->ShortDebugString()
+            << " with operation mode: " << operation_mode();
   Status complete_status = Status::OK();
-  if (operation_mode() == yb::tablet::OperationMode::kSkipIntents) {
-    LOG(INFO) << __func__
-              << " RKNRKN the operation mode before calling DoReplicated is kSkipIntents";
-  } else if (operation_mode() == yb::tablet::OperationMode::kLocalAndRemote) {
-    LOG(INFO) << __func__
-              << " RKNRKN the operation mode before calling DoReplicated is kLocalAndRemote";
-  } else if (operation_mode() == yb::tablet::OperationMode::kLocal) {
-    LOG(INFO) << __func__ << " RKNRKN the operation mode before calling DoReplicated is kLocal";
-  } else {
-    LOG(INFO) << __func__ << " RKNRKN the operation mode before calling DoReplicated is kRemote";
-  }
   RETURN_NOT_OK(DoReplicated(leader_term, &complete_status));
   // LOG(INFO) << __func__ << " status after DoReplicated " << complete_status
   //           << " for request: " << request()->ShortDebugString();

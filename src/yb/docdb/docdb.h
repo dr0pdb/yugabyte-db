@@ -37,6 +37,7 @@
 
 #include "yb/rocksdb/rocksdb_fwd.h"
 
+#include "yb/tablet/operations/operation.h"
 #include "yb/util/memory/arena_list.h"
 #include "yb/util/result.h"
 #include "yb/util/strongly_typed_bool.h"
@@ -134,7 +135,8 @@ Status AssembleDocWriteBatch(
     InitMarkerBehavior init_marker_behavior,
     std::atomic<int64_t>* monotonic_counter,
     HybridTime* restart_read_ht,
-    const std::string& table_name);
+    const std::string& table_name,
+    const yb::tablet::OperationMode op_mode = tablet::OperationMode::kLocalAndRemote);
 
 struct ExternalTxnApplyStateData {
   HybridTime commit_ht;

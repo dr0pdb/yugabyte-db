@@ -693,12 +693,12 @@ std::shared_ptr<AsyncRpc> Batcher::CreateRpc(
       return std::make_shared<WriteRpc>(data);
     case OpGroup::kLeaderRead: {
       auto val = std::make_shared<ReadRpc>(data, YBConsistencyLevel::STRONG);
-      LOG(INFO) << __func__ << " RKNRKN printing the request " << val->req().DebugString();
+      // LOG(INFO) << __func__ << " RKNRKN printing the request " << val->req().DebugString();
       return val;
     }
     case OpGroup::kConsistentPrefixRead: {
       auto val = std::make_shared<ReadRpc>(data, YBConsistencyLevel::CONSISTENT_PREFIX);
-      LOG(INFO) << __func__ << " RKNRKN printing the request " << val->req().DebugString();
+      // LOG(INFO) << __func__ << " RKNRKN printing the request " << val->req().DebugString();
       return val;
     }
   }
