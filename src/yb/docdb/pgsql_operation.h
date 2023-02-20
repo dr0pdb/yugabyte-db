@@ -70,6 +70,12 @@ class PgsqlWriteOperation :
       const SubDocKey& sub_doc_key,
       HybridTime min_hybrid_time);
 
+  // The function ReadHybridTime::FromReadTimePB checks for field read_time in the proto, hence we
+  // accept the complete write_request PB.
+  void SetReadTime(const PgsqlWriteRequestPB& write_request) {
+    read_time_ = std::optional<ReadHybridTime>{ReadHybridTime::FromReadTimePB(write_request)};
+  }
+
   // Execute write.
   Status Apply(const DocOperationApplyData& data) override;
 
@@ -130,6 +136,8 @@ class PgsqlWriteOperation :
   // Rows result requested.
   rpc::Sidecars* const sidecars_;
 
+  // If present, the read_time to be used for the operation.
+  std::optional<ReadHybridTime> read_time_{std::nullopt};
   int64_t result_rows_ = 0;
   WriteBufferPos row_num_pos_;
   WriteBuffer* write_buffer_ = nullptr;

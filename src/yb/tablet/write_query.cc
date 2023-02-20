@@ -415,6 +415,12 @@ Result<bool> WriteQuery::PgsqlPrepareExecute() {
         table_info->doc_read_context,
         txn_op_ctx,
         rpc_context_ ? &rpc_context_->sidecars() : nullptr);
+    // Override the read_time to be the read_time when we did the local operation for skipIntents
+    // operation mode.
+    if (FLAGS_TEST_override_op_type_for_raft && req.has_read_time() &&
+        operation_->operation_mode() == OperationMode::kSkipIntents) {
+      write_op->SetReadTime(req);
+    }
     RETURN_NOT_OK(write_op->Init(resp));
     doc_ops_.emplace_back(std::move(write_op));
   }

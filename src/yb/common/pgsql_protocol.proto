@@ -281,6 +281,8 @@ message PgsqlWriteRequestPB {
   optional bytes partition_key = 22;
 
   optional PgsqlFetchSequenceParamsPB fetch_sequence_params = 25;
+
+  optional ReadHybridTimePB read_time = 26;
 }
 
 //--------------------------------------------------------------------------------------------------

@@ -103,6 +103,8 @@ DEFINE_test_flag(bool, ysql_suppress_ybctid_corruption_details, false,
                  "Whether to show less details on ybctid corruption error status message.  Useful "
                  "during tests that require consistent output.");
 
+DECLARE_bool(TEST_override_op_type_for_raft);
+
 namespace yb {
 namespace docdb {
 
@@ -348,13 +350,14 @@ class PgsqlWriteOperation::RowPackContext {
  public:
   RowPackContext(const PgsqlWriteRequestPB& request,
                  const DocOperationApplyData& data,
-                 const RowPackerData& packer_data)
+                 const RowPackerData& packer_data,
+                 const std::optional<ReadHybridTime> overridden_read_time)
       : query_id_(request.stmt_id()),
         data_(data),
         write_id_(data.doc_write_batch->ReserveWriteId()),
         packer_(packer_data.schema_version, packer_data.packing, FLAGS_ysql_packed_row_size_limit,
-                ValueControlFields()) {
-  }
+                ValueControlFields()),
+        overridden_read_time_(overridden_read_time) {}
 
   Result<bool> Add(ColumnId column_id, const QLValuePB& value) {
     return packer_.AddValue(column_id, value);
@@ -363,10 +366,11 @@ class PgsqlWriteOperation::RowPackContext {
   Status Complete(const RefCntPrefix& encoded_doc_key) {
     auto encoded_value = VERIFY_RESULT(packer_.Complete());
     return data_.doc_write_batch->SetPrimitive(
-        DocPath(encoded_doc_key.as_slice()),
-        ValueControlFields(), ValueRef(encoded_value),
-        data_.read_time, data_.deadline, query_id_,
-        write_id_);
+        DocPath(encoded_doc_key.as_slice()), ValueControlFields(), ValueRef(encoded_value),
+        (FLAGS_TEST_override_op_type_for_raft && overridden_read_time_.has_value())
+            ? overridden_read_time_.value()
+            : data_.read_time,
+        data_.deadline, query_id_, write_id_);
   }
 
  private:
@@ -374,6 +378,7 @@ class PgsqlWriteOperation::RowPackContext {
   const DocOperationApplyData& data_;
   const IntraTxnWriteId write_id_;
   RowPacker packer_;
+  std::optional<ReadHybridTime> overridden_read_time_;
 };
 
 //--------------------------------------------------------------------------------------------------
@@ -607,8 +612,8 @@ Status PgsqlWriteOperation::ApplyInsert(const DocOperationApplyData& data, IsUps
   }
 
   if (ShouldYsqlPackRow(doc_read_context_->schema.is_colocated())) {
-    RowPackContext pack_context(
-        request_, data, VERIFY_RESULT(RowPackerData::Create(request_, *doc_read_context_)));
+    RowPackContext pack_context(request_, data,
+        VERIFY_RESULT(RowPackerData::Create(request_, *doc_read_context_)), std::nullopt);
 
     auto column_id_extractor = [](const PgsqlColumnValuePB& column_value) {
       return column_value.column_id();
@@ -681,7 +686,9 @@ Status PgsqlWriteOperation::UpdateColumn(
     // Inserting into specified column.
     DocPath sub_path(encoded_doc_key_.as_slice(), KeyEntryValue::MakeColumnId(column_id));
     RETURN_NOT_OK(data.doc_write_batch->InsertSubDocument(
-        sub_path, ValueRef(result->Value(), column.sorting_type()), data.read_time,
+        sub_path, ValueRef(result->Value(), column.sorting_type()),
+        (FLAGS_TEST_override_op_type_for_raft && read_time_.has_value()) ? read_time_.value()
+                                                                         : data.read_time,
         data.deadline, request_.stmt_id()));
   }
 
@@ -713,8 +720,8 @@ Status PgsqlWriteOperation::ApplyUpdate(const DocOperationApplyData& data) {
     const size_t num_non_key_columns = schema.num_columns() - schema.num_key_columns();
     if (ShouldYsqlPackRow(schema.is_colocated()) &&
         make_unsigned(request_.column_new_values().size()) == num_non_key_columns) {
-      RowPackContext pack_context(
-          request_, data, VERIFY_RESULT(RowPackerData::Create(request_, *doc_read_context_)));
+      RowPackContext pack_context(request_, data,
+          VERIFY_RESULT(RowPackerData::Create(request_, *doc_read_context_)), read_time_);
 
       auto column_id_extractor = [](const PgsqlColumnValuePB& column_value) {
         return column_value.column_id();
@@ -783,7 +790,9 @@ Status PgsqlWriteOperation::ApplyUpdate(const DocOperationApplyData& data) {
         // Inserting into specified column.
         DocPath sub_path(encoded_doc_key_.as_slice(), KeyEntryValue::MakeColumnId(column_id));
         RETURN_NOT_OK(data.doc_write_batch->InsertSubDocument(
-            sub_path, ValueRef(expr_result.Value(), column.sorting_type()), data.read_time,
+            sub_path, ValueRef(expr_result.Value(), column.sorting_type()),
+            (FLAGS_TEST_override_op_type_for_raft && read_time_.has_value()) ? read_time_.value()
+                                                                             : data.read_time,
             data.deadline, request_.stmt_id()));
         skipped = false;
       }
@@ -962,12 +971,14 @@ Status PgsqlWriteOperation::ReadColumns(const DocOperationApplyData& data,
       RETURN_NOT_OK(CreateProjection(schema, request_.column_refs(), &projection));
     }
     DocPgsqlScanSpec spec(projection, request_.stmt_id(), *doc_key_);
-    DocRowwiseIterator iterator(projection,
-                                *doc_read_context_,
-                                txn_op_context_,
-                                data.doc_write_batch->doc_db(),
-                                data.deadline,
-                                data.read_time);
+    DocRowwiseIterator iterator(
+        projection,
+        *doc_read_context_,
+        txn_op_context_,
+        data.doc_write_batch->doc_db(),
+        data.deadline,
+        (FLAGS_TEST_override_op_type_for_raft && read_time_.has_value()) ? read_time_.value()
+                                                                         : data.read_time);
     RETURN_NOT_OK(iterator.Init(spec));
     if (VERIFY_RESULT(iterator.HasNext())) {
       RETURN_NOT_OK(iterator.NextRow(table_row));
