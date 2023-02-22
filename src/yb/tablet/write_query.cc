@@ -387,6 +387,7 @@ Result<bool> WriteQuery::PgsqlPrepareExecute() {
   doc_ops_.reserve(pgsql_write_batch.size());
 
   TransactionOperationContext txn_op_ctx;
+  std::optional<TransactionOperationContext> txn_op_context_for_skip_intent = std::nullopt;
 
   auto& metadata = *tablet->metadata();
   // Colocated via DB/tablegroup/syscatalog.
@@ -410,10 +411,23 @@ Result<bool> WriteQuery::PgsqlPrepareExecute() {
           table_info->schema().table_properties().is_ysql_catalog_table(),
           &client_request_->write_batch().subtransaction()));
     }
+
+    if (FLAGS_TEST_override_op_type_for_raft && req.has_read_time() &&
+        operation_->operation_mode() == OperationMode::kSkipIntents) {
+      // Create a different txn context for the skip intents operation so that it's own writes are visible to itself.
+      txn_op_context_for_skip_intent = std::optional<TransactionOperationContext>(
+          VERIFY_RESULT(tablet->CreateTransactionOperationContext(
+              boost::make_optional(
+                  VERIFY_RESULT(yb::TransactionId::FromString(client_request_->transaction_id()))),
+              table_info->schema().table_properties().is_ysql_catalog_table(),
+              &client_request_->write_batch().subtransaction())));
+    }
+
     auto write_op = std::make_unique<docdb::PgsqlWriteOperation>(
         req,
         table_info->doc_read_context,
         txn_op_ctx,
+        txn_op_context_for_skip_intent,
         rpc_context_ ? &rpc_context_->sidecars() : nullptr);
     // Override the read_time to be the read_time when we did the local operation for skipIntents
     // operation mode.
@@ -711,6 +725,9 @@ Status WriteQuery::DoCompleteExecute() {
       doc_op->ClearResponse();
     }
   }
+
+  LOG(INFO) << __func__ << " the write batch after assembling is: "
+            << request().write_batch().ShortDebugString();
 
   if (allow_immediate_read_restart_ &&
       isolation_level_ != IsolationLevel::NON_TRANSACTIONAL &&

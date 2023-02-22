@@ -515,6 +515,7 @@ Result<HybridTime> PgsqlWriteOperation::FindOldestOverwrittenTimestamp(
 }
 
 Status PgsqlWriteOperation::Apply(const DocOperationApplyData& data) {
+  LOG(INFO) << __func__;
   VLOG(4) << "Write, read time: " << data.read_time << ", txn: " << txn_op_context_;
 
   auto scope_exit = ScopeExit([this] {
@@ -593,15 +594,16 @@ Status PgsqlWriteOperation::ApplyInsert(const DocOperationApplyData& data, IsUps
         return Status::OK();
       }
     } else {
-      if (data.op_mode == yb::tablet::OperationMode::kRemote) {
-        LOG(INFO) << __func__ << " skipping duplicate check for kRemote operation mode";
+      if (data.op_mode == yb::tablet::OperationMode::kRemote ||
+              data.op_mode == yb::tablet::OperationMode::kSkipIntents) {
+        LOG(INFO) << __func__ << " skipping duplicate check for kRemote/kSkipIntents operation mode";
       } else {
         // Non-backfill requests shouldn't use HasDuplicateUniqueIndexValue because
         // - they should error even if the conflicting row matches
         // - retrieving and calculating whether the conflicting row matches is a waste
         RETURN_NOT_OK(ReadColumns(data, &table_row));
         if (!table_row.IsEmpty()) {
-          VLOG(4) << "Duplicate row: " << table_row.ToString();
+          LOG(INFO) << "Duplicate row: " << table_row.ToString();
           // Primary key or unique index value found.
           response_->set_status(PgsqlResponsePB::PGSQL_STATUS_DUPLICATE_KEY_ERROR);
           response_->set_error_message("Duplicate key found in primary key or unique index");
@@ -696,9 +698,11 @@ Status PgsqlWriteOperation::UpdateColumn(
 }
 
 Status PgsqlWriteOperation::ApplyUpdate(const DocOperationApplyData& data) {
+  LOG(INFO) << __func__;
   QLTableRow table_row;
   RETURN_NOT_OK(ReadColumns(data, &table_row));
   if (table_row.IsEmpty()) {
+    LOG(INFO) << __func__ << " the table_row was empty for req: " << request_.DebugString();
     // Row not found.
     response_->set_skipped(true);
     return Status::OK();
@@ -974,7 +978,11 @@ Status PgsqlWriteOperation::ReadColumns(const DocOperationApplyData& data,
     DocRowwiseIterator iterator(
         projection,
         *doc_read_context_,
-        txn_op_context_,
+        (FLAGS_TEST_override_op_type_for_raft &&
+         data.op_mode == tablet::OperationMode::kSkipIntents &&
+         txn_op_context_for_skip_intent_.has_value())
+            ? txn_op_context_for_skip_intent_.value()
+            : txn_op_context_,
         data.doc_write_batch->doc_db(),
         data.deadline,
         (FLAGS_TEST_override_op_type_for_raft && read_time_.has_value()) ? read_time_.value()

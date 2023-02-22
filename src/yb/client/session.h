@@ -49,6 +49,12 @@ struct NODISCARD_CLASS FlushStatus {
   CollectedErrors errors;
 };
 
+struct GlobalTransactionOpWithMetadata {
+  std::shared_ptr<client::YBPgsqlWriteOp> op;
+  PgsqlWriteRequestPB write_req;
+  ReadHybridTime read_time;
+};
+
 // A YBSession belongs to a specific YBClient, and represents a context in
 // which all read/write data access should take place. Within a session,
 // multiple operations may be accumulated and batched together for better
@@ -285,6 +291,29 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
     return global_transactional_ops_pairs_;
   }
 
+  void AppendCurrentBatchOpsToCachedOps(
+      std::vector<std::pair<std::shared_ptr<client::YBPgsqlWriteOp>, ReadHybridTime>> write_ops) {
+    for (auto& a : write_ops) {
+      cached_transaction_ops_.push_back(GlobalTransactionOpWithMetadata{
+        .op = a.first,
+        .write_req = a.first->request(),
+        .read_time = a.second
+      });
+    }
+  }
+
+  void OverrideReadTimeInAllCachedOps(ReadHybridTime read_time) {
+    for (auto& a: cached_transaction_ops_) {
+      a.read_time = read_time;
+    }
+  }
+
+  void ClearCachedOps() { cached_transaction_ops_.clear(); }
+
+  std::vector<GlobalTransactionOpWithMetadata>& CachedOps() {
+    return cached_transaction_ops_;
+  }
+
   uint64_t GetNumTabletsInvolvedInTxn() { return tablets_involved_in_txn.size(); }
 
   std::unordered_set<std::string> GetTabletsInvolvedInTxn() { return tablets_involved_in_txn; }
@@ -339,6 +368,7 @@ class YBSession : public std::enable_shared_from_this<YBSession> {
   std::vector<std::shared_ptr<client::YBPgsqlOp>> global_transactional_ops_;
   std::vector<std::pair<std::shared_ptr<client::YBPgsqlWriteOp>, PgsqlWriteRequestPB>>
       global_transactional_ops_pairs_;
+  std::vector<GlobalTransactionOpWithMetadata> cached_transaction_ops_;
 
   uint64_t global_write_time_;
   uint64_t global_read_time_;

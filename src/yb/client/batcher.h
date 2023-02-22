@@ -255,6 +255,10 @@ class Batcher : public Runnable, public std::enable_shared_from_this<Batcher> {
 
   std::string LogPrefix() const;
 
+  std::weak_ptr<YBSession> weak_session() const {
+    return weak_session_;
+  }
+
   // This is a status error string used when there are multiple errors that need to be fetched
   // from the error collector.
   static const std::string kErrorReachingOutToTServersMsg;
@@ -274,7 +278,7 @@ class Batcher : public Runnable, public std::enable_shared_from_this<Batcher> {
   void AllLookupsDone();
   std::shared_ptr<AsyncRpc> CreateRpc(
       const BatcherPtr& self, RemoteTablet* tablet, const InFlightOpsGroup& group,
-      bool allow_local_calls_in_curr_thread, bool need_consistent_read);
+      bool allow_local_calls_in_curr_thread, bool need_consistent_read, ReadHybridTime* read_time);
 
   // Calls/Schedules flush_callback_ and resets it to free resources.
   void RunCallback();

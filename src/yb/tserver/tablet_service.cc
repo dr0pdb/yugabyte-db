@@ -1849,8 +1849,8 @@ Status TabletServiceImpl::PerformWrite(
                 << " RKNRKN write request also has transaction within the write batch and the "
                    "transaction id within the write batch is "
                 << transaction_id;
-    }
-    LOG(INFO) << __func__ << ": The client request is: " << req->DebugString(); */
+    }*/
+    LOG(INFO) << __func__ << ": The client request is: " << req->DebugString();
     if (req->has_transaction_id()) {
       auto transaction_id = req->transaction_id();
       // LOG(INFO) << __func__ << " RKNRKN setting the transaction id to " << transaction_id;

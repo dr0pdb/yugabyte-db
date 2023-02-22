@@ -47,6 +47,19 @@ class PgsqlWriteOperation :
         sidecars_(sidecars) {
   }
 
+  PgsqlWriteOperation(
+      std::reference_wrapper<const PgsqlWriteRequestPB> request,
+      DocReadContextPtr doc_read_context,
+      const TransactionOperationContext& txn_op_context,
+      const std::optional<TransactionOperationContext>
+          txn_op_context_for_skip_intent,
+      rpc::Sidecars* sidecars)
+      : DocOperationBase(request),
+        doc_read_context_(std::move(doc_read_context)),
+        txn_op_context_(txn_op_context),
+        txn_op_context_for_skip_intent_(txn_op_context_for_skip_intent),
+        sidecars_(sidecars) {}
+
   // Initialize PgsqlWriteOperation. Content of request will be swapped out by the constructor.
   Status Init(PgsqlResponsePB* response);
   bool RequireReadSnapshot() const override {
@@ -122,6 +135,7 @@ class PgsqlWriteOperation :
   // Context.
   DocReadContextPtr doc_read_context_;
   const TransactionOperationContext txn_op_context_;
+  const std::optional<TransactionOperationContext> txn_op_context_for_skip_intent_;
 
   // Input arguments.
   PgsqlResponsePB* response_ = nullptr;

@@ -527,6 +527,10 @@ class YBPgsqlWriteOp : public YBPgsqlOp {
   const HybridTime& write_time() const { return write_time_; }
   void SetWriteTime(const HybridTime& value) { write_time_ = value; }
 
+  void SetReadTime(const ReadHybridTime& value) {
+    value.ToPB(request_->mutable_read_time());
+  }
+
   Status GetPartitionKey(std::string* partition_key) const override;
 
   static YBPgsqlWriteOpPtr NewInsert(const YBTablePtr& table, rpc::Sidecars* sidecars);

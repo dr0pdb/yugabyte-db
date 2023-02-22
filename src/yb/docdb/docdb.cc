@@ -296,9 +296,9 @@ Status AssembleDocWriteBatch(const vector<unique_ptr<DocOperation>>& doc_write_o
   DocOperationApplyData data = {&doc_write_batch, deadline, read_time, restart_read_ht, op_mode};
   for (const unique_ptr<DocOperation>& doc_op : doc_write_ops) {
     Status s = doc_op->Apply(data);
-    // if (!s.ok()) {
-    //   LOG(INFO) << __func__ << " RKNRKN apply failed for data: " << data.ToString();
-    // }
+    if (!s.ok()) {
+      LOG(INFO) << __func__ << " RKNRKN apply failed for data: " << data.ToString();
+    }
     if (s.IsQLError() && doc_op->OpType() == DocOperation::Type::QL_WRITE_OPERATION) {
       std::string error_msg;
       if (ql::GetErrorCode(s) == ql::ErrorCode::CONDITION_NOT_SATISFIED) {
@@ -318,6 +318,7 @@ Status AssembleDocWriteBatch(const vector<unique_ptr<DocOperation>>& doc_write_o
     RETURN_NOT_OK(s);
   }
   doc_write_batch.MoveToWriteBatchPB(write_batch);
+  LOG(INFO) << __func__ << " RKNRKN write_batch after Apply is: " << write_batch->ShortDebugString();
   return Status::OK();
 }
 

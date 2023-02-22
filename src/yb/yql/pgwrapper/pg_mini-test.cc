@@ -648,13 +648,13 @@ TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(ColocatedVerification)) {
 
   ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 9, 400));
 
-  ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET b=b+1 where a=$0", 6));
+  ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET b=b+1 where a=$0", 9));
 
   LOG(INFO) << "committing";
   ASSERT_OK(conn.Execute("COMMIT"));
   LOG(INFO) << "commit done";
 
-  std::vector<std::pair<int, int>> expected = {{6, 101}, {7, 200}, {8, 300}, {9, 400}};
+  std::vector<std::pair<int, int>> expected = {{6, 100}, {7, 200}, {8, 300}, {9, 401}};
 
   {
     auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 ORDER BY a", 4, 2));

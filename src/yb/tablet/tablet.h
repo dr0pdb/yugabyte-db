@@ -780,6 +780,11 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
       bool is_ysql_catalog_table,
       const SubTransactionMetadataPB* subtransaction_metadata = nullptr) const;
 
+  Result<TransactionOperationContext> CreateTransactionOperationContext(
+    const boost::optional<TransactionId>& transaction_id,
+    bool is_ysql_catalog_table,
+    const SubTransactionMetadataPB* subtransaction_metadata = nullptr) const;
+
   const Schema* unique_index_key_schema() const {
     return unique_index_key_schema_.get();
   }
@@ -821,11 +826,6 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
       const docdb::LWKeyValueWriteBatchPB& put_batch,
       HybridTime hybrid_time,
       const rocksdb::UserFrontiers* frontiers);
-
-  Result<TransactionOperationContext> CreateTransactionOperationContext(
-      const boost::optional<TransactionId>& transaction_id,
-      bool is_ysql_catalog_table,
-      const SubTransactionMetadataPB* subtransaction_metadata = nullptr) const;
 
   // Pause abortable/non-abortable new read/write operations and wait for all
   // abortable/non-abortable pending read/write operations to finish.

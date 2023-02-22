@@ -804,8 +804,9 @@ Status PgClientSession::FinishTransaction(
           auto scope_exit = ScopeExit([&callback_executed] { callback_executed = true; });
           // LOG(INFO) << __func__ << " commit callback triggered by PerformLocal";
           session->SetGlobalWriteTime(0);
-          session->ClearGlobalOps();
-          session->ClearGlobalOpsPairs();
+          // session->ClearGlobalOps();
+          // session->ClearGlobalOpsPairs();
+          session->ClearCachedOps();
           // Reset back to local and remote as default.
           // Perhaps we don't need to do this since the underlying batcher is already set to null.
           // Calling this leads to a new batcher getting created which is not needed and causes
@@ -936,7 +937,19 @@ Status PgClientSession::Perform(
   auto transaction = session_info.first.transaction;
   if (!options.use_catalog_session() && !options.ddl_mode() && transaction) {
     // session->AppendCurrentBatchOpsToGlobalOps(write_ops);
-    session->AppendCurrentBatchOpsToGlobalOpsPairs(write_ops);
+    // session->AppendCurrentBatchOpsToGlobalOpsPairs(write_ops);
+    std::vector<std::pair<std::shared_ptr<client::YBPgsqlWriteOp>, ReadHybridTime>>
+        write_ops_with_read_time;
+    {
+      ReadHybridTime read_time;
+      read_time.FromPB(req->options().read_time());
+
+      // TODO: The read_time set here is junk. The actual one is set in the Batcher after CreateRpc.
+      for (auto a : write_ops) {
+        write_ops_with_read_time.push_back(std::make_pair(a, read_time));
+      }
+      session->AppendCurrentBatchOpsToCachedOps(write_ops_with_read_time);
+    }
   }
 
   if (!options.use_catalog_session() && !options.ddl_mode() && transaction) {
@@ -1015,13 +1028,15 @@ Status PgClientSession::PerformLocal(
   auto session_info = VERIFY_RESULT(SetupSession(*req, context->GetClientDeadline()));
   auto* session = session_info.first.session.get();
   std::vector<std::shared_ptr<client::YBPgsqlOp>> ops;
-  auto ops_pairs = std::move(session->GlobalTxnOpsPairs());
-  for (auto& a : ops_pairs) {
-    auto op = a.first;
-    op->set_request_copy(a.second);
+  auto cached_ops = std::move(session->CachedOps());
+  for (auto& a : cached_ops) {
+    auto op = a.op;
+    op->set_request_copy(a.write_req);
+    if (fast_path) {
+      op->SetReadTime(a.read_time);
+    }
     ops.push_back(op);
   }
-  // auto ops = std::move(session->GlobalTxnOps());
   for (auto& op : ops) {
     DCHECK(op->type() == client::YBOperation::PGSQL_WRITE);
     /* auto write_op_down = down_cast<const client::YBPgsqlWriteOp*>(op.get());

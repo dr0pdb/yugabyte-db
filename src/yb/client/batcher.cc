@@ -603,12 +603,18 @@ void Batcher::ExecuteOperations(Initial initial) {
   const auto need_consistent_read = force_consistent_read || ops_info_.groups.size() > 1;
 
   auto self = shared_from_this();
+  ReadHybridTime read_time;
   for (const auto& group : ops_info_.groups) {
     // Allow local calls for last group only.
     const auto allow_local_calls =
         allow_local_calls_in_curr_thread_ && (&group == &ops_info_.groups.back());
     rpcs.push_back(CreateRpc(
-        self, group.begin->tablet.get(), group, allow_local_calls, need_consistent_read));
+        self, group.begin->tablet.get(), group, allow_local_calls, need_consistent_read, &read_time));
+  }
+
+  if (operation_mode_ == OperationMode::kLocal) {
+    auto session = weak_session_.lock();
+    session->OverrideReadTimeInAllCachedOps(read_time);
   }
 
   // LOG(INFO) << __func__ << ": RPCs created";
@@ -666,7 +672,8 @@ void Batcher::RequestsFinished() {
 
 std::shared_ptr<AsyncRpc> Batcher::CreateRpc(
     const BatcherPtr& self, RemoteTablet* tablet, const InFlightOpsGroup& group,
-    const bool allow_local_calls_in_curr_thread, const bool need_consistent_read) {
+    const bool allow_local_calls_in_curr_thread, const bool need_consistent_read,
+    ReadHybridTime* read_time) {
   VLOG_WITH_PREFIX_AND_FUNC(3) << "tablet: " << tablet->tablet_id();
 
   CHECK(group.begin != group.end);
@@ -690,8 +697,13 @@ std::shared_ptr<AsyncRpc> Batcher::CreateRpc(
   };
 
   switch (op_group) {
-    case OpGroup::kWrite:
-      return std::make_shared<WriteRpc>(data);
+    case OpGroup::kWrite: {
+      auto write_rpc = std::make_shared<WriteRpc>(data);
+      if (write_rpc->req().has_read_time()) {
+        *read_time = ReadHybridTime::FromPB(write_rpc->req().read_time());
+      }
+      return write_rpc;
+    }
     case OpGroup::kLeaderRead: {
       auto val = std::make_shared<ReadRpc>(data, YBConsistencyLevel::STRONG);
       // LOG(INFO) << __func__ << " RKNRKN printing the request " << val->req().DebugString();
