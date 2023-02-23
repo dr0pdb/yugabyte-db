@@ -667,6 +667,41 @@ TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(ColocatedVerification)) {
   }
 }
 
+TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(SingleShardConcurrency)) {
+  auto conn = ASSERT_RESULT(Connect());
+  auto conn2 = ASSERT_RESULT(Connect());
+
+  FLAGS_TEST_override_op_type_for_raft = true;
+  FLAGS_TEST_docdb_log_write_batches = true;
+  ASSERT_OK(conn.Execute(
+      "CREATE TABLE IF NOT EXISTS t1 (a int PRIMARY KEY, b int) SPLIT INTO 1 TABLETS"));
+
+  LOG(INFO) << "beginning transaction";
+  ASSERT_OK(conn.Execute("BEGIN"));
+  LOG(INFO) << "begin txn done";
+
+  LOG(INFO) << "starting insert";
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 6, 600));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 7, 700));
+  LOG(INFO) << "done with insert";
+
+  LOG(INFO) << "concurrent insert start";
+  ASSERT_OK(conn2.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 6, 650));
+  LOG(INFO) << "concurrent insert done";
+
+  LOG(INFO) << "committing txn, it should fail because of the concurrent insert";
+  ASSERT_NOK(conn.Execute("COMMIT"));
+  LOG(INFO) << "commit done";
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 6);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 650);
+  }
+}
+
 TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(RaftNoOpTest)) {
   auto conn = ASSERT_RESULT(Connect());
   FLAGS_TEST_override_op_type_for_raft = true;
