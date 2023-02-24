@@ -760,25 +760,27 @@ TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(RaftNoOpTest)) {
   }
 
   LOG(INFO) << "update query";
-  ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET b = b+100 WHERE a = 6"));
+  ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET b = b+100"));
   LOG(INFO) << "update query done";
 
-  expected[1].second = 200;
+  for (auto& a : expected) {
+    a.second += 100;
+  }
 
   {
     auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
     auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
-    ASSERT_EQ(value, 6);
+    ASSERT_EQ(value, expected[1].first);
     value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
-    ASSERT_EQ(value, 200);
+    ASSERT_EQ(value, expected[1].second);
   }
 
   {
     auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 100", 1, 2));
     auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
-    ASSERT_EQ(value, 100);
+    ASSERT_EQ(value, expected[4].first);
     value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
-    ASSERT_EQ(value, 1000);
+    ASSERT_EQ(value, expected[4].second);
   }
 
   {
@@ -820,9 +822,9 @@ TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(RaftNoOpTest)) {
   {
     auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 100", 1, 2));
     auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
-    ASSERT_EQ(value, 100);
+    ASSERT_EQ(value, expected[4].first);
     value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
-    ASSERT_EQ(value, 1000);
+    ASSERT_EQ(value, expected[4].second);
   }
 }
 

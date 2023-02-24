@@ -1861,6 +1861,44 @@ void Tablet::AcquireLocksAndPerformDocOperations(std::unique_ptr<WriteQuery> que
     query->UseSubmitToken(std::move(write_permit));
   }
 
+  // Initialize the cache and pass it to the write query.
+  if (query->operation().operation_mode() == OperationMode::kLocal) {
+    LOG(INFO) << __func__ << " creating the cached_ops to cache the batch";
+    DCHECK(query->client_request()->write_batch().has_transaction());
+    auto txn_id = FullyDecodeTransactionId(
+            query->client_request()->write_batch().transaction().transaction_id());
+    DCHECK(txn_id.ok());
+    if (!cached_ops_.contains(*txn_id)) {
+      cached_ops_[*txn_id] = std::make_shared<yb::docdb::LWKeyValueWriteBatchPB>(&cached_ops_arena_);
+    }
+
+    query->set_cached_ops(cached_ops_[*txn_id]);
+  }
+
+  // Set the cached ops from tablet to the query so that we can skip the apply operations.
+  if (query->operation().operation_mode() == OperationMode::kSkipIntents ||
+          query->operation().operation_mode() == OperationMode::kRemote) {
+    LOG(INFO) << __func__ << " setting the cached_ops on the query to be used later for mode: "
+              << query->operation().operation_mode();
+
+    // For skip intents mode, the transaction_id is passed outside of write_batch.
+    StronglyTypedUuid<yb::TransactionId_Tag> txn_id(Uuid::Generate());
+    if (query->operation().operation_mode() == OperationMode::kSkipIntents) {
+      txn_id = TransactionId(query->operation().transaction_id());
+    } else {
+      auto txn_id_result = FullyDecodeTransactionId(
+            query->client_request()->write_batch().transaction().transaction_id());
+      if (!txn_id_result.ok()) {
+        TRACE("Could not decode the transaction_id.");
+              WriteQuery::StartSynchronization(std::move(query), MoveStatus(txn_id_result));
+              return;
+      }
+      txn_id = *txn_id_result;
+    }
+
+    query->set_cached_ops(cached_ops_[txn_id]);
+  }
+
   WriteQuery::Execute(std::move(query));
 }
 

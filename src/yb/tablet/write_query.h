@@ -129,6 +129,10 @@ class WriteQuery {
 
   std::unique_ptr<WriteOperation> PrepareSubmit();
 
+  void set_cached_ops(std::shared_ptr<yb::docdb::LWKeyValueWriteBatchPB>& cached_ops) {
+    cached_ops_ = cached_ops;
+  }
+
  private:
   enum class ExecuteMode;
 
@@ -222,6 +226,10 @@ class WriteQuery {
 
   // this transaction's start time
   CoarseTimePoint start_time_;
+
+  // The operations prepared during local mode as a reference. Owned by Tablet and will be reused
+  // during remote/skip intents mode.
+  std::shared_ptr<yb::docdb::LWKeyValueWriteBatchPB> cached_ops_{nullptr};
 
   HybridTime restart_read_ht_;
 

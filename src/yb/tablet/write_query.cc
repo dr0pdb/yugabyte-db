@@ -697,37 +697,65 @@ Status WriteQuery::DoCompleteExecute() {
   auto init_marker_behavior = tablet->table_type() == TableType::REDIS_TABLE_TYPE
       ? docdb::InitMarkerBehavior::kRequired
       : docdb::InitMarkerBehavior::kOptional;
-  for (;;) {
-    RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
-        doc_ops_, deadline(), real_read_time, tablet->doc_db(),
-        request().mutable_write_batch(), init_marker_behavior,
-        tablet->monotonic_counter(), &restart_read_ht_,
-        tablet->metadata()->table_name(), operation().operation_mode()));
 
-    // For serializable isolation we don't fix read time, so could do read restart locally,
-    // instead of failing whole transaction.
-    if (!restart_read_ht_.is_valid() || !allow_immediate_read_restart_) {
-      break;
+  if (operation().operation_mode() == OperationMode::kSkipIntents ||
+      operation().operation_mode() == OperationMode::kRemote) {
+    LOG(INFO) << __func__
+              << " Skipping AssembleDocWriteBatch by reusing the cached ops for operation mode: "
+              << operation().operation_mode();
+    auto kv_pb = request().mutable_write_batch();
+
+    // copy over the cached pairs.
+    for (auto& entry : cached_ops_->write_pairs()) {
+      auto* kv_pair = kv_pb->add_write_pairs();
+      kv_pair->dup_key(entry.key());
+      kv_pair->dup_value(entry.value());
     }
+  } else {
+    for (;;) {
+      RETURN_NOT_OK(docdb::AssembleDocWriteBatch(
+          doc_ops_, deadline(), real_read_time, tablet->doc_db(),
+          request().mutable_write_batch(), init_marker_behavior,
+          tablet->monotonic_counter(), &restart_read_ht_,
+          tablet->metadata()->table_name(), operation().operation_mode()));
 
-    real_read_time.read = restart_read_ht_;
-    if (!local_limit_updated) {
-      local_limit_updated = true;
-      real_read_time.local_limit = std::min(
-          real_read_time.local_limit, VERIFY_RESULT(tablet->SafeTime(RequireLease::kTrue)));
-    }
+      // For serializable isolation we don't fix read time, so could do read restart locally,
+      // instead of failing whole transaction.
+      if (!restart_read_ht_.is_valid() || !allow_immediate_read_restart_) {
+        break;
+      }
 
-    restart_read_ht_ = HybridTime();
+      real_read_time.read = restart_read_ht_;
+      if (!local_limit_updated) {
+        local_limit_updated = true;
+        real_read_time.local_limit = std::min(
+            real_read_time.local_limit, VERIFY_RESULT(tablet->SafeTime(RequireLease::kTrue)));
+      }
 
-    request().mutable_write_batch()->mutable_write_pairs()->clear();
+      restart_read_ht_ = HybridTime();
 
-    for (auto& doc_op : doc_ops_) {
-      doc_op->ClearResponse();
+      request().mutable_write_batch()->mutable_write_pairs()->clear();
+
+      for (auto& doc_op : doc_ops_) {
+        doc_op->ClearResponse();
+      }
     }
   }
 
   LOG(INFO) << __func__ << " the write batch after assembling is: "
             << request().write_batch().ShortDebugString();
+
+  // For local operation mode, cache the prepared batch in the tablet.
+  if (operation().operation_mode() == OperationMode::kLocal) {
+    LOG(INFO) << __func__
+              << " Caching the assembled doc write batch for local operation mode. The size = "
+              << request().write_batch().write_pairs_size();
+    for (auto& entry : request().write_batch().write_pairs()) {
+      auto* kv_pair = cached_ops_->add_write_pairs();
+      kv_pair->dup_key(entry.key());
+      kv_pair->dup_value(entry.value());
+    }
+  }
 
   if (allow_immediate_read_restart_ &&
       isolation_level_ != IsolationLevel::NON_TRANSACTIONAL &&

@@ -73,6 +73,7 @@
 #include "yb/util/operation_counter.h"
 #include "yb/util/strongly_typed_bool.h"
 #include "yb/util/threadpool.h"
+#include "yb/docdb/docdb.messages.h"
 
 namespace yb {
 
@@ -1011,6 +1012,13 @@ class Tablet : public AbstractTablet, public TransactionIntentApplier {
   // Use methods YBMetaDataCache, CreateNewYBMetaDataCache, and ResetYBMetaDataCache to read it
   // and modify it.
   std::shared_ptr<client::YBMetaDataCache> metadata_cache_;
+
+  ThreadSafeArena cached_ops_arena_;
+  // The ops prepared during the local operation.
+  // TODO: Clear these ops once the transaction is done.
+  std::map<
+      StronglyTypedUuid<yb::TransactionId_Tag>, std::shared_ptr<yb::docdb::LWKeyValueWriteBatchPB>>
+      cached_ops_;
 
   // Created only if it is a unique index tablet.
   std::unique_ptr<Schema> unique_index_key_schema_;

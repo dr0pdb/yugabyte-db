@@ -515,7 +515,6 @@ Result<HybridTime> PgsqlWriteOperation::FindOldestOverwrittenTimestamp(
 }
 
 Status PgsqlWriteOperation::Apply(const DocOperationApplyData& data) {
-  LOG(INFO) << __func__;
   VLOG(4) << "Write, read time: " << data.read_time << ", txn: " << txn_op_context_;
 
   auto scope_exit = ScopeExit([this] {
@@ -698,7 +697,6 @@ Status PgsqlWriteOperation::UpdateColumn(
 }
 
 Status PgsqlWriteOperation::ApplyUpdate(const DocOperationApplyData& data) {
-  LOG(INFO) << __func__;
   QLTableRow table_row;
   RETURN_NOT_OK(ReadColumns(data, &table_row));
   if (table_row.IsEmpty()) {
