@@ -518,7 +518,12 @@ void HandleExtraFields(YBqlReadOp* op, tserver::ReadRequestPB* req) {
 
 template <class OpType, class Req, class Out>
 void FillOps(
-    const InFlightOps& ops, YBOperation::Type expected_type, Req* req, Out* out) {
+    const InFlightOps& ops, YBOperation::Type expected_type, Req* req, Out* out,
+    OperationMode op_mode = OperationMode::kLocalAndRemote) {
+  if (op_mode == OperationMode::kRemote || op_mode == OperationMode::kSkipIntents) {
+    LOG(INFO) << __func__ << " skipping adding ops to the Write RPC";
+    return;
+  }
   out->Reserve(narrow_cast<int>(ops.size()));
   size_t idx = 0;
   for (auto& op : ops) {
@@ -546,7 +551,12 @@ Status AsyncRpc::CheckResponseCount(
   Status result;
   DoCheckResponseCount(op, kRedis, redis_found, redis_expected, &result);
   DoCheckResponseCount(op, kYCQL, ql_found, ql_expected, &result);
-  DoCheckResponseCount(op, kYSQL, pgsql_found, pgsql_expected, &result);
+  // We send an empty write for kRemote and kSkipIntents mode since the write operations are already
+  // cached in the Tablet while doing the local operation.
+  if (batcher_->operation_mode_ != OperationMode::kRemote &&
+      batcher_->operation_mode_ != OperationMode::kSkipIntents) {
+    DoCheckResponseCount(op, kYSQL, pgsql_found, pgsql_expected, &result);
+  }
   if (!result.ok()) {
     LOG(DFATAL) << result;
     batcher_->AddOpCountMismatchError();
@@ -575,7 +585,7 @@ void ReleaseOps(Repeated* repeated) {
   }
 }
 
-WriteRpc::WriteRpc(const AsyncRpcData& data)
+WriteRpc::WriteRpc(const AsyncRpcData& data, OperationMode op_mode)
     : AsyncRpcBase(data, YBConsistencyLevel::STRONG) {
   TRACE_TO(trace_, "WriteRpc initiated");
   VTRACE_TO(1, trace_, "Tablet $0 table $1", data.tablet->tablet_id(), table()->name().ToString());
@@ -592,7 +602,7 @@ WriteRpc::WriteRpc(const AsyncRpcData& data)
       break;
     case YBTableType::PGSQL_TABLE_TYPE:
       FillOps<YBPgsqlWriteOp>(
-          ops_, YBOperation::Type::PGSQL_WRITE, &req_, req_.mutable_pgsql_write_batch());
+          ops_, YBOperation::Type::PGSQL_WRITE, &req_, req_.mutable_pgsql_write_batch(), op_mode);
       break;
     case YBTableType::UNKNOWN_TABLE_TYPE:
     case YBTableType::TRANSACTION_STATUS_TABLE_TYPE:

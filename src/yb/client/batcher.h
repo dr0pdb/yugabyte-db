@@ -123,8 +123,6 @@ YB_DEFINE_ENUM(
     (kAborted)            // Batcher was aborted.
     );
 
-YB_DEFINE_ENUM(OperationMode, (kLocal)(kRemote)(kSkipIntents)(kLocalAndRemote));
-
 // A Batcher is the class responsible for collecting row operations, routing them to the
 // correct tablet server, and possibly batching them together for better efficiency.
 //
@@ -278,7 +276,8 @@ class Batcher : public Runnable, public std::enable_shared_from_this<Batcher> {
   void AllLookupsDone();
   std::shared_ptr<AsyncRpc> CreateRpc(
       const BatcherPtr& self, RemoteTablet* tablet, const InFlightOpsGroup& group,
-      bool allow_local_calls_in_curr_thread, bool need_consistent_read, ReadHybridTime* read_time);
+      bool allow_local_calls_in_curr_thread, bool need_consistent_read, ReadHybridTime* read_time,
+      OperationMode op_mode = OperationMode::kLocalAndRemote);
 
   // Calls/Schedules flush_callback_ and resets it to free resources.
   void RunCallback();

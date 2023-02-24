@@ -609,7 +609,8 @@ void Batcher::ExecuteOperations(Initial initial) {
     const auto allow_local_calls =
         allow_local_calls_in_curr_thread_ && (&group == &ops_info_.groups.back());
     rpcs.push_back(CreateRpc(
-        self, group.begin->tablet.get(), group, allow_local_calls, need_consistent_read, &read_time));
+        self, group.begin->tablet.get(), group, allow_local_calls, need_consistent_read, &read_time,
+        operation_mode_));
   }
 
   if (operation_mode_ == OperationMode::kLocal) {
@@ -673,7 +674,7 @@ void Batcher::RequestsFinished() {
 std::shared_ptr<AsyncRpc> Batcher::CreateRpc(
     const BatcherPtr& self, RemoteTablet* tablet, const InFlightOpsGroup& group,
     const bool allow_local_calls_in_curr_thread, const bool need_consistent_read,
-    ReadHybridTime* read_time) {
+    ReadHybridTime* read_time, OperationMode op_mode) {
   VLOG_WITH_PREFIX_AND_FUNC(3) << "tablet: " << tablet->tablet_id();
 
   CHECK(group.begin != group.end);
@@ -698,7 +699,7 @@ std::shared_ptr<AsyncRpc> Batcher::CreateRpc(
 
   switch (op_group) {
     case OpGroup::kWrite: {
-      auto write_rpc = std::make_shared<WriteRpc>(data);
+      auto write_rpc = std::make_shared<WriteRpc>(data, op_mode);
       if (write_rpc->req().has_read_time()) {
         *read_time = ReadHybridTime::FromPB(write_rpc->req().read_time());
       }

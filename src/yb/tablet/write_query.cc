@@ -297,6 +297,12 @@ Result<bool> WriteQuery::PrepareExecute() {
     }
   }
 
+  // Remote and SkipIntents will have empty writes.
+  if (operation_->operation_mode() == OperationMode::kRemote ||
+      operation_->operation_mode() == OperationMode::kSkipIntents) {
+    return true;
+  }
+
   // Empty write should not happen, but we could handle it.
   // Just report it as error in release mode.
   LOG(DFATAL) << "Empty write: " << AsString(client_request_) << ", " << AsString(request());
@@ -527,8 +533,8 @@ Status WriteQuery::DoExecute() {
   docdb::PartialRangeKeyIntents partial_range_key_intents(metadata.UsePartialRangeKeyIntents());
 
   // Skip preparation for skipIntents and remote mode.
-  if (!(operation().operation_mode() == OperationMode::kSkipIntents ||
-      operation().operation_mode() == OperationMode::kRemote)) {
+  if (operation().operation_mode() != OperationMode::kSkipIntents &&
+      operation().operation_mode() != OperationMode::kRemote) {
     prepare_result_ = VERIFY_RESULT(docdb::PrepareDocWriteOperation(
         doc_ops_, write_batch.read_pairs(), tablet->metrics()->write_lock_latency, isolation_level_,
         kind(), row_mark_type, transactional_table, write_batch.has_transaction(), deadline(),

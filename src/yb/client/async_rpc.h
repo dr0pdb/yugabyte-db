@@ -172,7 +172,8 @@ class AsyncRpcBase : public AsyncRpc {
 class WriteRpc : public AsyncRpcBase<tserver::WriteRequestPB, tserver::WriteResponsePB> {
  public:
   // Relies on ops requests to be not on arena.
-  explicit WriteRpc(const AsyncRpcData& data);
+  explicit WriteRpc(
+      const AsyncRpcData& data, OperationMode op_mode = OperationMode::kLocalAndRemote);
 
   virtual ~WriteRpc();
 

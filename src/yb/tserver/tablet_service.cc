@@ -1794,11 +1794,15 @@ Status TabletServiceImpl::PerformWrite(
         TabletServerError(TabletServerErrorPB::INVALID_MUTATION));
   }
 
+  tablet::OperationMode op_mode = GetOperationMode(req);
+
   bool has_operations = req->ql_write_batch_size() != 0 ||
                         req->redis_write_batch_size() != 0 ||
                         req->pgsql_write_batch_size() != 0 ||
                         (req->has_external_hybrid_time() && !EmptyWriteBatch(req->write_batch()));
-  if (!has_operations && tablet.tablet->table_type() != TableType::REDIS_TABLE_TYPE) {
+  if (!has_operations && tablet.tablet->table_type() != TableType::REDIS_TABLE_TYPE &&
+      (op_mode != tablet::OperationMode::kRemote &&
+       op_mode != tablet::OperationMode::kSkipIntents)) {
     // An empty request. This is fine, can just exit early with ok status instead of working hard.
     // This doesn't need to go to Raft log.
     MakeRpcOperationCompletionCallback(std::move(*context), resp, server_->Clock())(Status::OK());
@@ -1823,7 +1827,6 @@ Status TabletServiceImpl::PerformWrite(
   // Set hybrid time for local operations. Have to revisit.
   if (FLAGS_TEST_override_op_type_for_raft &&
       tablet.tablet->table_type() == TableType::PGSQL_TABLE_TYPE) {
-    tablet::OperationMode op_mode = GetOperationMode(req);
     if (op_mode == tablet::OperationMode::kLocal) {
       auto ht = VERIFY_RESULT(tablet.peer.get()->MajorityReplicatedHybridSafeTime());
       query->operation().set_hybrid_time(ht);

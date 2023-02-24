@@ -151,6 +151,8 @@ typedef std::shared_ptr<AsyncRpcMetrics> AsyncRpcMetricsPtr;
 
 YB_STRONGLY_TYPED_BOOL(IsWithinTransactionRetry);
 
+YB_DEFINE_ENUM(OperationMode, (kLocal)(kRemote)(kSkipIntents)(kLocalAndRemote));
+
 } // namespace internal
 
 typedef std::function<void(const Result<internal::RemoteTabletPtr>&)> LookupTabletCallback;
