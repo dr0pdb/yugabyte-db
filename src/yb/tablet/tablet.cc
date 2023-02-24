@@ -1885,6 +1885,11 @@ void Tablet::AcquireLocksAndPerformDocOperations(std::unique_ptr<WriteQuery> que
     StronglyTypedUuid<yb::TransactionId_Tag> txn_id(Uuid::Generate());
     if (query->operation().operation_mode() == OperationMode::kSkipIntents) {
       txn_id = TransactionId(query->operation().transaction_id());
+
+      // trim the transaction metadata information from the cached_ops which were prepared during
+      // the local mode.
+      cached_ops_[txn_id]->clear_transaction();
+      cached_ops_[txn_id]->clear_subtransaction();
     } else {
       auto txn_id_result = FullyDecodeTransactionId(
             query->client_request()->write_batch().transaction().transaction_id());
