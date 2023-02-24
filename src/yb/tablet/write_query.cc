@@ -525,10 +525,18 @@ Status WriteQuery::DoExecute() {
   }
 
   docdb::PartialRangeKeyIntents partial_range_key_intents(metadata.UsePartialRangeKeyIntents());
-  prepare_result_ = VERIFY_RESULT(docdb::PrepareDocWriteOperation(
-      doc_ops_, write_batch.read_pairs(), tablet->metrics()->write_lock_latency,
-      isolation_level_, kind(), row_mark_type, transactional_table, write_batch.has_transaction(),
-      deadline(), partial_range_key_intents, tablet->shared_lock_manager()));
+
+  // Skip preparation for skipIntents and remote mode.
+  if (!(operation().operation_mode() == OperationMode::kSkipIntents ||
+      operation().operation_mode() == OperationMode::kRemote)) {
+    prepare_result_ = VERIFY_RESULT(docdb::PrepareDocWriteOperation(
+        doc_ops_, write_batch.read_pairs(), tablet->metrics()->write_lock_latency, isolation_level_,
+        kind(), row_mark_type, transactional_table, write_batch.has_transaction(), deadline(),
+        partial_range_key_intents, tablet->shared_lock_manager()));
+  } else {
+    LOG(INFO) << __func__ << ": skipping PrepareDocWriteOperation for operation_mode: "
+              << operation().operation_mode();
+  }
 
   // LOG(INFO) << __func__ << " PreparedDocWriteOps";
   TEST_SYNC_POINT("WriteQuery::DoExecute::PreparedDocWriteOps");

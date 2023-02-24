@@ -125,9 +125,10 @@ Status OperationDriver::Init(std::unique_ptr<Operation>* operation, int64_t term
     if (consensus_) {  // sometimes NULL in tests
       if (FLAGS_TEST_override_op_type_for_raft &&
           operation_->operation_mode() == OperationMode::kLocal) {
-        // LOG(INFO) << __func__ << ": skipping consensus for the local operation";
+        LOG(INFO) << __func__ << ": skipping consensus for the local operation";
       } else {
         consensus::ReplicateMsgPtr replicate_msg = operation_->NewReplicateMsg();
+        LOG(INFO) << __func__ << ": the replication message is: " << replicate_msg->ShortDebugString();
         auto round = make_scoped_refptr<ConsensusRound>(consensus_, std::move(replicate_msg));
         round->BindToTerm(term);
         round->SetCallback(this);
