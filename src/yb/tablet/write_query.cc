@@ -48,6 +48,8 @@
 
 using namespace std::placeholders;
 
+DECLARE_bool(tserver_async_raft_write);
+
 namespace yb {
 namespace tablet {
 

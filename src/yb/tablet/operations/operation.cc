@@ -44,6 +44,8 @@
 #include "yb/util/size_literals.h"
 #include "yb/util/trace.h"
 
+DECLARE_bool(tserver_async_raft_write);
+
 namespace yb {
 namespace tablet {
 
@@ -82,7 +84,11 @@ Status Operation::Replicated(int64_t leader_term, WasPending was_pending) {
   RETURN_NOT_OK(DoReplicated(leader_term, &complete_status));
   Replicated(was_pending);
   Release();
-  CompleteWithStatus(complete_status);
+  // If async raft is used for kWrite, we would have already returned a success response to the
+  // client. Do not attempt responding again.
+  if (operation_type() != OperationType::kWrite || !FLAGS_tserver_async_raft_write) {
+    CompleteWithStatus(complete_status);
+  }
   return Status::OK();
 }
 
@@ -147,6 +153,13 @@ Status Operation::AddedToLeader(const OpId& op_id, const OpId& committed_op_id) 
   }
 
   AddedAsPending(tablet);
+
+  if (operation_type() == OperationType::kWrite && FLAGS_tserver_async_raft_write) {
+    LOG(INFO) << __func__
+              << ": Responding success without waiting for replication & write to intent. op_id = "
+              << op_id;
+    CompleteWithStatus(Status::OK());
+  }
   return Status::OK();
 }
 

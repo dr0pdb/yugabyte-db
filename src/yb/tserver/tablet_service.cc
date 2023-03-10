@@ -221,6 +221,9 @@ DEFINE_test_flag(bool, skip_aborting_active_transactions_during_schema_change, f
 
 double TEST_delay_create_transaction_probability = 0;
 
+DEFINE_RUNTIME_bool(
+    tserver_async_raft_write, false, "Use async raft for TabletService::Write request");
+
 namespace yb {
 namespace tserver {
 
@@ -1733,7 +1736,9 @@ Status TabletServiceImpl::PerformWrite(
   TRACE("Start Write");
   TRACE_EVENT1("tserver", "TabletServiceImpl::Write",
                "tablet_id", req->tablet_id());
-  VLOG(2) << "Received Write RPC: " << req->DebugString();
+  if (FLAGS_tserver_async_raft_write) {
+    LOG(INFO) << __func__ << ": Received Write RPC: " << req->DebugString();
+  }
   UpdateClock(*req, server_->Clock());
 
   auto tablet = VERIFY_RESULT(LookupLeaderTablet(server_->tablet_peer_lookup(), req->tablet_id()));

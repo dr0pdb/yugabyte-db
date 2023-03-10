@@ -75,6 +75,8 @@ DEFINE_test_flag(int32, delay_execute_async_ms, 0,
                  "Delay execution of ExecuteAsync for specified amount of milliseconds during "
                      "tests");
 
+DECLARE_bool(tserver_async_raft_write);
+
 namespace yb {
 namespace tablet {
 
@@ -201,6 +203,11 @@ void OperationDriver::ExecuteAsync() {
 }
 
 Status OperationDriver::AddedToLeader(const OpId& op_id, const OpId& committed_op_id) {
+  LOG_IF(
+      INFO, FLAGS_tserver_async_raft_write && operation_ != nullptr &&
+                operation_->operation_type() == OperationType::kWrite)
+      << __func__ << ": The op has been added to leader with op_id: " << op_id.ToString()
+      << " and committed_op_id: " << committed_op_id.ToString();
   ADOPT_TRACE(trace());
   CHECK(!GetOpId().valid());
   op_id_copy_.store(op_id, boost::memory_order_release);
@@ -315,6 +322,10 @@ void OperationDriver::HandleFailure(const Status& status) {
 void OperationDriver::ReplicationFinished(
     const Status& status, int64_t leader_term, OpIds* applied_op_ids) {
   LOG_IF(DFATAL, status.ok() && !GetOpId().valid()) << "Invalid op id after replication";
+  LOG_IF(
+      INFO, FLAGS_tserver_async_raft_write && operation_ != nullptr &&
+                operation_->operation_type() == OperationType::kWrite)
+      << __func__ << ": status: " << status.ToString() << " leader_term: " << leader_term;
 
   PrepareState prepare_state_copy;
   {

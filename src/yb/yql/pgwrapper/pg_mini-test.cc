@@ -68,6 +68,7 @@ DECLARE_bool(TEST_timeout_non_leader_master_rpcs);
 DECLARE_bool(enable_automatic_tablet_splitting);
 DECLARE_bool(flush_rocksdb_on_shutdown);
 DECLARE_bool(rocksdb_use_logging_iterator);
+DECLARE_bool(tserver_async_raft_write);
 
 DECLARE_double(TEST_respond_write_failed_probability);
 DECLARE_double(TEST_transaction_ignore_applying_probability);
@@ -3142,6 +3143,133 @@ TEST_F_EX(PgMiniTest, YB_DISABLE_TEST(PerfScanG7RangePK100Columns), PgMiniRf1Pac
 
     s.stop();
     LOG(INFO) << kNumScansPerIteration << " scan(s) took: " << AsString(s.elapsed());
+  }
+}
+
+TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(RaftNoOpTest)) {
+  auto conn = ASSERT_RESULT(Connect());
+
+  LOG(INFO) << "creating table";
+
+  ASSERT_OK(conn.Execute(
+      "CREATE TABLE IF NOT EXISTS t1 (a int PRIMARY KEY, b int) SPLIT INTO 10 TABLETS"));
+
+  FLAGS_tserver_async_raft_write = true;
+
+  LOG(INFO) << "beginning transaction";
+  ASSERT_OK(conn.Execute("BEGIN"));
+  LOG(INFO) << "begin txn done";
+
+  LOG(INFO) << "starting inserts";
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 5, 6));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 6, 100));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 7, 6));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 8, 6));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 100, 1000));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 101, 1001));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 200, 2000));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 201, 2001));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 300, 3000));
+  ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, $1)", 350, 3500));
+  LOG(INFO) << "done with inserts";
+
+  std::vector<std::pair<int, int>> expected = {
+    {5, 6},
+    {6, 100},
+    {7, 6},
+    {8, 6},
+    {100, 1000},
+    {101, 1001},
+    {200, 2000},
+    {201, 2001},
+    {300, 3000},
+    {350, 3500}
+  };
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 ORDER BY a", 10, 2));
+    for (int i = 0; i < 10; i++) {
+      auto value = ASSERT_RESULT(GetInt32(result.get(), i, 0));
+      ASSERT_EQ(value, expected[i].first);
+      value = ASSERT_RESULT(GetInt32(result.get(), i, 1));
+      ASSERT_EQ(value, expected[i].second);
+    }
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, 6);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, 100);
+  }
+
+  LOG(INFO) << "update query";
+  ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET b = b+100"));
+  LOG(INFO) << "update query done";
+
+  for (auto& a : expected) {
+    a.second += 100;
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 6", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, expected[1].first);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, expected[1].second);
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 100", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, expected[4].first);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, expected[4].second);
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 ORDER BY a", 10, 2));
+    for (int i = 0; i < 10; i++) {
+      auto value = ASSERT_RESULT(GetInt32(result.get(), i, 0));
+      ASSERT_EQ(value, expected[i].first);
+      value = ASSERT_RESULT(GetInt32(result.get(), i, 1));
+      ASSERT_EQ(value, expected[i].second);
+    }
+  }
+
+  LOG(INFO) << "committing";
+  ASSERT_OK(conn.Execute("COMMIT"));
+  LOG(INFO) << "commit done";
+
+  ASSERT_OK(conn.Execute("BEGIN"));
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 ORDER BY a", 10, 2));
+    for (int i = 0; i < 10; i++) {
+      auto value = ASSERT_RESULT(GetInt32(result.get(), i, 0));
+      ASSERT_EQ(value, expected[i].first);
+      value = ASSERT_RESULT(GetInt32(result.get(), i, 1));
+      ASSERT_EQ(value, expected[i].second);
+    }
+  }
+  ASSERT_OK(conn.Execute("COMMIT"));
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 ORDER BY a", 10, 2));
+    for (int i = 0; i < 10; i++) {
+      auto value = ASSERT_RESULT(GetInt32(result.get(), i, 0));
+      ASSERT_EQ(value, expected[i].first);
+      value = ASSERT_RESULT(GetInt32(result.get(), i, 1));
+      ASSERT_EQ(value, expected[i].second);
+    }
+  }
+
+  {
+    auto result = ASSERT_RESULT(conn.FetchMatrix("SELECT * FROM t1 WHERE a = 100", 1, 2));
+    auto value = ASSERT_RESULT(GetInt32(result.get(), 0, 0));
+    ASSERT_EQ(value, expected[4].first);
+    value = ASSERT_RESULT(GetInt32(result.get(), 0, 1));
+    ASSERT_EQ(value, expected[4].second);
   }
 }
 
