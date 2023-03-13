@@ -231,7 +231,7 @@ DEFINE_test_flag(bool, tablet_verify_flushed_frontier_after_modifying, false,
                  "After modifying the flushed frontier in RocksDB, verify that the restored value "
                  "of it is as expected. Used for testing.");
 
-DEFINE_test_flag(bool, docdb_log_write_batches, false,
+DEFINE_test_flag(bool, docdb_log_write_batches, true,
                  "Dump write batches being written to RocksDB");
 
 DEFINE_test_flag(bool, export_intentdb_metrics, false,

@@ -3149,6 +3149,8 @@ TEST_F_EX(PgMiniTest, YB_DISABLE_TEST(PerfScanG7RangePK100Columns), PgMiniRf1Pac
 TEST_F(PgMiniTest, YB_DISABLE_TEST_IN_TSAN(RaftNoOpTest)) {
   auto conn = ASSERT_RESULT(Connect());
 
+  FLAGS_ysql_enable_packed_row = false;
+
   LOG(INFO) << "creating table";
 
   ASSERT_OK(conn.Execute(
