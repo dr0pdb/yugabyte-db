@@ -49,6 +49,8 @@
 #include "yb/util/net/net_util.h"
 #include "yb/util/pg_util.h"
 
+DECLARE_string(yb_tmp_path);
+
 namespace yb {
 
 // Test Murmur2 Hash64 returns the expected values for inputs. These tests are
@@ -107,6 +109,69 @@ TEST(HashUtilTest, PgSocketDerivation) {
                                         "uuuuuuuuu.vvvvvvvvv.wwwwwwwww.xxxxxxxxx.yyyyyyyyy.zzzzz",
                                         kHostPrefix),
                                  kPort)));
+}
+
+TEST(HashUtilTest, PgSocketDerivationWithCustomisePath) {
+  FLAGS_yb_tmp_path = "/aaaaa/bbb/ccc";
+  constexpr auto port = 65535;
+  // Here flag as well as hostname is smaller than 107 character limit for the socket path.
+  ASSERT_EQ(
+      Format("$0/.yb.127.0.0.1:$1", FLAGS_yb_tmp_path, port),
+      PgDeriveSocketDir(HostPort("127.0.0.1", port)));
+
+  constexpr auto hostname_prefix = "aaaaaaaaa.bbbbbbbbb.ccccccccc.ddddddddd.eeeeeeeee";
+
+  // Verify the scenario with a smaller custom path with the largest hostname without trimming.
+  std::string largest_hostname = Format("$0.$1", hostname_prefix, "fffffffff.ggggggg");
+  ASSERT_EQ(
+      PgDeriveSocketDir(HostPort(largest_hostname, port)),
+      Format("$0/.yb.$1:$2", FLAGS_yb_tmp_path, largest_hostname, port));
+
+  // Verify the scenario with the smaller custom path with the largest host +1(host trimming).
+  std::string trim_hostname = Format("$0$1", largest_hostname, "g");
+  ASSERT_EQ(
+      PgDeriveSocketDir(HostPort(trim_hostname, port)),
+      Format(
+          "$0/.yb.aaaaaaaaa.bbbbbbbbb.ccccccccc.ddddddddd.eeeeee#6684209500661080486:$1",
+          FLAGS_yb_tmp_path,
+          port));
+
+  // Verify the scenario with a larger custom path without trimming with the largest hostname
+  // without trimming.
+  FLAGS_yb_tmp_path = "/aaaaaaaaaaaa/bbbbbbbbbbbb/ccccccccccc/dddddddddd/eeeeeeeee";
+  largest_hostname = "aaaaaaaaa.bbbbbbbbb.cc";
+  ASSERT_EQ(
+      PgDeriveSocketDir(HostPort(largest_hostname, port)),
+      Format("$0/.yb.$1:$2", FLAGS_yb_tmp_path, largest_hostname, port));
+
+  // Verify the scenario with a larger custom path without trimming with largest hostname + 1 with
+  // trimming.
+  FLAGS_yb_tmp_path = "/aaaaaaaaaaaa/bbbbbbbbbbbb/ccccccccccc/dddddddddd/eeeeeeeee";
+  trim_hostname = Format("$0$1", largest_hostname, "g");
+  ASSERT_EQ(
+      PgDeriveSocketDir(HostPort(trim_hostname, port)),
+      Format("$0/.yb.a#13331612183759290547:$2", FLAGS_yb_tmp_path, largest_hostname, port));
+
+  // Verify the scenario with a larger custom path with trimming with the largest hostname without
+  // trimming.
+  FLAGS_yb_tmp_path =
+      "/aaaaaaaaaaaa/bbbbbbbbbbbb/ccccccccccc/dddddddddd/eeeeeeeee/ggg/hhhhhhhhhh/kkkkkkkkk/"
+      "pppppppppppppp/kkkkkkkkkkkkk/kkkkkkkkkkkkkkkkkkkkkk/ppppppppp";
+  largest_hostname = Format("$0.$1", hostname_prefix, "fffffffff.ggggggg");
+  ASSERT_EQ(
+      PgDeriveSocketDir(HostPort(largest_hostname, port)),
+      Format("/tmp/.yb.$1:$2", FLAGS_yb_tmp_path, largest_hostname, port));
+
+  // Verify the scenario with a larger custom path with trimming with the largest hostname with
+  // trimming.
+  trim_hostname = Format("$0.$1", largest_hostname, "hhhhhhhh.iiiiii");
+  ASSERT_EQ(
+      PgDeriveSocketDir(HostPort(trim_hostname, port)),
+      Format(
+          "/tmp/"
+          ".yb.aaaaaaaaa.bbbbbbbbb.ccccccccc.ddddddddd.eeeeeeeee.ffffff#9465513402506384780:$1",
+          largest_hostname,
+          port));
 }
 
 } // namespace yb

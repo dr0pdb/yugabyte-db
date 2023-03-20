@@ -91,6 +91,7 @@ DEFINE_UNKNOWN_string(ysql_hba_conf, "",
               "Deprecated, use `ysql_hba_conf_csv` flag instead. " \
               "Comma separated list of postgres hba rules (in order)");
 TAG_FLAG(ysql_hba_conf, sensitive_info);
+DECLARE_string(yb_tmp_path);
 
 // gFlag wrappers over Postgres GUC parameter.
 // The value type should match the GUC parameter, or it should be a string, in which case Postgres
@@ -537,6 +538,14 @@ Status PgWrapper::Start() {
   if (FLAGS_pg_verbose_error_log) {
     argv.push_back("-c");
     argv.push_back("log_error_verbosity=VERBOSE");
+  }
+
+  if (!FLAGS_yb_tmp_path.empty()) {
+    // Pass down custom temp path through environment variable.
+    if (!VERIFY_RESULT(Env::Default()->DoesDirectoryExist(FLAGS_yb_tmp_path))) {
+      return STATUS_FORMAT(IOError, "Directory $0 does not exist", FLAGS_yb_tmp_path);
+    }
+    pg_proc_->SetEnv("FLAGS_yb_tmp_path", FLAGS_yb_tmp_path);
   }
 
   pg_proc_.emplace(postgres_executable, argv);

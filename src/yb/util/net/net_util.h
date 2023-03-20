@@ -218,4 +218,6 @@ bool IsWildcardAddress(const std::string& host_str);
 
 void TEST_SetFailToFastResolveAddress(const std::string& address);
 
+Result<bool> ValidateCustomDirectory(const std::string& path);
+
 } // namespace yb

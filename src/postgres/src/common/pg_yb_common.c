@@ -161,6 +161,11 @@ const char *YBGetCurrentMetricNodeName()
 	return getenv("FLAGS_metric_node_name");
 }
 
+const char *YbGetCurrentTmpPath()
+{
+	return getenv("FLAGS_yb_tmp_path");
+}
+
 int YBGetMaxClockSkewUsec() {
 	const int kDefaultClockSkewUsec = 500 * 1000;  // from physical_time.cc
 	const char *clock_skew_str = getenv("FLAGS_max_clock_skew_usec");
