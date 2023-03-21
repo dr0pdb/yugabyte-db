@@ -102,9 +102,9 @@ DEFINE_UNKNOWN_bool(help_auto_flag_json, false,
 TAG_FLAG(help_auto_flag_json, stable);
 TAG_FLAG(help_auto_flag_json, advanced);
 
-DEFINE_NON_RUNTIME_string(
-    yb_tmp_path, "",
-    "Directory to store temporary files. If not set, temporary files are stored in /tmp/.");
+DEFINE_NON_RUNTIME_string(yb_tmp_dir, "",
+    "Directory to store temporary files. If not set, the default value of '/tmp' is used. Should "
+    "not have a trailing '/' in the end.");
 
 DECLARE_bool(TEST_promote_all_auto_flags);
 

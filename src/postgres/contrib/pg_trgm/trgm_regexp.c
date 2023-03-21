@@ -2123,7 +2123,7 @@ printSourceNFA(regex_t *regex, TrgmColorInfo *colors, int ncolors)
 	int			nstates = pg_reg_getnumstates(regex);
 	int			state;
 	int			i;
-	const char	  *yb_tmp_path = YbGetCurrentTmpPath();
+	const char *yb_tmp_dir = YbGetCurrentTmpDir();
 
 	initStringInfo(&buf);
 
@@ -2191,9 +2191,9 @@ printSourceNFA(regex_t *regex, TrgmColorInfo *colors, int ncolors)
 		/* dot -Tpng -o /tmp/source.png < /tmp/source.dot */
 		FILE *fp = NULL;
 		char *custom_path = palloc0(MAX_STRING_LEN);
-		if (yb_tmp_path)
+		if (yb_tmp_dir)
 		{
-			snprintf(custom_path, MAX_STRING_LEN, "%s/source.dot", yb_tmp_path);
+			snprintf(custom_path, MAX_STRING_LEN, "%s/source.dot", yb_tmp_dir);
 			fp = fopen(custom_path, "w");
 		}
 		else
@@ -2217,7 +2217,7 @@ printTrgmNFA(TrgmNFA *trgmNFA)
 	HASH_SEQ_STATUS scan_status;
 	TrgmState  *state;
 	TrgmState  *initstate = NULL;
-	const char	   *yb_tmp_path = YbGetCurrentTmpPath();
+	const char *yb_tmp_dir = YbGetCurrentTmpDir();
 
 	initStringInfo(&buf);
 
@@ -2263,11 +2263,11 @@ printTrgmNFA(TrgmNFA *trgmNFA)
 		/* dot -Tpng -o /tmp/transformed.png < /tmp/transformed.dot */
 		char *custom_path = NULL;
 		FILE *fp = NULL;
-		if (yb_tmp_path)
+		if (yb_tmp_dir)
 		{
 			custom_path = palloc0(MAX_STRING_LEN);
 			snprintf(custom_path, MAX_STRING_LEN, "%s/transformed.dot",
-					 yb_tmp_path);
+			         yb_tmp_dir);
 			fp = fopen(custom_path, "w");
 		}
 		else
@@ -2365,12 +2365,12 @@ printTrgmPackedGraph(TrgmPackedGraph *packedGraph, TRGM *trigrams)
 		/* dot -Tpng -o /tmp/packed.png < /tmp/packed.dot */
 		FILE *fp = NULL;
 		char *custom_path = NULL;
-		const char *yb_tmp_path = YbGetCurrentTmpPath();
+		const char *yb_tmp_dir = YbGetCurrentTmpDir();
 
-		if (yb_tmp_path)
+		if (yb_tmp_dir)
 		{
 			custom_path = palloc0(MAX_STRING_LEN);
-			snprintf(custom_path, MAX_STRING_LEN, "%s/packed.dot", yb_tmp_path);
+			snprintf(custom_path, MAX_STRING_LEN, "%s/packed.dot", yb_tmp_dir);
 			fp = fopen(custom_path, "w");
 		}
 		else

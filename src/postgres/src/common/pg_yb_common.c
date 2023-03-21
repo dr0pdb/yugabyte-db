@@ -161,9 +161,10 @@ const char *YBGetCurrentMetricNodeName()
 	return getenv("FLAGS_metric_node_name");
 }
 
-const char *YbGetCurrentTmpPath()
+const char*
+YbGetCurrentTmpDir()
 {
-	return getenv("FLAGS_yb_tmp_path");
+	return getenv("FLAGS_yb_tmp_dir");
 }
 
 int YBGetMaxClockSkewUsec() {

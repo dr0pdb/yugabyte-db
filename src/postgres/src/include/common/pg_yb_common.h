@@ -117,7 +117,7 @@ extern const char *YBGetCurrentMetricNodeName();
  * Returns a null-terminated string representing the custom tmp path
  * Postgres process will use to keep some of its temporary files.
  */
-extern const char *YbGetCurrentTmpPath();
+extern const char *YbGetCurrentTmpDir();
 
 /**
  * Returns whether COLLATION support is enabled.

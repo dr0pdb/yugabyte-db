@@ -513,7 +513,7 @@ DEFINE_test_flag(uint64, delay_sys_catalog_reload_secs, 0,
 
 DECLARE_bool(transaction_tables_use_preferred_zones);
 
-DECLARE_string(yb_tmp_path);
+DECLARE_string(yb_tmp_dir);
 
 DEFINE_RUNTIME_bool(batch_ysql_system_tables_metadata, true,
     "Whether change metadata operation and SysCatalogTable upserts for ysql system tables during a "
@@ -1621,7 +1621,7 @@ Result<bool> CatalogManager::StartRunningInitDbIfNeeded(int64_t term) {
     }
 
     Status status = PgWrapper::InitDbForYSQL(
-        master_addresses_str, FLAGS_yb_tmp_path.empty() ? "/tmp" : FLAGS_yb_tmp_path,
+        master_addresses_str, FLAGS_yb_tmp_dir.empty() ? "/tmp" : FLAGS_yb_tmp_dir,
         master_->GetSharedMemoryFd());
 
     if (FLAGS_create_initial_sys_catalog_snapshot && status.ok()) {
