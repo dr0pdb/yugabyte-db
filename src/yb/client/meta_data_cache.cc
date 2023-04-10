@@ -21,6 +21,7 @@
 #include "yb/common/roles_permissions.h"
 
 #include "yb/util/result.h"
+#include "yb/util/scope_exit.h"
 #include "yb/util/status_format.h"
 #include "yb/util/status_log.h"
 #include "yb/util/flags.h"
@@ -86,44 +87,100 @@ YBMetaDataCache::~YBMetaDataCache() = default;
 Status YBMetaDataCache::GetTable(const YBTableName& table_name,
                                  std::shared_ptr<YBTable>* table,
                                  bool* cache_used) {
+  std::shared_ptr<YBMetaDataCacheEntry> entry;
   {
     std::lock_guard<std::mutex> lock(cached_tables_mutex_);
-    auto itr = cached_tables_by_name_.find(table_name);
-    if (itr != cached_tables_by_name_.end()) {
-      *table = itr->second;
-      *cache_used = true;
+    entry = GetOrCreateEntryInCacheUnlocked(&cached_tables_by_name_, table_name, table, cache_used);
+    if (cache_used && *cache_used) {
       return Status::OK();
     }
   }
 
-  RETURN_NOT_OK(client_->OpenTable(table_name, table));
-  {
-    std::lock_guard<std::mutex> lock(cached_tables_mutex_);
-    cached_tables_by_name_[(*table)->name()] = *table;
-    cached_tables_by_id_[(*table)->id()] = *table;
-  }
-  *cache_used = false;
-  return Status::OK();
+  return FetchTableDetailsInCache(entry, table_name, table, cache_used);
 }
 
 Status YBMetaDataCache::GetTable(const TableId& table_id,
                                  std::shared_ptr<YBTable>* table,
                                  bool* cache_used) {
+  std::shared_ptr<YBMetaDataCacheEntry> entry;
   {
     std::lock_guard<std::mutex> lock(cached_tables_mutex_);
-    auto itr = cached_tables_by_id_.find(table_id);
-    if (itr != cached_tables_by_id_.end()) {
-      *table = itr->second;
-      *cache_used = true;
+    entry = GetOrCreateEntryInCacheUnlocked(&cached_tables_by_id_, table_id, table, cache_used);
+    if (cache_used && *cache_used) {
       return Status::OK();
     }
   }
 
-  RETURN_NOT_OK(client_->OpenTable(table_id, table));
+  return FetchTableDetailsInCache(entry, table_id, table, cache_used);
+}
+
+template <typename T>
+std::shared_ptr<YBMetaDataCacheEntry> YBMetaDataCache::GetOrCreateEntryInCacheUnlocked(
+    std::unordered_map<T, std::shared_ptr<YBMetaDataCacheEntry>, boost::hash<T>>* cache,
+    const T& table_identifier,
+    std::shared_ptr<YBTable>* table,
+    bool* cache_used) {
+  auto itr = cache->find(table_identifier);
+  if (itr != cache->end() && itr->second->fetched_successfully_.load(std::memory_order_acquire)) {
+    *table = itr->second->table_;
+    *cache_used = true;
+    return itr->second;
+  } else if (itr == cache->end()) {
+    (*cache)[table_identifier] = std::make_shared<YBMetaDataCacheEntry>();
+  }
+  return (*cache)[table_identifier];
+}
+
+template <typename T>
+Status YBMetaDataCache::FetchTableDetailsInCache(const std::shared_ptr<YBMetaDataCacheEntry> entry,
+                                                 const T table_identifier,
+                                                 std::shared_ptr<YBTable>* table,
+                                                 bool* cache_used) {
+  LOG_IF(DFATAL, entry == nullptr) << "YBMetaDataCacheEntry found to be null unexpectedly";
+
+  {
+    // Avoid multiple threads fetching the table details.
+    std::unique_lock<std::mutex> table_lock(entry->m_);
+
+    if (entry->fetching_.load(std::memory_order_acquire)) {
+      // Another thread is already fetching the table info. Wait for it to finish.
+      entry->fetch_wait_cv_.wait(
+          table_lock, [&entry]() { return !entry->fetching_.load(std::memory_order_acquire); });
+    } else if (!entry->fetched_successfully_.load(std::memory_order_acquire)) {
+      entry->fetching_.store(true, std::memory_order_release);
+    }
+  }
+
+  // Recheck the entry since another thread might have fetched and populated the entry.
+  if (entry->fetched_successfully_.load(std::memory_order_acquire)) {
+    *table = entry->table_;
+    *cache_used = true;
+    return Status::OK();
+  }
+
+  bool success = false;
+  auto scope_exit = ScopeExit([&entry, &success] {
+    if (!success) {
+      entry->fetched_successfully_.store(false, std::memory_order_release);
+      entry->fetching_.store(false, std::memory_order_release);
+      entry->fetch_wait_cv_.notify_one();
+    }
+  });
+
+  RETURN_NOT_OK(client_->OpenTable(table_identifier, table));
+
+  // Notify as soon as possible in case of success.
+  entry->table_ = *table;
+  entry->fetched_successfully_.store(true, std::memory_order_release);
+  entry->fetching_.store(false, std::memory_order_release);
+  entry->fetch_wait_cv_.notify_all();
+  success = true;
+
   {
     std::lock_guard<std::mutex> lock(cached_tables_mutex_);
-    cached_tables_by_name_[(*table)->name()] = *table;
-    cached_tables_by_id_[table_id] = *table;
+
+    cached_tables_by_name_[(*table)->name()] = entry;
+    cached_tables_by_id_[(*table)->id()] = entry;
   }
   *cache_used = false;
   return Status::OK();
@@ -133,9 +190,16 @@ void YBMetaDataCache::RemoveCachedTable(const YBTableName& table_name) {
   std::lock_guard<std::mutex> lock(cached_tables_mutex_);
   const auto itr = cached_tables_by_name_.find(table_name);
   if (itr != cached_tables_by_name_.end()) {
-    const auto table_id = itr->second->id();
+    // It could happen that the entry is present in cached_tables_by_name_ but the data is being
+    // fetched. In this case, cached_tables_by_id_ might not have the entry.
+    if (itr->second->fetched_successfully_.load(std::memory_order_acquire)) {
+      const auto table_id = itr->second->table_->id();
+      if (cached_tables_by_id_.contains(table_id)) {
+        cached_tables_by_id_.erase(table_id);
+      }
+    }
+
     cached_tables_by_name_.erase(itr);
-    cached_tables_by_id_.erase(table_id);
   }
 }
 
@@ -143,8 +207,15 @@ void YBMetaDataCache::RemoveCachedTable(const TableId& table_id) {
   std::lock_guard<std::mutex> lock(cached_tables_mutex_);
   const auto itr = cached_tables_by_id_.find(table_id);
   if (itr != cached_tables_by_id_.end()) {
-    const auto table_name = itr->second->name();
-    cached_tables_by_name_.erase(table_name);
+    // It could happen that the entry is present in cached_tables_by_id_ but the data is being
+    // fetched. In this case, cached_tables_by_name_ might not have the entry.
+    if (itr->second->fetched_successfully_.load(std::memory_order_acquire)) {
+      const auto table_name = itr->second->table_->name();
+      if (cached_tables_by_name_.contains(table_name)) {
+        cached_tables_by_name_.erase(table_name);
+      }
+    }
+
     cached_tables_by_id_.erase(itr);
   }
 }
