@@ -198,6 +198,8 @@
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
 
+/* YB includes. */
+#include "common/pg_yb_common.h"
 
 /*
  * Uncomment (or use -DTRGM_REGEXP_DEBUG) to print debug info,
@@ -2261,13 +2263,12 @@ printTrgmNFA(TrgmNFA *trgmNFA)
 
 	{
 		/* dot -Tpng -o /tmp/transformed.png < /tmp/transformed.dot */
-		char *custom_path = NULL;
+		char *custom_path = palloc0(MAX_STRING_LEN);
 		FILE *fp = NULL;
 		if (yb_tmp_dir)
 		{
-			custom_path = palloc0(MAX_STRING_LEN);
 			snprintf(custom_path, MAX_STRING_LEN, "%s/transformed.dot",
-			         yb_tmp_dir);
+					 yb_tmp_dir);
 			fp = fopen(custom_path, "w");
 		}
 		else
@@ -2364,13 +2365,12 @@ printTrgmPackedGraph(TrgmPackedGraph *packedGraph, TRGM *trigrams)
 	{
 		/* dot -Tpng -o /tmp/packed.png < /tmp/packed.dot */
 		FILE *fp = NULL;
-		char *custom_path = NULL;
-		const char *yb_tmp_dir = YbGetCurrentTmpDir();
+		char *custom_path = palloc0(MAX_STRING_LEN);
+		const char *tmp_dir = YbGetCurrentTmpDir();
 
-		if (yb_tmp_dir)
+		if (tmp_dir)
 		{
-			custom_path = palloc0(MAX_STRING_LEN);
-			snprintf(custom_path, MAX_STRING_LEN, "%s/packed.dot", yb_tmp_dir);
+			snprintf(custom_path, MAX_STRING_LEN, "%s/packed.dot", tmp_dir);
 			fp = fopen(custom_path, "w");
 		}
 		else

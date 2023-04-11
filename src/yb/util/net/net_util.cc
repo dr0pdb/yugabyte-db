@@ -87,7 +87,7 @@ DEFINE_UNKNOWN_string(
     "prefer external IPv4 "
     "addresses first. Other options include ipv6_external,ipv6_non_link_local");
 
-DECLARE_string(yb_tmp_dir);
+DECLARE_string(tmp_dir);
 
 namespace yb {
 
@@ -545,15 +545,11 @@ uint16_t GetFreePort(std::unique_ptr<FileLock>* file_lock) {
   bool created = false;
   string lock_file_dir;
 
-  if (!FLAGS_yb_tmp_dir.empty()) {
-    auto dir_exist = Env::Default()->DoesDirectoryExist(FLAGS_yb_tmp_dir);
-    if (!dir_exist.ok()) {
-      LOG(FATAL) << "Directory does not exist: " << FLAGS_yb_tmp_dir;
-    }
-    lock_file_dir = Format("$0/yb-port-locks", FLAGS_yb_tmp_dir);
-  } else {
-    lock_file_dir = "/tmp/yb-port-locks";
+  auto dir_exist = Env::Default()->DoesDirectoryExist(FLAGS_tmp_dir);
+  if (!dir_exist.ok()) {
+    LOG(FATAL) << "Directory does not exist: " << FLAGS_tmp_dir;
   }
+  lock_file_dir = Format("$0/yb-port-locks", FLAGS_tmp_dir);
 
   Status status = env_util::CreateDirIfMissing(env, lock_file_dir, &created);
   if (!status.ok()) {

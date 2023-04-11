@@ -21,7 +21,7 @@
 #include "yb/util/format.h"
 #include "yb/util/hash_util.h"
 
-DECLARE_string(yb_tmp_dir);
+DECLARE_string(tmp_dir);
 
 namespace yb {
 
@@ -30,19 +30,26 @@ namespace yb {
 // Accomplish this by putting the bind address host and port in the directory name.  To avoid the
 // 107 character limit for the socket path (see UNIXSOCK_PATH_BUFLEN - 1 in postgres fe-connect.c),
 // truncate and use a hash of the bind address if needed.
+//
+// The derived path comprises of three main components:
+// <prefix> - $FLAGS_tmp_dir/.yb or /tmp/.yb as fallback
+// <host>   - the host_address or <truncated_host_address>#<host_hash> if truncated
+// <port>   - the port
+//
+// <prefix> and <host> are separated by a dot (.)
+// <host> and <port> are separated by a colon (:)
+// Hence the overall structure is <prefix>.<host>:<port>
 std::string PgDeriveSocketDir(const HostPort& host_port) {
   const std::string& host = host_port.host();
   const uint16_t port = host_port.port();
 
   constexpr size_t kSocketMaxChars = 107;
-  constexpr size_t kDefaultPrefixChars = 8;
-  constexpr auto defaultSocketDirPrefix = "/tmp/.yb";
-  std::string prefix = defaultSocketDirPrefix;
-  size_t prefix_chars = kDefaultPrefixChars;
-  // Hash (64-bit)(uint) can only be at most 20 digits long, plus 1 character for pound(#).
+  std::string prefix = "/tmp/.yb";
+  size_t prefix_chars = prefix.size();
+  // Hash (64-bit uint) can only be at most 20 digits long, plus 1 character for pound(#).
   constexpr size_t kMinHostCharsWithHash = 21;
 
-  // Port (16-bit)(int) can only be at most 5 digits long.
+  // Port (16-bit int) can only be at most 5 digits long.
   constexpr size_t kPortMaxChars = 5;
   DCHECK_LE(std::to_string(port).size(), kPortMaxChars);
   // ".s.PGSQL.<port>" = 9 chars + max 5 chars
@@ -51,60 +58,44 @@ std::string PgDeriveSocketDir(const HostPort& host_port) {
   // directory name: 1 dot, 1 colon; 1 slash separating socket dir and socket file.
   constexpr size_t kSeparatorChars = 3;
 
-  if (!FLAGS_yb_tmp_dir.empty()) {
-    // Leave enough space for port, separators, socket file name & ('#' + hash_of_host).
-    if (FLAGS_yb_tmp_dir.size() + strlen("/.yb") <=
-        (kSocketMaxChars -
-         (kPortMaxChars + kSeparatorChars + kSocketFileChars + kMinHostCharsWithHash))) {
-      prefix = FLAGS_yb_tmp_dir + "/.yb";
-      prefix_chars = strlen(prefix.c_str());
-    } else {
-      LOG(WARNING)
-          << "Failed to use " << FLAGS_yb_tmp_dir
-          << " as the socket directory path for tserver-postgres authentication purposes. The temp "
-          << "directory path must be <= 60 characters. Falling back to the default /tmp path.";
-    }
+  // Check if we need to fallback to the /tmp directory. We fallback to /tmp directory if there
+  // isn't enough space for port, separators, socket file name & ('#' + hash_of_host).
+  if (FLAGS_tmp_dir.size() + strlen("/.yb") + kMinHostCharsWithHash + kPortMaxChars +
+          kSocketFileChars + kSeparatorChars <=
+      kSocketMaxChars) {
+    prefix = FLAGS_tmp_dir + "/.yb";
+    prefix_chars = strlen(prefix.c_str());
+  } else {
+    LOG(WARNING)
+        << "Failed to use " << FLAGS_tmp_dir
+        << " as the socket directory path for tserver-postgres authentication purposes. The temp "
+        << "directory path must be <= 60 characters. Falling back to the default /tmp path.";
   }
 
-  constexpr size_t kDefaultHostMaxChars = 77;
-  size_t kHostMaxChars = kDefaultHostMaxChars;
-  // If default /tmp path is used to create the unix-domain socket.
-  if (prefix == defaultSocketDirPrefix) {
-    DCHECK_EQ(prefix.size(), prefix_chars);
-    DCHECK_EQ(
-        kSocketMaxChars - (prefix_chars + kPortMaxChars + kSeparatorChars + kSocketFileChars),
-        kHostMaxChars);
-  } else {
-    kHostMaxChars =
-        kSocketMaxChars - (prefix_chars + kPortMaxChars + kSeparatorChars + kSocketFileChars);
-  }
+  size_t host_max_chars =
+      kSocketMaxChars - (prefix_chars + kPortMaxChars + kSeparatorChars + kSocketFileChars);
+  DCHECK_GE(host_max_chars, kMinHostCharsWithHash);
 
   // Make socket directory path.
   std::string path;
-  if (host.size() <= kHostMaxChars) {
-    // Normal case: "/tmp/.yb.<host>:<port>" or "$FLAGS_yb_tmp_dir/.yb.<host>:<port>".
+  if (host.size() <= host_max_chars) {
+    // Without host truncation: "$FLAGS_tmp_dir/.yb.<host>:<port>" or "/tmp/.yb.<host>:<port>" in
+    // case of fallback.
     path = Format("$0.$1:$2", prefix, host, port);
   } else {
-    // Special case when host address is too long: "/tmp/.yb.<truncated_host>#<host_hash>:<port>" or
-    // "$FLAGS_yb_tmp_dir/.yb.<truncated_host>#<host_hash>:<port>".
+    // With host truncation: "$FLAGS_tmp_dir/.yb.<truncated_host>#<host_hash>:<port>" or
+    // "/tmp/.yb.<truncated_host>#<host_hash>:<port>" or in case of fallback.
     const uint64_t hash = HashUtil::MurmurHash2_64(host.c_str(), host.size(), 0 /* seed */);
-    // Hash (64-bit)(uint) can only be at most 20 digits long.
+    // Hash (64-bit uint) can only be at most 20 digits long.
     constexpr size_t kHashMaxChars = 20;
     DCHECK_LE(std::to_string(hash).size(), kHashMaxChars);
     // directory name: 1 dot, 1 pound, 1 colon; 1 slash separating socket dir and socket file.
-    constexpr size_t kSeparatorChars = 4;
-    kHostMaxChars = 56;
-    // If default /tmp path is used to create the unix-domain socket.
-    if (prefix_chars == kDefaultPrefixChars) {
-      DCHECK_EQ(
-          kSocketMaxChars -
-              (prefix_chars + kHashMaxChars + kPortMaxChars + kSeparatorChars + kSocketFileChars),
-          kHostMaxChars);
-    } else {
-      kHostMaxChars = kSocketMaxChars - (prefix_chars + kHashMaxChars + kPortMaxChars +
-                                         kSeparatorChars + kSocketFileChars);
-    }
-    const std::string& host_substring = host.substr(0, kHostMaxChars);
+    constexpr size_t kSeparatorCharsWithPound = kSeparatorChars + 1;
+    size_t truncated_host_max_chars =
+        kSocketMaxChars - (prefix_chars + kPortMaxChars + kSeparatorCharsWithPound +
+                           kSocketFileChars + kHashMaxChars);
+    DCHECK_GE(truncated_host_max_chars, 0);
+    const std::string& host_substring = host.substr(0, truncated_host_max_chars);
     path = Format("$0.$1#$2:$3", prefix, host_substring, hash, port);
   }
   DCHECK_LE(path.size(), kSocketMaxChars);

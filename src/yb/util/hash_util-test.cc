@@ -49,7 +49,7 @@
 #include "yb/util/net/net_util.h"
 #include "yb/util/pg_util.h"
 
-DECLARE_string(yb_tmp_dir);
+DECLARE_string(tmp_dir);
 
 namespace yb {
 
@@ -116,14 +116,14 @@ TEST(HashUtilTest, PgSocketDerivationWithCustomPath) {
 
   // Smallest flag path.
   {
-    FLAGS_yb_tmp_dir = "/";
+    FLAGS_tmp_dir = "/";
 
     // Largest possible host without trimming.
     // tmp path len = 1, hostname len = 80, port len = 5.
     constexpr auto largest_hostname_without_trimming =
         "aaaaaaaaa.bbbbbbbbb.ccccccccc.ddddddddd.eeeeeeeee.fffffffff.ggggggggg.hhhhhhhhh.";
     ASSERT_EQ(
-        Format("$0/.yb.$1:$2", FLAGS_yb_tmp_dir, largest_hostname_without_trimming, port),
+        Format("$0/.yb.$1:$2", FLAGS_tmp_dir, largest_hostname_without_trimming, port),
         PgDeriveSocketDir(HostPort(largest_hostname_without_trimming, port)));
 
     // Above host with 1 more character which will lead to trimming.
@@ -132,7 +132,7 @@ TEST(HashUtilTest, PgSocketDerivationWithCustomPath) {
     ASSERT_EQ(
         Format(
             "$0/.yb.$1:$2",
-            FLAGS_yb_tmp_dir,
+            FLAGS_tmp_dir,
             "aaaaaaaaa.bbbbbbbbb.ccccccccc.ddddddddd.eeeeeeeee.fffffffff#13688723505865877493",
             port),
         PgDeriveSocketDir(HostPort(smallest_hostname_with_trimming, port)));
@@ -140,25 +140,25 @@ TEST(HashUtilTest, PgSocketDerivationWithCustomPath) {
 
   // Largest flag path that doesn't involve fallback to /tmp.
   {
-    FLAGS_yb_tmp_dir = "/aaaaa/bbb/ccc/dddddddddddddddddddddddddddddddddddddddddd/ee";
+    FLAGS_tmp_dir = "/aaaaa/bbb/ccc/dddddddddddddddddddddddddddddddddddddddddd/ee";
 
     constexpr auto largest_hostname_without_trimming = "aaaaaaaaa.bbbbbbbbb.c";
     // tmp path len = 60, hostname len = 21, port len = 5.
     ASSERT_EQ(
-        Format("$0/.yb.$1:$2", FLAGS_yb_tmp_dir, largest_hostname_without_trimming, port),
+        Format("$0/.yb.$1:$2", FLAGS_tmp_dir, largest_hostname_without_trimming, port),
         PgDeriveSocketDir(HostPort(largest_hostname_without_trimming, port)));
 
     // Above host with 1 more character which will lead to trimming.
     // tmp path len = 60, hostname len = 22, port len = 5.
     auto smallest_hostname_with_trimming = Format("$0$1", largest_hostname_without_trimming, "c");
     ASSERT_EQ(
-        Format("$0/.yb.$1:$2", FLAGS_yb_tmp_dir, "#12324495471980671580", port),
+        Format("$0/.yb.$1:$2", FLAGS_tmp_dir, "#12324495471980671580", port),
         PgDeriveSocketDir(HostPort(smallest_hostname_with_trimming, port)));
   }
 
   // Smallest flag path which involves fallback to /tmp.
   {
-    FLAGS_yb_tmp_dir = "/aaaaa/bbb/ccc/dddddddddddddddddddddddddddddddddddddddddd/eee";
+    FLAGS_tmp_dir = "/aaaaa/bbb/ccc/dddddddddddddddddddddddddddddddddddddddddd/eee";
     constexpr auto fallback_tmp_path = "/tmp";
 
     // Largest possible host without trimming.

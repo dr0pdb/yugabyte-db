@@ -18,6 +18,7 @@
 #include "commands/explain.h"
 #include "pg_stat_monitor.h"
 
+/* YB includes. */
 #include "common/pg_yb_common.h"
 #include "yb/server/pgsql_webserver_wrapper.h"
 
@@ -225,7 +226,7 @@ _PG_init(void)
 		char file_name[1024];
 		if (yb_tmp_dir)
 			snprintf(file_name, 1024, "%s/%s.%d", yb_tmp_dir,
-			         YB_PGSM_TEXT_FILE_PREFIX, i);
+					 YB_PGSM_TEXT_FILE_PREFIX, i);
 		else
 			snprintf(file_name, 1024, "%s.%d", PGSM_TEXT_FILE, i);
 		unlink(file_name);
@@ -1687,7 +1688,7 @@ get_next_wbucket(pgssSharedState *pgss)
 	uint64          current_usec;
 	uint64          bucket_id;
 	struct tm       *lt;
-	const  char	    *yb_tmp_dir = YbGetCurrentTmpDir();
+	const  char     *yb_tmp_dir = YbGetCurrentTmpDir();
 
 	gettimeofday(&tv,NULL);
 	current_usec = (TimestampTz) tv.tv_sec - ((POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE) * SECS_PER_DAY);
@@ -1706,7 +1707,7 @@ get_next_wbucket(pgssSharedState *pgss)
 		hash_query_entry_dealloc(bucket_id);
 		if (yb_tmp_dir)
 			snprintf(file_name, 1024, "%s/%s.%d", yb_tmp_dir,
-			         YB_PGSM_TEXT_FILE_PREFIX, (int)bucket_id);
+					 YB_PGSM_TEXT_FILE_PREFIX, (int) bucket_id);
 		else
 			snprintf(file_name, 1024, "%s.%d", PGSM_TEXT_FILE, (int)bucket_id);
 
@@ -2906,7 +2907,7 @@ dump_queries_buffer(int bucket_id, unsigned char *buf, int buf_len)
 
 	if (yb_tmp_dir)
 		snprintf(file_name, 1024, "%s/%s.%d", yb_tmp_dir,
-		         YB_PGSM_TEXT_FILE_PREFIX, bucket_id);
+				 YB_PGSM_TEXT_FILE_PREFIX, bucket_id);
 	else
 		snprintf(file_name, 1024, "%s.%d", PGSM_TEXT_FILE, bucket_id);
 
@@ -2938,7 +2939,7 @@ read_query_buffer(int bucket_id, uint64 queryid, char *query_txt)
 
 	if (yb_tmp_dir)
 		snprintf(file_name, 1024, "%s/%s.%d", yb_tmp_dir,
-		         YB_PGSM_TEXT_FILE_PREFIX, bucket_id);
+				 YB_PGSM_TEXT_FILE_PREFIX, bucket_id);
 	else
 		snprintf(file_name, 1024, "%s.%d", PGSM_TEXT_FILE, bucket_id);
 
