@@ -13,7 +13,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <unordered_map>
@@ -38,17 +37,19 @@ enum class CacheCheckMode {
   RETRY,
 };
 
+enum class CacheEntryFetchStatus {
+  NOT_FETCHING,
+  FETCHING,
+  FETCHED,
+};
+
 struct YBMetaDataCacheEntry {
-  // Atomic bool to indicate if the table info has been fetched successfully.
-  std::atomic<bool> fetched_successfully_ = {false};
-
-  // Atomic bool to indicate if the table info is currently being fetched.
-  std::atomic<bool> fetching_ = {false};
-  std::shared_ptr<YBTable> table_;
-
   // Protects concurrent calls to YBClient::OpenTable for the entry.
-  std::mutex m_;
+  std::mutex mutex_;
   std::condition_variable fetch_wait_cv_;
+
+  CacheEntryFetchStatus fetch_status_ = {CacheEntryFetchStatus::NOT_FETCHING};
+  std::shared_ptr<YBTable> table_;
 };
 
 class YBMetaDataCache {
