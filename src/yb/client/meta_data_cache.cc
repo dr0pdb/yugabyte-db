@@ -98,7 +98,7 @@ Status YBMetaDataCache::GetTable(const YBTableName& table_name,
     }
   }
 
-  return FetchTableDetailsInCache(entry, table_name, table, cache_used);
+  return FetchTableDetailsInCache(entry, table_name, table, cache_used, nullptr, CacheApiMode::SYNC);
 }
 
 Status YBMetaDataCache::GetTable(const TableId& table_id,
@@ -113,7 +113,43 @@ Status YBMetaDataCache::GetTable(const TableId& table_id,
     }
   }
 
-  return FetchTableDetailsInCache(entry, table_id, table, cache_used);
+  return FetchTableDetailsInCache(entry, table_id, table, cache_used, nullptr, CacheApiMode::SYNC);
+}
+
+Status YBMetaDataCache::GetTableAsync(const YBTableName& table_name,
+                                 bool* cache_used,
+                                 TableEntryFetchedCallback callback) {
+  std::shared_ptr<YBMetaDataCacheEntry> entry;
+  std::shared_ptr<YBTable> table;
+  {
+    std::lock_guard<std::mutex> lock(cached_tables_mutex_);
+    entry = GetOrCreateEntryInCacheUnlocked(&cached_tables_by_name_, table_name, &table, cache_used);
+    if (*cache_used) {
+      callback(Status::OK(), table);
+      return Status::OK();
+    }
+  }
+
+  return FetchTableDetailsInCache(
+      entry, table_name, &table, cache_used, callback, CacheApiMode::ASYNC);
+}
+
+Status YBMetaDataCache::GetTableAsync(const TableId& table_id,
+                                 bool* cache_used,
+                                 TableEntryFetchedCallback callback) {
+  std::shared_ptr<YBMetaDataCacheEntry> entry;
+  std::shared_ptr<YBTable> table;
+  {
+    std::lock_guard<std::mutex> lock(cached_tables_mutex_);
+    entry = GetOrCreateEntryInCacheUnlocked(&cached_tables_by_id_, table_id, &table, cache_used);
+    if (*cache_used) {
+      callback(Status::OK(), table);
+      return Status::OK();
+    }
+  }
+
+  return FetchTableDetailsInCache(
+      entry, table_id, &table, cache_used, callback, CacheApiMode::ASYNC);
 }
 
 template <typename T>
@@ -136,8 +172,12 @@ template <typename T>
 Status YBMetaDataCache::FetchTableDetailsInCache(const std::shared_ptr<YBMetaDataCacheEntry> entry,
                                                  const T table_identifier,
                                                  std::shared_ptr<YBTable>* table,
-                                                 bool* cache_used) {
+                                                 bool* cache_used,
+                                                 TableEntryFetchedCallback callback,
+                                                 CacheApiMode cache_mode) {
   LOG_IF(DFATAL, entry == nullptr) << "YBMetaDataCacheEntry found to be null unexpectedly";
+  LOG_IF(DFATAL, cache_mode == CacheApiMode::ASYNC && callback == nullptr)
+      << "YBMetaDataCacheEntry used in async mode but callback not provided";
 
   {
     auto to_break = false;
@@ -145,9 +185,15 @@ Status YBMetaDataCache::FetchTableDetailsInCache(const std::shared_ptr<YBMetaDat
       std::unique_lock<std::mutex> table_lock(entry->mutex_);
       switch (entry->fetch_status_) {
         case CacheEntryFetchStatus::FETCHING: {
-          // Another thread is already fetching the table info. Wait for it to finish.
-          entry->fetch_wait_cv_.wait(table_lock);
-          break;
+          // Another thread is already fetching the table info. Wait on CV in sync mode & add to
+          // queue in async.
+          if (cache_mode == CacheApiMode::SYNC) {
+            entry->fetch_wait_cv_.wait(table_lock);
+            break;
+          } else {
+            entry->waiters_.emplace_back(YBMetaDataCacheEntryWaiter{callback, cache_used});
+            return Status::OK();
+          }
         }
         case CacheEntryFetchStatus::NOT_FETCHING: {
           entry->fetch_status_ = CacheEntryFetchStatus::FETCHING;
@@ -157,30 +203,50 @@ Status YBMetaDataCache::FetchTableDetailsInCache(const std::shared_ptr<YBMetaDat
         case CacheEntryFetchStatus::FETCHED: {
           *table = entry->table_;
           *cache_used = true;
+          if (cache_mode == CacheApiMode::ASYNC) {
+            callback(Status::OK(), entry->table_);
+          }
           return Status::OK();
         }
       }
     }
   }
 
-  bool success = false;
-  auto scope_exit = ScopeExit([&entry, &success] {
-    if (!success) {
+  Status open_table_status;
+  auto scope_exit = ScopeExit([&entry, &open_table_status] {
+    if (!open_table_status.ok()) {
       std::unique_lock<std::mutex> table_lock(entry->mutex_);
       entry->fetch_status_ = CacheEntryFetchStatus::NOT_FETCHING;
+
       entry->fetch_wait_cv_.notify_one();
+      // Notify all the waiters about the failure.
+      for (auto waiter_entry : entry->waiters_) {
+        waiter_entry.callback_(open_table_status, nullptr);
+      }
+      entry->waiters_.clear();
     }
   });
 
-  RETURN_NOT_OK(client_->OpenTable(table_identifier, table));
+  open_table_status = client_->OpenTable(table_identifier, table);
+  RETURN_NOT_OK(open_table_status);
+  *cache_used = false;
 
   // Notify as soon as possible in case of success.
   {
     std::unique_lock<std::mutex> table_lock(entry->mutex_);
     entry->table_ = *table;
     entry->fetch_status_ = CacheEntryFetchStatus::FETCHED;
+
     entry->fetch_wait_cv_.notify_all();
-    success = true;
+    if (cache_mode == CacheApiMode::ASYNC) {
+      callback(Status::OK(), entry->table_);
+    }
+    for (auto waiter_entry : entry->waiters_) {
+      *waiter_entry.cache_used_ = true;
+      waiter_entry.callback_(Status::OK(), entry->table_);
+    }
+    entry->waiters_.clear();
+
     if (mem_tracker_) {
       entry->consumption_ = ScopedTrackedConsumption(
           mem_tracker_, entry->table_->DynamicMemoryUsage() + sizeof(entry));
@@ -194,7 +260,6 @@ Status YBMetaDataCache::FetchTableDetailsInCache(const std::shared_ptr<YBMetaDat
     cached_tables_by_name_[(*table)->name()] = entry;
     cached_tables_by_id_[(*table)->id()] = entry;
   }
-  *cache_used = false;
   return Status::OK();
 }
 

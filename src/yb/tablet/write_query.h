@@ -26,6 +26,7 @@
 
 #include "yb/tserver/tserver.fwd.h"
 
+#include "yb/gutil/thread_annotations.h"
 #include "yb/util/operation_counter.h"
 
 namespace yb {
@@ -191,6 +192,11 @@ class WriteQuery {
   // True if we know that this operation is on a transactional table so make sure we go through the
   // transactional codepath.
   bool force_txn_path_ = false;
+
+  std::mutex ql_index_mu_;
+  int pending_get_tables_ GUARDED_BY(ql_index_mu_) = 0;
+  bool all_get_tables_success_ GUARDED_BY(ql_index_mu_) = true;
+  IndexOps index_ops_ GUARDED_BY(ql_index_mu_);
 
   const int64_t term_;
   ScopedRWOperation submit_token_;

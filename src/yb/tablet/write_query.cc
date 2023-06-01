@@ -839,11 +839,24 @@ void WriteQuery::UpdateQLIndexes() {
   }
   auto tablet = *tablet_result;
 
+  // Precalculate all index ops.
+  {
+    std::lock_guard<std::mutex> lk(ql_index_mu_);
+    LOG_IF(DFATAL, pending_get_tables_ != 0)
+        << "WriteQuery::UpdateQLIndexes must only get called once.";
+
+    for (auto& doc_op : doc_ops_) {
+      auto* write_op = down_cast<docdb::QLWriteOperation*>(doc_op.get());
+      pending_get_tables_ += write_op->index_requests().size();
+    }
+    index_ops_.resize(pending_get_tables_);
+  }
+
   client::YBClient* client = nullptr;
   client::YBSessionPtr session;
   client::YBTransactionPtr txn;
-  IndexOps index_ops;
   const ChildTransactionDataPB* child_transaction_data = nullptr;
+  size_t op_idx = 0;
   for (auto& doc_op : doc_ops_) {
     auto* write_op = down_cast<docdb::QLWriteOperation*>(doc_op.get());
     if (write_op->index_requests().empty()) {
@@ -878,7 +891,6 @@ void WriteQuery::UpdateQLIndexes() {
 
     // Apply the write ops to update the index
     for (auto& [index_info, index_request] : write_op->index_requests()) {
-      client::YBTablePtr index_table;
       bool cache_used_ignored = false;
       auto metadata_cache = tablet->YBMetaDataCache();
       if (!metadata_cache) {
@@ -887,19 +899,41 @@ void WriteQuery::UpdateQLIndexes() {
             STATUS(Corruption, "Table metadata cache is not present for index update"));
         return;
       }
-      // TODO create async version of GetTable.
-      // It is ok to have sync call here, because we use cache and it should not take too long.
-      auto status = metadata_cache->GetTable(
-          index_info->table_id(), &index_table, &cache_used_ignored);
+
+      auto status = metadata_cache->GetTableAsync(
+          index_info->table_id(), &cache_used_ignored,
+          [this, session, write_op, txn, op_idx](Status status, client::YBTablePtr index_table) {
+            std::lock_guard<std::mutex> lk(ql_index_mu_);
+            auto& index_request = write_op->index_requests().at(op_idx).second;
+            pending_get_tables_ -= 1;
+            if (status.ok()) {
+              std::shared_ptr<client::YBqlWriteOp> index_op(index_table->NewQLWrite());
+              index_op->mutable_request()->Swap(&index_request);
+              index_op->mutable_request()->MergeFrom(index_request);
+              session->Apply(index_op);
+
+              // Add index_op at index idx.
+              index_ops_.emplace(index_ops_.begin() + op_idx, std::move(index_op), write_op);
+            } else if(all_get_tables_success_) {
+              VLOG(1) << "Failure in GetTableAsync " << status.ToString();
+              all_get_tables_success_ = false;
+              StartSynchronization(std::move(self_), status);
+              return;
+            }
+
+            // If all GetTableAsync succeed then flush.
+            if (pending_get_tables_ == 0 && all_get_tables_success_) {
+              session->FlushAsync(std::bind(
+                  &WriteQuery::UpdateQLIndexesFlushed, this, session, txn, std::move(index_ops_),
+                  _1));
+            }
+          });
+
       if (!status.ok()) {
         StartSynchronization(std::move(self_), status);
         return;
       }
-      std::shared_ptr<client::YBqlWriteOp> index_op(index_table->NewQLWrite());
-      index_op->mutable_request()->Swap(&index_request);
-      index_op->mutable_request()->MergeFrom(index_request);
-      session->Apply(index_op);
-      index_ops.emplace_back(std::move(index_op), write_op);
+      op_idx++;
     }
   }
 
@@ -907,19 +941,19 @@ void WriteQuery::UpdateQLIndexes() {
     CompleteQLWriteBatch(Status::OK());
     return;
   }
-
-  session->FlushAsync(std::bind(
-      &WriteQuery::UpdateQLIndexesFlushed, this, session, txn, std::move(index_ops), _1));
 }
 
 void WriteQuery::UpdateQLIndexesFlushed(
     const client::YBSessionPtr& session, const client::YBTransactionPtr& txn,
     const IndexOps& index_ops, client::FlushStatus* flush_status) {
+  LOG(INFO) << __func__ << "; stiwary: Start " << session << " txn: " << txn
+            << " index_ops: " << index_ops.size() << " flush_status: " << flush_status;
   while (GetAtomicFlag(&FLAGS_TEST_writequery_stuck_from_callback_leak)) {
     std::this_thread::sleep_for(100ms);
   }
   std::unique_ptr<WriteQuery> query(std::move(self_));
 
+  LOG(INFO) << __func__ << "; stiwary: reached here 1";
   const auto& status = flush_status->status;
   if (PREDICT_FALSE(!status.ok())) {
     // When any error occurs during the dispatching of YBOperation, YBSession saves the error and
@@ -935,6 +969,7 @@ void WriteQuery::UpdateQLIndexesFlushed(
     return;
   }
 
+  LOG(INFO) << __func__ << "; stiwary: reached here 2";
   ChildTransactionResultPB child_result;
   if (txn) {
     auto finish_result = txn->FinishChild();
@@ -944,6 +979,8 @@ void WriteQuery::UpdateQLIndexesFlushed(
     }
     child_result = std::move(*finish_result);
   }
+
+  LOG(INFO) << __func__ << "; stiwary: reached here 3";
 
   // Check the responses of the index write ops.
   for (const auto& pair : index_ops) {
@@ -962,6 +999,8 @@ void WriteQuery::UpdateQLIndexesFlushed(
       *response->mutable_child_transaction_result() = child_result;
     }
   }
+
+  LOG(INFO) << __func__ << "; stiwary: success, going to complete the batch";
 
   self_ = std::move(query);
   CompleteQLWriteBatch(Status::OK());

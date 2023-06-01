@@ -33,6 +33,8 @@
 namespace yb {
 namespace client {
 
+using TableEntryFetchedCallback = std::function<void(Status, std::shared_ptr<YBTable>)>;
+
 enum class CacheCheckMode {
   NO_RETRY,
   RETRY,
@@ -44,12 +46,28 @@ enum class CacheEntryFetchStatus {
   FETCHED,
 };
 
+enum class CacheApiMode {
+  SYNC,
+  ASYNC
+};
+
+struct YBMetaDataCacheEntryWaiter {
+  TableEntryFetchedCallback callback_;
+  bool* cache_used_;
+
+  YBMetaDataCacheEntryWaiter(TableEntryFetchedCallback callback,
+                             bool* cache_used)
+    : callback_(std::move(callback)),
+      cache_used_(cache_used) {}
+};
+
 struct YBMetaDataCacheEntry {
   // Protects concurrent calls to YBClient::OpenTable for the entry.
   std::mutex mutex_;
   std::condition_variable fetch_wait_cv_;
 
   CacheEntryFetchStatus fetch_status_ = {CacheEntryFetchStatus::NOT_FETCHING};
+  std::vector<YBMetaDataCacheEntryWaiter> waiters_;
   std::shared_ptr<YBTable> table_;
   ScopedTrackedConsumption consumption_;
 };
@@ -64,12 +82,21 @@ class YBMetaDataCache {
   // Opens the table with the given name or id. If the table has been opened before, returns the
   // previously opened table from cached_tables_. If the table has not been opened before
   // in this client, this will do an RPC to ensure that the table exists and look up its schema.
+  //
+  // NOTE: Both sync and async APIs are supported but do not mix both of them within the same
+  // meta_data_cache instance.
   Status GetTable(const YBTableName& table_name,
                   std::shared_ptr<YBTable>* table,
                   bool* cache_used);
   Status GetTable(const TableId& table_id,
                   std::shared_ptr<YBTable>* table,
                   bool* cache_used);
+  Status GetTableAsync(const YBTableName& table_name,
+                  bool* cache_used,
+                  TableEntryFetchedCallback callback);
+  Status GetTableAsync(const TableId& table_id,
+                  bool* cache_used,
+                  TableEntryFetchedCallback callback);
 
   // Remove the table from cached_tables_ if it is in the cache.
   void RemoveCachedTable(const YBTableName& table_name);
@@ -126,7 +153,14 @@ class YBMetaDataCache {
   Status FetchTableDetailsInCache(const std::shared_ptr<YBMetaDataCacheEntry> entry,
                                   const T table_identifier,
                                   std::shared_ptr<YBTable>* table,
-                                  bool* cache_used);
+                                  bool* cache_used,
+                                  TableEntryFetchedCallback callback,
+                                  CacheApiMode cache_mode);
+  template <typename T>
+  Status FetchTableDetailsInCacheAsync(const std::shared_ptr<YBMetaDataCacheEntry> entry,
+                                  const T table_identifier,
+                                  bool* cache_used,
+                                  TableEntryFetchedCallback callback);
 
   template <typename T, typename V, typename F>
   void RemoveFromCache(
