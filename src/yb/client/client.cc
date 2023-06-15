@@ -2385,6 +2385,11 @@ void YBClient::DoOpenTableAsync(const Id& id,
 void YBClient::GetTableSchemaCallback(std::shared_ptr<YBTableInfo> info,
                                       const OpenTableAsyncCallback& callback,
                                       const Status& s) {
+  if (!s.ok()) {
+    callback(s);
+    return;
+  }
+
   YBTable::FetchPartitions(
       this, info->table_id,
       [info = std::move(info), callback](const FetchPartitionsResult& fetch_result) {
