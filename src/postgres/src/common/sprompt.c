@@ -8,11 +8,14 @@
  *
  *
  * IDENTIFICATION
- *	  src/port/sprompt.c
+ *	  src/common/sprompt.c
  *
  *-------------------------------------------------------------------------
  */
 #include "c.h"
+
+#include "common/fe_memutils.h"
+#include "common/string.h"
 
 #ifdef HAVE_TERMIOS_H
 #include <termios.h>
@@ -26,20 +29,18 @@
  * passwords interactively.  Reads from /dev/tty or stdin/stderr.
  *
  * prompt:		The prompt to print, or NULL if none (automatically localized)
- * destination: buffer in which to store result
- * destlen:		allocated length of destination
  * echo:		Set to false if you want to hide what is entered (for passwords)
  *
- * The input (without trailing newline) is returned in the destination buffer,
- * with a '\0' appended.
+ * The input (without trailing newline) is returned as a malloc'd string.
+ * Caller is responsible for freeing it when done.
  */
-void
-simple_prompt(const char *prompt, char *destination, size_t destlen, bool echo)
+char *
+simple_prompt(const char *prompt, bool echo)
 {
-	int			length;
+	int		    length;
+	char	   *result;
 	FILE	   *termin,
 			   *termout;
-
 #if defined(HAVE_TERMIOS_H)
 	struct termios t_orig,
 				t;
@@ -126,27 +127,16 @@ simple_prompt(const char *prompt, char *destination, size_t destlen, bool echo)
 		fflush(termout);
 	}
 
-	if (fgets(destination, destlen, termin) == NULL)
-		destination[0] = '\0';
+	result = pg_get_line(termin);
 
-	length = strlen(destination);
-	if (length > 0 && destination[length - 1] != '\n')
-	{
-		/* eat rest of the line */
-		char		buf[128];
-		int			buflen;
+	/* If we failed to read anything, just return an empty string */
+	if (result == NULL)
+		result = pg_strdup("");
 
-		do
-		{
-			if (fgets(buf, sizeof(buf), termin) == NULL)
-				break;
-			buflen = strlen(buf);
-		} while (buflen > 0 && buf[buflen - 1] != '\n');
-	}
-
-	if (length > 0 && destination[length - 1] == '\n')
+	length = strlen(result);
+	if (length > 0 && result[length - 1] == '\n')
 		/* remove trailing newline */
-		destination[length - 1] = '\0';
+		result[length - 1] = '\0';
 
 	if (!echo)
 	{
@@ -167,4 +157,6 @@ simple_prompt(const char *prompt, char *destination, size_t destlen, bool echo)
 		fclose(termin);
 		fclose(termout);
 	}
+
+	return result;
 }
