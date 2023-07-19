@@ -335,6 +335,28 @@ const YBCPgCallbacks *YBCGetPgCallbacks() {
   return pgapi->pg_callbacks();
 }
 
+YBCStatus YBCValidateJWT(
+    const char *token, const YBCPgJwtAuthOptions *options,
+    YBCPgJwtAuthIdentityClaims *identity_claims) {
+  const std::string token_value(token ? token : "");
+  std::set<std::string> identity_claims_set;
+
+  auto status = pgapi->ValidateJWT(token_value, options, &identity_claims_set);
+
+  if (status.ok()) {
+    identity_claims->identity_claim_values_length = 0;
+    identity_claims->identity_claim_values =
+        static_cast<const char **>(YBCPAlloc(sizeof(char *) * identity_claims_set.size()));
+    for (auto &identity : identity_claims_set) {
+      VLOG(4) << "Identity claim entry for JWT authentication: " << identity;
+      identity_claims->identity_claim_values[identity_claims->identity_claim_values_length++] =
+          YBCPAllocStdString(identity);
+    }
+  }
+
+  return ToYBCStatus(status);
+}
+
 YBCStatus YBCPgInitSession(const char* database_name, YBCPgExecStatsState* session_stats) {
   return ToYBCStatus(PgInitSessionImpl(database_name, session_stats));
 }

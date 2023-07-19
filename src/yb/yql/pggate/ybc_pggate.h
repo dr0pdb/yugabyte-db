@@ -91,6 +91,12 @@ bool YBCTryMemRelease(int64_t bytes);
 
 YBCStatus YBCGetHeapConsumption(YbTcmallocStats *desc);
 
+// Validate the JWT based on the options. Does not validate for JWT subject as that requires
+// identity mappings which is not possible in pggate.
+YBCStatus YBCValidateJWT(
+    const char *token, const YBCPgJwtAuthOptions *options,
+    YBCPgJwtAuthIdentityClaims *identity_claims);
+
 //--------------------------------------------------------------------------------------------------
 // DDL Statements
 //--------------------------------------------------------------------------------------------------

@@ -39,7 +39,8 @@ typedef enum UserAuth
 	uaLDAP,
 	uaCert,
 	uaRADIUS,
-	uaPeer
+	uaPeer,
+	uaJWT,
 #define USER_AUTH_LAST uaPeer	/* Must be last value of this enum */
 } UserAuth;
 
@@ -101,6 +102,13 @@ typedef struct HbaLine
 	char	   *radiusidentifiers_s;
 	List	   *radiusports;
 	char	   *radiusports_s;
+	char	   *jwt_jwks;
+	char	   *jwt_jwks_s;
+	List	   *jwt_audiences;
+	char	   *jwt_audiences_s;
+	List	   *jwt_issuers;
+	char	   *jwt_issuers_s;
+	char	   *jwt_matching_claim_key;
 } HbaLine;
 
 typedef struct IdentLine

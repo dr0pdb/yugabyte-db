@@ -23,6 +23,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "access/htup_details.h"
@@ -33,6 +34,7 @@
 #include "libpq/ifaddr.h"
 #include "libpq/libpq.h"
 #include "miscadmin.h"
+#include "pg_yb_utils.h"
 #include "postmaster/postmaster.h"
 #include "regex/regex.h"
 #include "replication/walsender.h"
@@ -55,6 +57,9 @@
 
 #define MAX_TOKEN	256
 #define MAX_LINE	8192
+
+/* Maximum length of Json Web Key Set file for JWT authentication. */
+#define YB_JWT_JWKS_MAX_LENGTH 20000
 
 /* callback data for check_network_callback */
 typedef struct check_network_data
@@ -1451,6 +1456,8 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 #endif
 	else if (strcmp(token->string, "radius") == 0)
 		parsedline->auth_method = uaRADIUS;
+	else if (strcmp(token->string, "jwt") == 0)
+		parsedline->auth_method = uaJWT;
 	else
 	{
 		ereport(elevel,
@@ -1647,6 +1654,28 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 		}
 	}
 
+	if (parsedline->auth_method == uaJWT) {
+		MANDATORY_AUTH_ARG(parsedline->jwt_jwks, "jwt_jwks", "jwt");
+
+		if (list_length(parsedline->jwt_audiences) < 1)
+		{
+			ereport(LOG, (errcode(ERRCODE_CONFIG_FILE_ERROR),
+						  errmsg("list of JWT audiences cannot be empty"),
+						  errcontext("line %d of configuration file \"%s\"",
+									 line_num, HbaFileName)));
+			return NULL;
+		}
+
+		if (list_length(parsedline->jwt_issuers) < 1)
+		{
+			ereport(LOG, (errcode(ERRCODE_CONFIG_FILE_ERROR),
+						  errmsg("list of JWT issuers cannot be empty"),
+						  errcontext("line %d of configuration file \"%s\"",
+									 line_num, HbaFileName)));
+			return NULL;
+		}
+	}
+
 	if (parsedline->auth_method == uaRADIUS)
 	{
 		MANDATORY_AUTH_ARG(parsedline->radiusservers, "radiusservers", "radius");
@@ -1720,7 +1749,7 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 
 		/*
 		 * Caching various string lengths
-		 */		
+		 */
 		size_t total_len = strlen(parsedline->rawline);
 		size_t prefix_len = passfield - parsedline->rawline;
 		size_t passkey_len = strlen(passkey);
@@ -1736,13 +1765,13 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 		head += copy_size;
 
 		copy_size = pass_replacement_string_len;
-		strncpy(parsedline->maskedline + head, 
+		strncpy(parsedline->maskedline + head,
 				pass_replacement_string, copy_size);
 		head += copy_size;
 
 		copy_size = total_len - prefix_len - passkey_len
 					- passwd_len;
-		strncpy(parsedline->maskedline + head, 
+		strncpy(parsedline->maskedline + head,
 				passfield + passkey_len
 				+ passwd_len, copy_size);
 		head += copy_size;
@@ -1797,8 +1826,9 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 			hbaline->auth_method != uaPeer &&
 			hbaline->auth_method != uaGSS &&
 			hbaline->auth_method != uaSSPI &&
-			hbaline->auth_method != uaCert)
-			INVALID_AUTH_OPTION("map", gettext_noop("ident, peer, gssapi, sspi, and cert"));
+			hbaline->auth_method != uaCert &&
+			hbaline->auth_method != uaJWT)
+			INVALID_AUTH_OPTION("map", gettext_noop("ident, peer, gssapi, sspi, cert and jwt"));
 		hbaline->usermap = pstrdup(val);
 	}
 	else if (strcmp(name, "clientcert") == 0)
@@ -2139,6 +2169,58 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 
 		hbaline->radiusidentifiers = parsed_identifiers;
 		hbaline->radiusidentifiers_s = pstrdup(val);
+	}
+	else if (strcmp(name, "jwt_jwks") == 0) {
+		REQUIRE_AUTH_OPTION(uaJWT, "jwt_jwks", "jwt");
+
+		hbaline->jwt_jwks_s = pstrdup(val);
+		hbaline->jwt_jwks = YbReadFile(HbaFileName, val, elevel);
+	}
+	else if (strcmp(name, "jwt_audiences") == 0) {
+		List	   *parsed_audiences;
+		char	   *dupval = pstrdup(val);
+
+		REQUIRE_AUTH_OPTION(uaJWT, "jwt_audiences", "jwt");
+
+		if (!SplitGUCList(dupval, ',', &parsed_audiences))
+		{
+			/* syntax error in list */
+			ereport(elevel,
+					(errcode(ERRCODE_CONFIG_FILE_ERROR),
+					 errmsg("could not parse JWT audience list \"%s\"",
+							val),
+					 errcontext("line %d of configuration file \"%s\"",
+								line_num, HbaFileName)));
+			return false;
+		}
+
+		hbaline->jwt_audiences = parsed_audiences;
+		hbaline->jwt_audiences_s = pstrdup(val);
+	}
+	else if (strcmp(name, "jwt_issuers") == 0) {
+		List	   *parsed_issuers;
+		char	   *dupval = pstrdup(val);
+
+		REQUIRE_AUTH_OPTION(uaJWT, "jwt_issuers", "jwt");
+
+		if (!SplitGUCList(dupval, ',', &parsed_issuers))
+		{
+			/* syntax error in list */
+			ereport(elevel,
+					(errcode(ERRCODE_CONFIG_FILE_ERROR),
+					 errmsg("could not parse JWT issuer list \"%s\"",
+							val),
+					 errcontext("line %d of configuration file \"%s\"",
+								line_num, HbaFileName)));
+			return false;
+		}
+
+		hbaline->jwt_issuers = parsed_issuers;
+		hbaline->jwt_issuers_s = pstrdup(val);
+	}
+	else if (strcmp(name, "jwt_matching_claim_key") == 0) {
+		REQUIRE_AUTH_OPTION(uaJWT, "jwt_matching_claim_key", "jwt");
+		hbaline->jwt_matching_claim_key = pstrdup(val);
 	}
 	else
 	{
@@ -2481,6 +2563,25 @@ gethba_options(HbaLine *hba)
 		if (hba->radiusports_s)
 			options[noptions++] =
 				CStringGetTextDatum(psprintf("radiusports=%s", hba->radiusports_s));
+	}
+
+	if (hba->auth_method == uaJWT)
+	{
+		if (hba->jwt_jwks_s)
+			options[noptions++] =
+				CStringGetTextDatum(psprintf("jwt_jwks=%s", hba->jwt_jwks_s));
+
+		if (hba->jwt_audiences_s)
+			options[noptions++] =
+				CStringGetTextDatum(psprintf("jwt_audiences=%s", hba->jwt_audiences_s));
+
+		if (hba->jwt_issuers_s)
+			options[noptions++] =
+				CStringGetTextDatum(psprintf("jwt_issuers=%s", hba->jwt_issuers_s));
+
+		if (hba->jwt_matching_claim_key)
+			options[noptions++] = CStringGetTextDatum(psprintf(
+				"jwt_matching_claim_key=%s", hba->jwt_matching_claim_key));
 	}
 
 	/* If you add more options, consider increasing MAX_HBA_OPTIONS. */

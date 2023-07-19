@@ -925,4 +925,24 @@ extern bool YbIsStickyConnection(int *change);
 
 extern bool yb_is_client_ysqlconnmgr;
 
+/*
+ * Reads the contents of the given file assuming that the filename is an
+ * absolute path.
+ *
+ * The file contents are returned as a single palloc'd chunk with an extra \0
+ * byte added to the end.
+ *
+ * Note that this function is an exact copy of the read_whole_file function in
+ * src/postgres/src/backend/commands/extension.c. It is copied here for reuse
+ * rather than moving for easier mergeability with PG versions.
+ */
+extern char* YbReadWholeFile(const char *filename, int *length);
+
+/*
+ * Reads the contents of the given file path. If the file path is a relative
+ * path, it is treated as relative to the directry of the provided
+ * outer_filename.
+ */
+extern char* YbReadFile(const char *outer_filename, const char *filename, int elevel);
+
 #endif /* PG_YB_UTILS_H */

@@ -54,6 +54,7 @@
 #include "yb/util/range.h"
 #include "yb/util/status_format.h"
 #include "yb/util/thread.h"
+#include "yb/util/jwt_util.h"
 
 #include "yb/yql/pggate/pg_column.h"
 #include "yb/yql/pggate/pg_ddl.h"
@@ -574,6 +575,79 @@ Status PgApiImpl::ResetMemctx(PgMemctx *memctx) {
   auto it = mem_contexts_.find(memctx);
   SCHECK(it != mem_contexts_.end(), InternalError, "Invalid memory context handle");
   (**it).Clear();
+  return Status::OK();
+}
+
+namespace {
+
+bool DoesValueExist(
+    const std::string &value, const char* const* values, int length,
+    const std::string &field_name) {
+  for (auto idx = 0; idx < length; idx++) {
+    LOG_IF(DFATAL, values[idx] == nullptr)
+        << "JWT " << field_name << " unexpectedly NULL for idx " << idx;
+
+    const std::string valueToCompare(values[idx]);
+    if (valueToCompare == value) {
+      return true;
+    }
+
+    VLOG(4) << Format("Mismatch, expected = $0, actual = $1", valueToCompare, value);
+  }
+  return false;
+}
+
+}  // namespace
+
+Status PgApiImpl::ValidateJWT(
+    const std::string &token, const YBCPgJwtAuthOptions *options,
+    std::set<std::string> *identity_claims) {
+  LOG_IF(DFATAL, options == nullptr) << "JWT options unexpectedly NULL";
+
+  // TODO: Convert to VLOG and log other params.
+  LOG_WITH_FUNC(INFO) << Format(
+      "Start with token = $0, jwks = $1, matching_claim_key = $2", token, options->jwks,
+      options->matching_claim_key);
+
+  auto jwks = VERIFY_RESULT(util::ParseJwks(options->jwks));
+  auto decoded_jwt = VERIFY_RESULT(util::DecodeJwt(token));
+  auto jwk = VERIFY_RESULT(util::GetJwkForJwt(jwks, decoded_jwt));
+
+  // Validate for signature, expiry and issued_at.
+  RETURN_NOT_OK(util::ValidateJWT(decoded_jwt, jwk));
+
+  // Validate issuer.
+  auto jwt_issuer = VERIFY_RESULT(util::GetIssuer(decoded_jwt));
+  bool valid_issuer =
+      DoesValueExist(jwt_issuer, options->issuers, options->issuers_length, "issuer");
+  if (!valid_issuer) {
+    return STATUS_FORMAT(InvalidArgument, "Invalid JWT issuer: $0", jwt_issuer);
+  }
+
+  // Validate audiences. A JWT can be issued for more than one audience and is valid as long as one
+  // of the audience matches the allowed audiences in the JWT config.
+  auto jwt_audience = VERIFY_RESULT(util::GetAudiences(decoded_jwt));
+  bool valid_audience = false;
+  for (auto jwt_aud : jwt_audience) {
+    valid_audience =
+        DoesValueExist(jwt_aud, options->audiences, options->audiences_length, "audience");
+    if (valid_audience) {
+      break;
+    }
+  }
+  if (!valid_audience) {
+    // We don't add audiences in the error message since there can be many. Also, it is very easy to
+    // look up the audiences present in a JWT online.
+    return STATUS_FORMAT(InvalidArgument, "Invalid JWT audience(s)");
+  }
+
+  // Get the matching claim key and return to the caller.
+  auto matching_claim_key = std::string(options->matching_claim_key);
+  auto matching_claim_values =
+      VERIFY_RESULT(util::GetClaimAsStringsSet(decoded_jwt, matching_claim_key));
+  *identity_claims = std::move(matching_claim_values);
+
+  VLOG(1) << "JWT validation successful";
   return Status::OK();
 }
 

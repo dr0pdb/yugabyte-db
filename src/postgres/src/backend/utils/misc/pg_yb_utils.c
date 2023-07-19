@@ -28,6 +28,7 @@
 
 #include <assert.h>
 #include <inttypes.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -3576,7 +3577,7 @@ YbGetSplitOptions(Relation rel)
 	OptSplit *split_options = makeNode(OptSplit);
 	split_options->split_type = NUM_TABLETS;
 	split_options->num_tablets = rel->yb_table_properties->num_tablets;
-	/* 
+	/*
 	 * Copy split points if we have a live range key.
 	 * (RelationGetPrimaryKeyIndex returns InvalidOid if pkey is currently
 	 * being dropped).
@@ -3638,4 +3639,71 @@ bool YbIsStickyConnection(int *change)
 	*change = 0; /* Since it is updated it will be set to 0 */
 	elog(DEBUG5, "Number of sticky objects: %d", yb_committed_sticky_object_count);
 	return (yb_committed_sticky_object_count > 0);
+}
+
+char* YbReadWholeFile(const char *filename, int *length)
+{
+	char	   *buf;
+	FILE	   *file;
+	size_t		bytes_to_read;
+	struct stat fst;
+
+	if (stat(filename, &fst) < 0)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not stat file \"%s\": %m", filename)));
+
+	if (fst.st_size > (MaxAllocSize - 1))
+		ereport(ERROR,
+				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+				 errmsg("file \"%s\" is too large", filename)));
+	bytes_to_read = (size_t) fst.st_size;
+
+	if ((file = AllocateFile(filename, PG_BINARY_R)) == NULL)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not open file \"%s\" for reading: %m",
+						filename)));
+
+	buf = (char *) palloc(bytes_to_read + 1);
+
+	*length = fread(buf, 1, bytes_to_read, file);
+
+	if (ferror(file))
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not read file \"%s\": %m", filename)));
+
+	FreeFile(file);
+
+	buf[*length] = '\0';
+	return buf;
+}
+
+char* YbReadFile(const char *outer_filename, const char *filename, int elevel)
+{
+	char *file_fullname;
+	char *file_contents;
+	int len;
+
+	if (is_absolute_path(filename))
+	{
+		/* absolute path is taken as-is */
+		file_fullname = pstrdup(filename);
+	}
+	else
+	{
+		/* relative path is relative to dir of calling file */
+		file_fullname = (char *) palloc(strlen(outer_filename) + 1 +
+									   strlen(filename) + 1);
+		strcpy(file_fullname, outer_filename);
+		get_parent_directory(file_fullname);
+		join_path_components(file_fullname, file_fullname, filename);
+		canonicalize_path(file_fullname);
+	}
+
+	file_contents = YbReadWholeFile(file_fullname, &len);
+
+	pfree(file_fullname);
+	return file_contents;
 }

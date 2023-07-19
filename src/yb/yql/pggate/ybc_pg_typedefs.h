@@ -466,6 +466,20 @@ typedef struct PgSessionTxnInfo {
   bool is_not_null;
 } YBCPgSessionTxnInfo;
 
+typedef struct PgJwtAuthOptions {
+  char* jwks;
+  char* matching_claim_key;
+  char** issuers;
+  int issuers_length;
+  char** audiences;
+  int audiences_length;
+} YBCPgJwtAuthOptions;
+
+typedef struct PgJwtAuthIdentityClaims {
+  const char** identity_claim_values;
+  int identity_claim_values_length;
+} YBCPgJwtAuthIdentityClaims;
+
 // source:
 // https://github.com/gperftools/gperftools/blob/master/src/gperftools/malloc_extension.h#L154
 typedef struct YbTcmallocStats {

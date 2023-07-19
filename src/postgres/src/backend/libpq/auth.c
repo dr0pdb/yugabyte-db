@@ -221,6 +221,11 @@ static int pg_SSPI_make_upn(char *accountname,
 static int	CheckRADIUSAuth(Port *port);
 static int	PerformRadiusTransaction(const char *server, const char *secret, const char *portstr, const char *identifier, const char *user_name, const char *passwd);
 
+/*----------------------------------------------------------------
+ * JWT Authentication
+ *----------------------------------------------------------------
+ */
+static int	YBCCheckJWTAuth(Port *port);
 
 /*
  * Maximum accepted size of GSS and SSPI authentication tokens.
@@ -336,6 +341,9 @@ auth_failed(Port *port, int status, char *logdetail, bool yb_role_is_locked_out)
 			break;
 		case uaRADIUS:
 			errstr = gettext_noop("RADIUS authentication failed for user \"%s\"");
+			break;
+		case uaJWT:
+			errstr = gettext_noop("JWT authentication failed for user \"%s\"");
 			break;
 		default:
 			errstr = gettext_noop("authentication failed for user \"%s\": invalid authentication method");
@@ -655,6 +663,9 @@ ClientAuthentication(Port *port)
 			break;
 		case uaRADIUS:
 			status = CheckRADIUSAuth(port);
+			break;
+		case uaJWT:
+			status = YBCCheckJWTAuth(port);
 			break;
 		case uaTrust:
 			status = STATUS_OK;
@@ -3475,4 +3486,116 @@ PerformRadiusTransaction(const char *server, const char *secret, const char *por
 			continue;
 		}
 	}							/* while (true) */
+}
+
+/*----------------------------------------------------------------
+ * JWT authentication
+ *----------------------------------------------------------------
+ */
+
+void YbJwtAuthOptionsFromHba(YBCPgJwtAuthOptions *opt, HbaLine* hba_line)
+{
+	opt->jwks = hba_line->jwt_jwks;
+
+	// Use "sub" as the default matching claim key.
+	if (hba_line->jwt_matching_claim_key == NULL) {
+		opt->matching_claim_key = "sub";
+	} else {
+		opt->matching_claim_key = hba_line->jwt_matching_claim_key;
+	}
+
+	opt->issuers = (char **)palloc(sizeof(char *) * list_length(hba_line->jwt_issuers));
+	opt->issuers_length = 0;
+	ListCell *lc;
+	foreach (lc, hba_line->jwt_issuers)
+	{
+		opt->issuers[opt->issuers_length++] = (char *)lfirst(lc);
+	}
+
+	opt->audiences = (char **)palloc(sizeof(char *) * list_length(hba_line->jwt_audiences));
+	opt->audiences_length = 0;
+	foreach (lc, hba_line->jwt_audiences)
+	{
+		opt->audiences[opt->audiences_length++] = (char *)lfirst(lc);
+	}
+}
+
+static int
+YBCCheckJWTAuth(Port *port)
+{
+	char	*jwt;
+	int 	auth_result = STATUS_ERROR;
+	int		i;
+
+	YBC_LOG_INFO("The JWT configs are\nusername:%s\njwks: %s\naudiences: %s\nissuers: "
+				 "%s\nusermap: %s\nmapping_claim_key: %s\n",
+				 port->user_name,
+				 port->hba->jwt_jwks, port->hba->jwt_audiences_s,
+				 port->hba->jwt_issuers_s, port->hba->usermap, port->hba->jwt_matching_claim_key);
+
+	/* Send regular password request to client, and get the response */
+	sendAuthRequest(port, AUTH_REQ_PASSWORD, NULL, 0);
+
+	/* Treat password as jwt */
+	jwt = recv_password_packet(port);
+	if (jwt == NULL)
+		return STATUS_EOF;		/* client wouldn't send jwt. Nothing to cleanup, so return early. */
+
+	YBC_LOG_INFO("The JWT: %s\n", jwt);
+
+	YBCPgJwtAuthOptions jwt_auth_options;
+	YbJwtAuthOptionsFromHba(&jwt_auth_options, port->hba);
+
+	YBC_LOG_INFO("Time to validate JWT: %s\n", jwt);
+
+	YBCPgJwtAuthIdentityClaims identity_claims;
+	YBCStatus s = YBCValidateJWT(jwt, &jwt_auth_options, &identity_claims);
+	if (s) /* !ok */
+	{
+		const char *error_msg = YBCStatusMessageBegin(s);
+		ereport(LOG,
+				(errmsg("JWT validation failed with error: %s", error_msg)));
+		auth_result = STATUS_ERROR;
+		goto jwt_auth_done;
+	}
+
+	/*
+	 * There must be at least one identity claim to match to.
+	 * In the case of claim keys such as "sub" or "email", there will be exactly
+	 * one entry while in the case of "groups"/"roles", there can be more than
+	 * one. We don't make assumptions based on that here though. As long as
+	 * there is a match with a single value of the list, it is OK to allow
+	 * login.
+	 */
+	if (identity_claims.identity_claim_values_length > 0)
+	{
+		for (i = 0; i < identity_claims.identity_claim_values_length; i++)
+		{
+			int match_result =
+				check_usermap(port->hba->usermap, port->user_name,
+							  identity_claims.identity_claim_values[i], false);
+			if (match_result == STATUS_OK)
+			{
+				auth_result = STATUS_OK;
+				goto jwt_auth_done;
+			}
+		}
+	}
+
+/* free up whatever we allocated */
+jwt_auth_done:
+	if (s != NULL) {
+		YBCFreeStatus(s);
+	}
+
+	/*
+	 * Free up jwt_auth_options.
+	 * Only audiences and issuers are palloc'd, rest are pointer assignments of
+	 * already allocated values.
+	 */
+	pfree(jwt_auth_options.audiences);
+	pfree(jwt_auth_options.issuers);
+
+	pfree(jwt);
+	return auth_result;
 }
