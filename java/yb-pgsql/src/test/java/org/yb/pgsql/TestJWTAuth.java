@@ -216,7 +216,7 @@ public class TestJWTAuth extends BasePgSQLTest {
       hba_conf_value = String.format("\"host all yugabyte 0.0.0.0/0 trust\","
               + "\"host all yugabyte_test 0.0.0.0/0 trust\","
               + "\"host all all 0.0.0.0/0 jwt "
-              + "jwt_jwks=%s "
+              + "jwt_jwks_path=%s "
               + "jwt_issuers=\"\"%s\"\" "
               + "jwt_audiences=\"\"%s\"\" %s\"",
           jwksPath, issuersCsv, audiencesCsv, matchingClaimKeyValues);
@@ -224,7 +224,7 @@ public class TestJWTAuth extends BasePgSQLTest {
       hba_conf_value = String.format("\"host all yugabyte 0.0.0.0/0 trust\","
               + "\"host all yugabyte_test 0.0.0.0/0 trust\","
               + "\"host all all 0.0.0.0/0 jwt "
-              + "jwt_jwks=%s "
+              + "jwt_jwks_path=%s "
               + "jwt_issuers=\"\"%s\"\" "
               + "jwt_audiences=\"\"%s\"\" %s map=%s\"",
           jwksPath, issuersCsv, audiencesCsv, matchingClaimKeyValues, mapName);

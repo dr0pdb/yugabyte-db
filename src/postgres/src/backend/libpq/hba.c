@@ -1655,7 +1655,7 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 	}
 
 	if (parsedline->auth_method == uaJWT) {
-		MANDATORY_AUTH_ARG(parsedline->jwt_jwks, "jwt_jwks", "jwt");
+		MANDATORY_AUTH_ARG(parsedline->jwt_jwks, "jwt_jwks_path", "jwt");
 
 		if (list_length(parsedline->jwt_audiences) < 1)
 		{
@@ -2170,10 +2170,10 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 		hbaline->radiusidentifiers = parsed_identifiers;
 		hbaline->radiusidentifiers_s = pstrdup(val);
 	}
-	else if (strcmp(name, "jwt_jwks") == 0) {
-		REQUIRE_AUTH_OPTION(uaJWT, "jwt_jwks", "jwt");
+	else if (strcmp(name, "jwt_jwks_path") == 0) {
+		REQUIRE_AUTH_OPTION(uaJWT, "jwt_jwks_path", "jwt");
 
-		hbaline->jwt_jwks_s = pstrdup(val);
+		hbaline->jwt_jwks_path_s = pstrdup(val);
 		hbaline->jwt_jwks = YbReadFile(HbaFileName, val, elevel);
 	}
 	else if (strcmp(name, "jwt_audiences") == 0) {
@@ -2567,9 +2567,9 @@ gethba_options(HbaLine *hba)
 
 	if (hba->auth_method == uaJWT)
 	{
-		if (hba->jwt_jwks_s)
+		if (hba->jwt_jwks_path_s)
 			options[noptions++] =
-				CStringGetTextDatum(psprintf("jwt_jwks=%s", hba->jwt_jwks_s));
+				CStringGetTextDatum(psprintf("jwt_jwks_path=%s", hba->jwt_jwks_path_s));
 
 		if (hba->jwt_audiences_s)
 			options[noptions++] =
