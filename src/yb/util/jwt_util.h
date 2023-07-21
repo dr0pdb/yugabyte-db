@@ -279,7 +279,7 @@ Status ValidateJWT(
     const jwt::jwk<json_traits> jwk) {
   try {
     // To verify the JWT, the library expects the key to be provided in the PEM format (see
-    // GetVerifier).
+    // GetVerifier). Ref: https://github.com/Thalhammer/jwt-cpp/issues/271.
     //
     // The x5c (X.509 Certificate Chain) is an *optional* claim that contains the PEM representation
     // of the X509 certificate. The first certificate of the chain must match the public part of the
@@ -294,8 +294,8 @@ Status ValidateJWT(
       key_pem = jwt::helper::convert_base64_der_to_pem(x5c);
     } else {
       key_pem = VERIFY_RESULT(GetKeyAsPEM(jwk));
-      VLOG(4) << "Serialized pem is:\n" << key_pem << "\n";
     }
+    VLOG(4) << "Serialized pem is:\n" << key_pem << "\n";
 
     auto algo = decoded_jwt.get_algorithm();
     auto verifier = VERIFY_RESULT(GetVerifier(key_pem, algo));

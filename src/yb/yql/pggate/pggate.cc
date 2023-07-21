@@ -599,6 +599,7 @@ bool DoesValueExist(
 
 }  // namespace
 
+// Consider moving to somewhere else - jwt_util.cc and call directly from ybc_pggate.
 Status PgApiImpl::ValidateJWT(
     const std::string &token, const YBCPgJwtAuthOptions *options,
     std::set<std::string> *identity_claims) {

@@ -1674,6 +1674,8 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 									 line_num, HbaFileName)));
 			return NULL;
 		}
+
+		// Validate the json of JWKS.
 	}
 
 	if (parsedline->auth_method == uaRADIUS)

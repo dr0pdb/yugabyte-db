@@ -88,6 +88,21 @@ public class TestJWTAuth extends BasePgSQLTest {
   private static final String PS256_KEYID_WITH_X5C = "ps256_keyid_with_x5c";
   private static final String ES256_KEYID_WITH_X5C = "es256_keyid_with_x5c";
 
+  private static final List<String> ALLOWED_ISSUERS = new ArrayList<String>() {
+    {
+      add("login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0");
+      add("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0");
+      add("example.com");
+    }
+  };
+  private static final List<String> ALLOWED_AUDIENCES = new ArrayList<String>() {
+    {
+      add("724274f6-2156-11ee-be56-0242ac120002");
+      add("795c2b42-2156-11ee-be56-0242ac120002");
+      add("8ba558f0-2156-11ee-be56-0242ac120002-795c2b42-2156-11ee-be56-0242ac120002");
+    }
+  };
+
   private static final List<JWSAlgorithm> SUPPORTED_RSA_ALGORITHMS =
       Arrays.asList(JWSAlgorithm.RS256, JWSAlgorithm.RS384, JWSAlgorithm.RS512, JWSAlgorithm.PS256,
           JWSAlgorithm.PS384, JWSAlgorithm.PS512);
@@ -287,6 +302,13 @@ public class TestJWTAuth extends BasePgSQLTest {
         new HashMap<String, String>(), groupsOrRoles);
   }
 
+  private String createJWT(JWSAlgorithm algorithm, JWKSet jwks, String keyId, String sub,
+      String issuer, String audience, Date expirationTime)
+      throws Exception {
+    return createJWT(algorithm, jwks, keyId, sub, issuer, audience, expirationTime,
+        new HashMap<String, String>(), null);
+  }
+
   private void assertFailedAuthentication(ConnectionBuilder passRoleUserConnBldr, String password)
       throws Exception {
     try (Connection connection = passRoleUserConnBldr.withPassword(password).connect()) {
@@ -305,23 +327,9 @@ public class TestJWTAuth extends BasePgSQLTest {
   public void authWithSubjectWithoutIdent() throws Exception {
     JWKSet jwks = createJwks();
     String jwksPath = populateJWKSFile(jwks);
-    List<String> allowedIssuers = new ArrayList<String>() {
-      {
-        add("login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0");
-        add("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0");
-        add("example.com");
-      }
-    };
-    List<String> allowedAudiences = new ArrayList<String>() {
-      {
-        add("724274f6-2156-11ee-be56-0242ac120002");
-        add("795c2b42-2156-11ee-be56-0242ac120002");
-        add("8ba558f0-2156-11ee-be56-0242ac120002-795c2b42-2156-11ee-be56-0242ac120002");
-      }
-    };
 
     // "sub" is used as the default matching claim key.
-    setJWTConfigAndRestartCluster(allowedIssuers, allowedAudiences, jwksPath,
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "", /* mapName */ "", /* identFileContents */ "");
     List<Pair<JWSAlgorithm, String>> keysWithAlgorithms =
         new ArrayList<Pair<JWSAlgorithm, String>>() {
@@ -359,23 +367,9 @@ public class TestJWTAuth extends BasePgSQLTest {
   public void authWithSubjectWithIdent() throws Exception {
     JWKSet jwks = createJwks();
     String jwksPath = populateJWKSFile(jwks);
-    List<String> allowedIssuers = new ArrayList<String>() {
-      {
-        add("login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0");
-        add("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0");
-        add("example.com");
-      }
-    };
-    List<String> allowedAudiences = new ArrayList<String>() {
-      {
-        add("724274f6-2156-11ee-be56-0242ac120002");
-        add("795c2b42-2156-11ee-be56-0242ac120002");
-        add("8ba558f0-2156-11ee-be56-0242ac120002-795c2b42-2156-11ee-be56-0242ac120002");
-      }
-    };
 
     // Map IDP {name}@example.com to YSQL {name}.
-    setJWTConfigAndRestartCluster(allowedIssuers, allowedAudiences, jwksPath,
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "", /* mapName */ "map1",
         /* identFileContents */ "\"map1   /^(.*)@example\\.com$      \\1\"");
 
@@ -407,23 +401,9 @@ public class TestJWTAuth extends BasePgSQLTest {
   public void authWithEmailWithIdent() throws Exception {
     JWKSet jwks = createJwks();
     String jwksPath = populateJWKSFile(jwks);
-    List<String> allowedIssuers = new ArrayList<String>() {
-      {
-        add("login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0");
-        add("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0");
-        add("example.com");
-      }
-    };
-    List<String> allowedAudiences = new ArrayList<String>() {
-      {
-        add("724274f6-2156-11ee-be56-0242ac120002");
-        add("795c2b42-2156-11ee-be56-0242ac120002");
-        add("8ba558f0-2156-11ee-be56-0242ac120002-795c2b42-2156-11ee-be56-0242ac120002");
-      }
-    };
 
     // Map IDP {name}@example.com to YSQL {name}.
-    setJWTConfigAndRestartCluster(allowedIssuers, allowedAudiences, jwksPath,
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "email", /* mapName */ "map1",
         /* identFileContents */ "\"map1   /^(.*)@example\\.com$      \\1\"");
 
@@ -460,23 +440,9 @@ public class TestJWTAuth extends BasePgSQLTest {
   public void authWithGroupsOrRolesWithoutIdent() throws Exception {
     JWKSet jwks = createJwks();
     String jwksPath = populateJWKSFile(jwks);
-    List<String> allowedIssuers = new ArrayList<String>() {
-      {
-        add("login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0");
-        add("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0");
-        add("example.com");
-      }
-    };
-    List<String> allowedAudiences = new ArrayList<String>() {
-      {
-        add("724274f6-2156-11ee-be56-0242ac120002");
-        add("795c2b42-2156-11ee-be56-0242ac120002");
-        add("8ba558f0-2156-11ee-be56-0242ac120002-795c2b42-2156-11ee-be56-0242ac120002");
-      }
-    };
 
     // roles is exactly the same as well.
-    setJWTConfigAndRestartCluster(allowedIssuers, allowedAudiences, jwksPath,
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "groups", /* mapName */ "", /* identFileContents */ "");
 
     try (Statement statement = connection.createStatement()) {
@@ -516,23 +482,9 @@ public class TestJWTAuth extends BasePgSQLTest {
   public void authWithGroupsOrRolesWithIdent() throws Exception {
     JWKSet jwks = createJwks();
     String jwksPath = populateJWKSFile(jwks);
-    List<String> allowedIssuers = new ArrayList<String>() {
-      {
-        add("login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0");
-        add("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0");
-        add("example.com");
-      }
-    };
-    List<String> allowedAudiences = new ArrayList<String>() {
-      {
-        add("724274f6-2156-11ee-be56-0242ac120002");
-        add("795c2b42-2156-11ee-be56-0242ac120002");
-        add("8ba558f0-2156-11ee-be56-0242ac120002-795c2b42-2156-11ee-be56-0242ac120002");
-      }
-    };
 
     // Map IDP {name}@example.com to YSQL {name}.
-    setJWTConfigAndRestartCluster(allowedIssuers, allowedAudiences, jwksPath,
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "groups", /* mapName */ "map1",
         /* identFileContents */ "\"map1   /^(.*)@example\\.com$      \\1\"");
 
@@ -552,7 +504,6 @@ public class TestJWTAuth extends BasePgSQLTest {
         },
         new Pair<String, List<String>>("groups",
             Arrays.asList("anothergroup", "dbadmintest@example.com", "anotheranothergroup@xyz")));
-    LOG.info("jwt = " + jwt);
     try (Connection connection = passRoleUserConnBldr.withPassword(jwt).connect()) {
       // No-op.
     }
@@ -630,23 +581,9 @@ public class TestJWTAuth extends BasePgSQLTest {
     JWKSet jwks = new JWKSet(allKeys);
 
     String jwksPath = populateJWKSFile(jwks);
-    List<String> allowedIssuers = new ArrayList<String>() {
-      {
-        add("login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0");
-        add("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0");
-        add("example.com");
-      }
-    };
-    List<String> allowedAudiences = new ArrayList<String>() {
-      {
-        add("724274f6-2156-11ee-be56-0242ac120002");
-        add("795c2b42-2156-11ee-be56-0242ac120002");
-        add("8ba558f0-2156-11ee-be56-0242ac120002-795c2b42-2156-11ee-be56-0242ac120002");
-      }
-    };
 
     // "sub" is used as the default matching claim key.
-    setJWTConfigAndRestartCluster(allowedIssuers, allowedAudiences, jwksPath,
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "", /* mapName */ "", /* identFileContents */ "");
     List<Pair<JWSAlgorithm, String>> keysWithAlgorithms =
         new ArrayList<Pair<JWSAlgorithm, String>>() {
@@ -687,24 +624,50 @@ public class TestJWTAuth extends BasePgSQLTest {
   }
 
   @Test
+  public void regexMapping() throws Exception {
+    JWKSet jwks = createJwks();
+    String jwksPath = populateJWKSFile(jwks);
+
+    String identFileContents = "\"map1  93fba67c-6a2a-40ae-9984-43fbe0a83d08  somename\","
+        + "\"map1  john  johndoe\"," // IDP user john is johndoe in YSQL.
+        + "\"map1  /^(.*)@example\\.com$  \\1\"," // convert {name}@example.com to {name}
+        + "\"map1  /abcd97e5-*  prefixuser\""; // Any IDP username with prefix 'abcd97e5-' maps to
+                                               // prefixuser.
+
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
+        /* matchingClaimKey */ "", /* mapName */ "map1", identFileContents);
+
+    // Create some users.
+    try (Statement statement = connection.createStatement()) {
+      statement.execute("CREATE ROLE somename LOGIN");
+      statement.execute("CREATE ROLE johndoe LOGIN");
+      statement.execute("CREATE ROLE prefixuser LOGIN");
+    }
+
+    // (Subject, YSQL username).
+    List<Pair<String, String>> testCases = Arrays.asList(
+        new Pair<String, String>("john", "johndoe"),
+        new Pair<String, String>("93fba67c-6a2a-40ae-9984-43fbe0a83d08", "somename"),
+        new Pair<String, String>("johndoe@example.com", "johndoe"),
+        new Pair<String, String>("abcd97e5-a", "prefixuser"),
+        new Pair<String, String>("abcd97e5-b", "prefixuser"));
+
+    for (Pair<String, String> testCase : testCases) {
+      String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, testCase.getFirst(),
+          ALLOWED_ISSUERS.get(0), ALLOWED_AUDIENCES.get(0),
+          new Date(new Date().getTime() + 60 * 1000));
+      try (Connection connection =
+               getConnectionBuilder().withUser(testCase.getSecond()).withPassword(jwt).connect()) {
+        // No-op.
+      }
+    }
+  }
+
+  @Test
   public void invalidAuthentication() throws Exception {
     JWKSet jwks = createJwks();
     String jwksPath = populateJWKSFile(jwks);
-    List<String> allowedIssuers = new ArrayList<String>() {
-      {
-        add("login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0");
-        add("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0");
-        add("example.com");
-      }
-    };
-    List<String> allowedAudiences = new ArrayList<String>() {
-      {
-        add("724274f6-2156-11ee-be56-0242ac120002");
-        add("795c2b42-2156-11ee-be56-0242ac120002");
-        add("8ba558f0-2156-11ee-be56-0242ac120002-795c2b42-2156-11ee-be56-0242ac120002");
-      }
-    };
-    setJWTConfigAndRestartCluster(allowedIssuers, allowedAudiences, jwksPath,
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "", /* mapName */ "", /* identFileContents */ "");
 
     try (Statement statement = connection.createStatement()) {
@@ -772,5 +735,55 @@ public class TestJWTAuth extends BasePgSQLTest {
     signedJWT.sign(signer);
     jwt = signedJWT.serialize();
     assertFailedAuthentication(passRoleUserConnBldr, jwt);
+  }
+
+  // Asserts that the cluster restart failed by expecting an exception. There doesn't seem to be a
+  // more accurate way of checking that.
+  private void assertClusterRestartFailure(List<String> allowedIssuers,
+      List<String> allowedAudiences, String jwksPath, String matchingClaimKey, String mapName,
+      String identFileContents) throws Exception {
+    try {
+      setJWTConfigAndRestartCluster(
+          allowedIssuers, allowedAudiences, jwksPath, matchingClaimKey, mapName, identFileContents);
+      fail("Expected exception but did not get any.");
+    } catch (PSQLException e) {
+      if (StringUtils.containsIgnoreCase(e.getMessage(), "The connection attempt failed.")) {
+        LOG.info("Expected exception", e);
+      } else {
+        fail(String.format("Unexpected Error Message. Got: '%s', Expected to contain: '%s'",
+            e.getMessage(), "The connection attempt failed."));
+      }
+    } finally {
+      // Mark the cluster for recreation so that the next test is not affected.
+      markClusterNeedsRecreation();
+    }
+  }
+
+  @Test
+  public void invalidJWTAudiencesConfiguration() throws Exception {
+    JWKSet jwks = createJwks();
+    String jwksPath = populateJWKSFile(jwks);
+
+    // Empty Audiences.
+    assertClusterRestartFailure(ALLOWED_ISSUERS, Arrays.asList(), jwksPath, /* matchingClaimKey */ "",
+        /* mapName */ "", /* identFileContents */ "");
+  }
+
+  @Test
+  public void invalidJWTIssuersConfiguration() throws Exception {
+    JWKSet jwks = createJwks();
+    String jwksPath = populateJWKSFile(jwks);
+
+    // Empty Issuers.
+    assertClusterRestartFailure(Arrays.asList(), ALLOWED_AUDIENCES, jwksPath,
+        /* matchingClaimKey */ "",
+        /* mapName */ "", /* identFileContents */ "");
+  }
+
+  @Test
+  public void invalidJWTJwksPath() throws Exception {
+    assertClusterRestartFailure(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, "/some/invalid/path",
+        /* matchingClaimKey */ "",
+        /* mapName */ "", /* identFileContents */ "");
   }
 }
