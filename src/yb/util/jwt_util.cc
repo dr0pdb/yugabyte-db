@@ -28,11 +28,11 @@
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 
+#include <jwt-cpp/jwt.h>
+
 #include <string>
 
 #include <glog/logging.h>
-
-#include <jwt-cpp/jwt.h>
 
 #include "yb/gutil/casts.h"
 #include "yb/util/result.h"
