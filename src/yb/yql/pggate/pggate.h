@@ -140,10 +140,6 @@ class PgApiImpl {
   Status DestroyMemctx(PgMemctx *memctx);
   Status ResetMemctx(PgMemctx *memctx);
 
-  Status ValidateJWT(
-      const std::string &token, const YBCPgJwtAuthOptions *options,
-      std::set<std::string> *identity_claims);
-
   // Cache statements in YB Memctx. When Memctx is destroyed, the statement is destructed.
   Status AddToCurrentPgMemctx(std::unique_ptr<PgStatement> stmt,
                               PgStatement **handle);

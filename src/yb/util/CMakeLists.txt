@@ -182,6 +182,7 @@ set(UTIL_SRCS
   jsonreader.cc
   jsonwriter.cc
   jwtcpp_util.cc
+  jwt_util.cc
   locks.cc
   logging.cc
   malloc.cc

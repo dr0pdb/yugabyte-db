@@ -40,6 +40,7 @@
 
 #include "yb/util/atomic.h"
 #include "yb/util/flags.h"
+#include "yb/util/jwt_util.h"
 #include "yb/util/result.h"
 #include "yb/util/signal_util.h"
 #include "yb/util/slice.h"
@@ -341,7 +342,7 @@ YBCStatus YBCValidateJWT(
   const std::string token_value(token ? token : "");
   std::set<std::string> identity_claims_set;
 
-  auto status = pgapi->ValidateJWT(token_value, options, &identity_claims_set);
+  auto status = util::ValidateJWT(token_value, options, &identity_claims_set);
 
   if (status.ok()) {
     identity_claims->identity_claim_values_length = 0;
