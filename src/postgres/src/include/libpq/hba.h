@@ -40,7 +40,7 @@ typedef enum UserAuth
 	uaCert,
 	uaRADIUS,
 	uaPeer,
-	uaJWT,
+	uaYbJWT,
 #define USER_AUTH_LAST uaPeer	/* Must be last value of this enum */
 } UserAuth;
 

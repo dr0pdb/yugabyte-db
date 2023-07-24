@@ -1457,7 +1457,7 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 	else if (strcmp(token->string, "radius") == 0)
 		parsedline->auth_method = uaRADIUS;
 	else if (strcmp(token->string, "jwt") == 0)
-		parsedline->auth_method = uaJWT;
+		parsedline->auth_method = uaYbJWT;
 	else
 	{
 		ereport(elevel,
@@ -1654,7 +1654,7 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 		}
 	}
 
-	if (parsedline->auth_method == uaJWT) {
+	if (parsedline->auth_method == uaYbJWT) {
 		MANDATORY_AUTH_ARG(parsedline->jwt_jwks, "jwt_jwks_path", "jwt");
 		YBCStatus s = YBCValidateJWKS(parsedline->jwt_jwks);
 		if (s) /* !ok */
@@ -1836,7 +1836,7 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 			hbaline->auth_method != uaGSS &&
 			hbaline->auth_method != uaSSPI &&
 			hbaline->auth_method != uaCert &&
-			hbaline->auth_method != uaJWT)
+			hbaline->auth_method != uaYbJWT)
 			INVALID_AUTH_OPTION("map", gettext_noop("ident, peer, gssapi, sspi, cert and jwt"));
 		hbaline->usermap = pstrdup(val);
 	}
@@ -2180,7 +2180,7 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 		hbaline->radiusidentifiers_s = pstrdup(val);
 	}
 	else if (strcmp(name, "jwt_jwks_path") == 0) {
-		REQUIRE_AUTH_OPTION(uaJWT, "jwt_jwks_path", "jwt");
+		REQUIRE_AUTH_OPTION(uaYbJWT, "jwt_jwks_path", "jwt");
 
 		hbaline->jwt_jwks_path_s = pstrdup(val);
 		hbaline->jwt_jwks = YbReadFile(HbaFileName, val, elevel);
@@ -2189,7 +2189,7 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 		List	   *parsed_audiences;
 		char	   *dupval = pstrdup(val);
 
-		REQUIRE_AUTH_OPTION(uaJWT, "jwt_audiences", "jwt");
+		REQUIRE_AUTH_OPTION(uaYbJWT, "jwt_audiences", "jwt");
 
 		if (!SplitGUCList(dupval, ',', &parsed_audiences))
 		{
@@ -2210,7 +2210,7 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 		List	   *parsed_issuers;
 		char	   *dupval = pstrdup(val);
 
-		REQUIRE_AUTH_OPTION(uaJWT, "jwt_issuers", "jwt");
+		REQUIRE_AUTH_OPTION(uaYbJWT, "jwt_issuers", "jwt");
 
 		if (!SplitGUCList(dupval, ',', &parsed_issuers))
 		{
@@ -2228,7 +2228,7 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 		hbaline->jwt_issuers_s = pstrdup(val);
 	}
 	else if (strcmp(name, "jwt_matching_claim_key") == 0) {
-		REQUIRE_AUTH_OPTION(uaJWT, "jwt_matching_claim_key", "jwt");
+		REQUIRE_AUTH_OPTION(uaYbJWT, "jwt_matching_claim_key", "jwt");
 		hbaline->jwt_matching_claim_key = pstrdup(val);
 	}
 	else
@@ -2574,7 +2574,7 @@ gethba_options(HbaLine *hba)
 				CStringGetTextDatum(psprintf("radiusports=%s", hba->radiusports_s));
 	}
 
-	if (hba->auth_method == uaJWT)
+	if (hba->auth_method == uaYbJWT)
 	{
 		if (hba->jwt_jwks_path_s)
 			options[noptions++] =

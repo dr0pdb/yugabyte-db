@@ -342,7 +342,7 @@ auth_failed(Port *port, int status, char *logdetail, bool yb_role_is_locked_out)
 		case uaRADIUS:
 			errstr = gettext_noop("RADIUS authentication failed for user \"%s\"");
 			break;
-		case uaJWT:
+		case uaYbJWT:
 			errstr = gettext_noop("JWT authentication failed for user \"%s\"");
 			break;
 		default:
@@ -664,7 +664,7 @@ ClientAuthentication(Port *port)
 		case uaRADIUS:
 			status = CheckRADIUSAuth(port);
 			break;
-		case uaJWT:
+		case uaYbJWT:
 			status = YBCCheckJWTAuth(port);
 			break;
 		case uaTrust:
@@ -3527,12 +3527,6 @@ YBCCheckJWTAuth(Port *port)
 	int 	auth_result = STATUS_ERROR;
 	int		i;
 
-	YBC_LOG_INFO("The JWT configs are\nusername:%s\njwks: %s\naudiences: %s\nissuers: "
-				 "%s\nusermap: %s\nmapping_claim_key: %s\n",
-				 port->user_name,
-				 port->hba->jwt_jwks, port->hba->jwt_audiences_s,
-				 port->hba->jwt_issuers_s, port->hba->usermap, port->hba->jwt_matching_claim_key);
-
 	/* Send regular password request to client, and get the response */
 	sendAuthRequest(port, AUTH_REQ_PASSWORD, NULL, 0);
 
@@ -3541,12 +3535,8 @@ YBCCheckJWTAuth(Port *port)
 	if (jwt == NULL)
 		return STATUS_EOF;		/* client wouldn't send jwt. Nothing to cleanup, so return early. */
 
-	YBC_LOG_INFO("The JWT: %s\n", jwt);
-
 	YBCPgJwtAuthOptions jwt_auth_options;
 	YbJwtAuthOptionsFromHba(&jwt_auth_options, port->hba);
-
-	YBC_LOG_INFO("Time to validate JWT: %s\n", jwt);
 
 	YBCPgJwtAuthIdentityClaims identity_claims;
 	YBCStatus s = YBCValidateJWT(jwt, &jwt_auth_options, &identity_claims);

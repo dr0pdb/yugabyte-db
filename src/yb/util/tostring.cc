@@ -26,4 +26,13 @@ std::string MillisecondsToString(int64_t milliseconds) {
   return StringPrintf("%s%" PRId64 ".%03" PRId64 "s", sign, seconds, milliseconds);
 }
 
+std::string CStringArrayToString(char** elements, int length) {
+  std::string result = "[";
+  for (int i = 0; i < length; i++) {
+    result += elements[i];
+  }
+  result += "]";
+  return result;
+}
+
 } // namespace yb

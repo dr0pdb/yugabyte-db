@@ -405,10 +405,12 @@ Status ValidateJWT(
     std::set<std::string> *identity_claims) {
   LOG_IF(DFATAL, options == nullptr) << "JWT options unexpectedly NULL";
 
-  // TODO: Log other params.
   VLOG(4) << Format(
-      "Start with token = $0, jwks = $1, matching_claim_key = $2", token, options->jwks,
-      options->matching_claim_key);
+      "Start with token = $0, jwks = $1, matching_claim_key = $2, allowed_issuers = $3, "
+      "allowed_audiences = $4",
+      token, options->jwks, options->matching_claim_key,
+      CStringArrayToString(options->issuers, options->issuers_length),
+      CStringArrayToString(options->audiences, options->audiences_length));
 
   auto jwks = VERIFY_RESULT(util::ParseJwks(options->jwks));
   auto decoded_jwt = VERIFY_RESULT(util::DecodeJwt(token));
