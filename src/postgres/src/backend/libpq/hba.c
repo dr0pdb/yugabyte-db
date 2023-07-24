@@ -1759,7 +1759,7 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 
 		/*
 		 * Caching various string lengths
-		 */  
+		 */		  
 		size_t total_len = strlen(parsedline->rawline);
 		size_t prefix_len = passfield - parsedline->rawline;
 		size_t passkey_len = strlen(passkey);

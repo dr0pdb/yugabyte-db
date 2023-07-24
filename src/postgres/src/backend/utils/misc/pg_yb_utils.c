@@ -3577,7 +3577,7 @@ YbGetSplitOptions(Relation rel)
 	OptSplit *split_options = makeNode(OptSplit);
 	split_options->split_type = NUM_TABLETS;
 	split_options->num_tablets = rel->yb_table_properties->num_tablets;
-	/*
+	/* 
 	 * Copy split points if we have a live range key.
 	 * (RelationGetPrimaryKeyIndex returns InvalidOid if pkey is currently
 	 * being dropped).
