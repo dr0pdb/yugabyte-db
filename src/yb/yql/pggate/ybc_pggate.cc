@@ -336,6 +336,11 @@ const YBCPgCallbacks *YBCGetPgCallbacks() {
   return pgapi->pg_callbacks();
 }
 
+YBCStatus YBCValidateJWKS(const char *jwks_string) {
+  const std::string jwks_string_value(jwks_string ? jwks_string : "");
+  return ToYBCStatus(util::ValidateJWKS(jwks_string_value));
+}
+
 YBCStatus YBCValidateJWT(
     const char *token, const YBCPgJwtAuthOptions *options,
     YBCPgJwtAuthIdentityClaims *identity_claims) {

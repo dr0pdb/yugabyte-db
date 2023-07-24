@@ -91,6 +91,9 @@ bool YBCTryMemRelease(int64_t bytes);
 
 YBCStatus YBCGetHeapConsumption(YbTcmallocStats *desc);
 
+// Validate whether the provided string can be parsed as a valid Json Web Key Set.
+YBCStatus YBCValidateJWKS(const char *jwks_string);
+
 // Validate the JWT based on the options. Does not validate for JWT subject as that requires
 // identity mappings which is not possible in pggate.
 YBCStatus YBCValidateJWT(

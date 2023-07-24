@@ -109,8 +109,7 @@ public class TestJWTAuth extends BasePgSQLTest {
   private static final List<JWSAlgorithm> SUPPORTED_EC_ALGORITHMS = Arrays.asList(
       JWSAlgorithm.ES256, JWSAlgorithm.ES256K, JWSAlgorithm.ES384, JWSAlgorithm.ES512);
 
-  private String populateJWKSFile(JWKSet jwks) throws IOException {
-    String content = jwks.toString(/* publicKeysOnly */ true);
+  private String populateJWKSFile(String content) throws IOException {
     String jwksPath = TestUtils.getBaseTmpDir() + "/" + JWKS_FILE_NAME;
     File f = new File(jwksPath);
 
@@ -124,6 +123,11 @@ public class TestJWTAuth extends BasePgSQLTest {
 
     LOG.info("The JWKS content = " + content);
     return jwksPath;
+  }
+
+  private String populateJWKSFile(JWKSet jwks) throws IOException {
+    String content = jwks.toString(/* publicKeysOnly */ true);
+    return populateJWKSFile(content);
   }
 
   private X509Certificate generateSelfSignedCertificate(String certLabel, String algorithmName,
@@ -783,6 +787,15 @@ public class TestJWTAuth extends BasePgSQLTest {
   @Test
   public void invalidJWTJwksPath() throws Exception {
     assertClusterRestartFailure(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, "/some/invalid/path",
+        /* matchingClaimKey */ "",
+        /* mapName */ "", /* identFileContents */ "");
+  }
+
+  @Test
+  public void invalidJWKSJson() throws Exception {
+    String jwksPath = populateJWKSFile("some_invalid_json");
+
+    assertClusterRestartFailure(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "",
         /* mapName */ "", /* identFileContents */ "");
   }

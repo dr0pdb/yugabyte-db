@@ -1656,6 +1656,15 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 
 	if (parsedline->auth_method == uaJWT) {
 		MANDATORY_AUTH_ARG(parsedline->jwt_jwks, "jwt_jwks_path", "jwt");
+		YBCStatus s = YBCValidateJWKS(parsedline->jwt_jwks);
+		if (s) /* !ok */
+		{
+			ereport(LOG, (errcode(ERRCODE_CONFIG_FILE_ERROR),
+						  errmsg("invalid jwt_jwks content"),
+						  errcontext("line %d of configuration file \"%s\"",
+									 line_num, HbaFileName)));
+			return NULL;
+		}
 
 		if (list_length(parsedline->jwt_audiences) < 1)
 		{
@@ -1674,8 +1683,6 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 									 line_num, HbaFileName)));
 			return NULL;
 		}
-
-		// Validate the json of JWKS.
 	}
 
 	if (parsedline->auth_method == uaRADIUS)
