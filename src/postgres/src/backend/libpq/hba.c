@@ -1663,6 +1663,7 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 						  errmsg("invalid jwt_jwks content"),
 						  errcontext("line %d of configuration file \"%s\"",
 									 line_num, HbaFileName)));
+			YBCFreeStatus(s);
 			return NULL;
 		}
 
