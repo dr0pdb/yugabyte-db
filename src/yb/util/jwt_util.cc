@@ -23,16 +23,16 @@
 
 #include "yb/util/jwt_util.h"
 
+#include <openssl/ec.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
+
 #include <string>
 
 #include <glog/logging.h>
 
 #include <jwt-cpp/jwt.h>
-
-#include <openssl/ec.h>
-#include <openssl/evp.h>
-#include <openssl/pem.h>
-#include <openssl/rsa.h>
 
 #include "yb/gutil/casts.h"
 #include "yb/util/result.h"

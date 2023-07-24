@@ -769,7 +769,8 @@ public class TestJWTAuth extends BasePgSQLTest {
     String jwksPath = populateJWKSFile(jwks);
 
     // Empty Audiences.
-    assertClusterRestartFailure(ALLOWED_ISSUERS, Arrays.asList(), jwksPath, /* matchingClaimKey */ "",
+    assertClusterRestartFailure(ALLOWED_ISSUERS, Arrays.asList(), jwksPath,
+        /* matchingClaimKey */ "",
         /* mapName */ "", /* identFileContents */ "");
   }
 
