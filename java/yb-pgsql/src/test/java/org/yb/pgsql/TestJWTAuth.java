@@ -70,11 +70,12 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.yb.YBTestRunner;
 import org.yb.client.TestUtils;
 import org.yb.util.Pair;
+import junitparams.JUnitParamsRunner;
+import junitparams.Parameters;
 
-@RunWith(value = YBTestRunner.class)
+@RunWith(value = JUnitParamsRunner.class)
 public class TestJWTAuth extends BasePgSQLTest {
   private static final Logger LOG = LoggerFactory.getLogger(TestJWTAuth.class);
 
@@ -103,13 +104,24 @@ public class TestJWTAuth extends BasePgSQLTest {
     }
   };
 
+  public static Object[] getJwkParameters() {
+    return new Object[] {
+      new Object[] {JWSAlgorithm.RS256, RS256_KEYID},
+      new Object[] {JWSAlgorithm.PS256, PS256_KEYID},
+      new Object[] {JWSAlgorithm.ES256, ES256_KEYID},
+      new Object[] {JWSAlgorithm.RS256, RS256_KEYID_WITH_X5C},
+      new Object[] {JWSAlgorithm.PS256, PS256_KEYID_WITH_X5C},
+      new Object[] {JWSAlgorithm.ES256, ES256_KEYID_WITH_X5C},
+    };
+  }
+
   private static final List<JWSAlgorithm> SUPPORTED_RSA_ALGORITHMS =
       Arrays.asList(JWSAlgorithm.RS256, JWSAlgorithm.RS384, JWSAlgorithm.RS512, JWSAlgorithm.PS256,
           JWSAlgorithm.PS384, JWSAlgorithm.PS512);
   private static final List<JWSAlgorithm> SUPPORTED_EC_ALGORITHMS = Arrays.asList(
       JWSAlgorithm.ES256, JWSAlgorithm.ES256K, JWSAlgorithm.ES384, JWSAlgorithm.ES512);
 
-  private String populateJWKSFile(String content) throws IOException {
+  private static String populateJWKSFile(String content) throws IOException {
     String jwksPath = TestUtils.getBaseTmpDir() + "/" + JWKS_FILE_NAME;
     File f = new File(jwksPath);
 
@@ -125,13 +137,13 @@ public class TestJWTAuth extends BasePgSQLTest {
     return jwksPath;
   }
 
-  private String populateJWKSFile(JWKSet jwks) throws IOException {
+  private static String populateJWKSFile(JWKSet jwks) throws IOException {
     String content = jwks.toString(/* publicKeysOnly */ true);
     return populateJWKSFile(content);
   }
 
-  private X509Certificate generateSelfSignedCertificate(String certLabel, String algorithmName,
-      PublicKey publicKey, PrivateKey PrivateKey) throws Exception {
+  private static X509Certificate generateSelfSignedCertificate(String certLabel,
+      String algorithmName, PublicKey publicKey, PrivateKey PrivateKey) throws Exception {
     Calendar cal = Calendar.getInstance();
     Date certStart = cal.getTime();
     cal.add(Calendar.MONTH, 1);
@@ -158,7 +170,7 @@ public class TestJWTAuth extends BasePgSQLTest {
 
   // Create JWKS with keys for RSA and EC family of algorithms. Both of them are asymmetric key
   // based algorithms.
-  private JWKSet createJwks() throws Exception {
+  private static JWKSet createJwks() throws Exception {
     RSAKey rs256Key = new RSAKeyGenerator(2048)
                           .keyUse(KeyUse.SIGNATURE)
                           .keyID(RS256_KEYID)
@@ -265,7 +277,7 @@ public class TestJWTAuth extends BasePgSQLTest {
 
   // groupsOrRoles needs to be passed separately since Nimbus is not able to serialize the List when
   // it receives it as a object.
-  private String createJWT(JWSAlgorithm algorithm, JWKSet jwks, String keyId, String sub,
+  private static String createJWT(JWSAlgorithm algorithm, JWKSet jwks, String keyId, String sub,
       String issuer, String audience, Date expirationTime, Map<String, String> optionalClaims,
       Pair<String, List<String>> groupsOrRoles) throws Exception {
     JWK key = jwks.getKeyByKeyId(keyId);
@@ -299,22 +311,21 @@ public class TestJWTAuth extends BasePgSQLTest {
     return signedJWT.serialize();
   }
 
-  private String createJWT(JWSAlgorithm algorithm, JWKSet jwks, String keyId, String sub,
+  private static String createJWT(JWSAlgorithm algorithm, JWKSet jwks, String keyId, String sub,
       String issuer, String audience, Date expirationTime, Pair<String, List<String>> groupsOrRoles)
       throws Exception {
     return createJWT(algorithm, jwks, keyId, sub, issuer, audience, expirationTime,
         new HashMap<String, String>(), groupsOrRoles);
   }
 
-  private String createJWT(JWSAlgorithm algorithm, JWKSet jwks, String keyId, String sub,
-      String issuer, String audience, Date expirationTime)
-      throws Exception {
+  private static String createJWT(JWSAlgorithm algorithm, JWKSet jwks, String keyId, String sub,
+      String issuer, String audience, Date expirationTime) throws Exception {
     return createJWT(algorithm, jwks, keyId, sub, issuer, audience, expirationTime,
         new HashMap<String, String>(), null);
   }
 
-  private void assertFailedAuthentication(ConnectionBuilder passRoleUserConnBldr, String password)
-      throws Exception {
+  private static void assertFailedAuthentication(
+      ConnectionBuilder passRoleUserConnBldr, String password) throws Exception {
     try (Connection connection = passRoleUserConnBldr.withPassword(password).connect()) {
       fail("Expected exception but did not get any.");
     } catch (PSQLException e) {
@@ -328,24 +339,14 @@ public class TestJWTAuth extends BasePgSQLTest {
   }
 
   @Test
-  public void authWithSubjectWithoutIdent() throws Exception {
+  @Parameters(method = "getJwkParameters")
+  public void authWithSubjectWithoutIdent(JWSAlgorithm algorithm, String keyId) throws Exception {
     JWKSet jwks = createJwks();
     String jwksPath = populateJWKSFile(jwks);
 
     // "sub" is used as the default matching claim key.
     setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "", /* mapName */ "", /* identFileContents */ "");
-    List<Pair<JWSAlgorithm, String>> keysWithAlgorithms =
-        new ArrayList<Pair<JWSAlgorithm, String>>() {
-          {
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.RS256, RS256_KEYID));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.PS256, PS256_KEYID));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.ES256, ES256_KEYID));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.RS256, RS256_KEYID_WITH_X5C));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.PS256, PS256_KEYID_WITH_X5C));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.ES256, ES256_KEYID_WITH_X5C));
-          }
-        };
 
     try (Statement statement = connection.createStatement()) {
       statement.execute("CREATE ROLE testuser1 LOGIN");
@@ -353,14 +354,11 @@ public class TestJWTAuth extends BasePgSQLTest {
 
     ConnectionBuilder passRoleUserConnBldr = getConnectionBuilder().withUser("testuser1");
 
-    // Ensure that login works with each key type.
-    for (Pair<JWSAlgorithm, String> key : keysWithAlgorithms) {
-      String jwt = createJWT(key.getFirst(), jwks, key.getSecond(), "testuser1",
-          "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-          "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000), null);
-      try (Connection connection = passRoleUserConnBldr.withPassword(jwt).connect()) {
-        // No-op.
-      }
+    String jwt = createJWT(algorithm, jwks, keyId, "testuser1",
+        "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
+        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000), null);
+    try (Connection connection = passRoleUserConnBldr.withPassword(jwt).connect()) {
+      // No-op.
     }
 
     // Basic JWT login with incorrect password.
@@ -540,10 +538,10 @@ public class TestJWTAuth extends BasePgSQLTest {
                           .algorithm(JWSAlgorithm.RS384)
                           .generate();
     RSAKey rs512Key = new RSAKeyGenerator(2048)
-                              .keyUse(KeyUse.SIGNATURE)
-                              .keyID("rs512_keyid")
-                              .algorithm(JWSAlgorithm.RS512)
-                              .generate();
+                          .keyUse(KeyUse.SIGNATURE)
+                          .keyID("rs512_keyid")
+                          .algorithm(JWSAlgorithm.RS512)
+                          .generate();
     RSAKey ps384Key = new RSAKeyGenerator(2048)
                           .keyUse(KeyUse.SIGNATURE)
                           .keyID("ps384_keyid")
@@ -555,20 +553,20 @@ public class TestJWTAuth extends BasePgSQLTest {
                           .algorithm(JWSAlgorithm.PS512)
                           .generate();
     ECKey es256kKey = new ECKeyGenerator(Curve.SECP256K1)
-                      .keyUse(KeyUse.SIGNATURE)
-                      .keyID("es256k_keyid")
-                      .algorithm(JWSAlgorithm.ES256K)
-                      .generate();
+                          .keyUse(KeyUse.SIGNATURE)
+                          .keyID("es256k_keyid")
+                          .algorithm(JWSAlgorithm.ES256K)
+                          .generate();
     ECKey es384Key = new ECKeyGenerator(Curve.P_384)
-                      .keyUse(KeyUse.SIGNATURE)
-                      .keyID("es384_keyid")
-                      .algorithm(JWSAlgorithm.ES384)
-                      .generate();
+                         .keyUse(KeyUse.SIGNATURE)
+                         .keyID("es384_keyid")
+                         .algorithm(JWSAlgorithm.ES384)
+                         .generate();
     ECKey es512Key = new ECKeyGenerator(Curve.P_521)
-                      .keyUse(KeyUse.SIGNATURE)
-                      .keyID("es512_keyid")
-                      .algorithm(JWSAlgorithm.ES512)
-                      .generate();
+                         .keyUse(KeyUse.SIGNATURE)
+                         .keyID("es512_keyid")
+                         .algorithm(JWSAlgorithm.ES512)
+                         .generate();
 
     List<JWK> allKeys = new ArrayList<JWK>() {
       {
@@ -649,12 +647,12 @@ public class TestJWTAuth extends BasePgSQLTest {
     }
 
     // (Subject, YSQL username).
-    List<Pair<String, String>> testCases = Arrays.asList(
-        new Pair<String, String>("john", "johndoe"),
-        new Pair<String, String>("93fba67c-6a2a-40ae-9984-43fbe0a83d08", "somename"),
-        new Pair<String, String>("johndoe@example.com", "johndoe"),
-        new Pair<String, String>("abcd97e5-a", "prefixuser"),
-        new Pair<String, String>("abcd97e5-b", "prefixuser"));
+    List<Pair<String, String>> testCases =
+        Arrays.asList(new Pair<String, String>("john", "johndoe"),
+            new Pair<String, String>("93fba67c-6a2a-40ae-9984-43fbe0a83d08", "somename"),
+            new Pair<String, String>("johndoe@example.com", "johndoe"),
+            new Pair<String, String>("abcd97e5-a", "prefixuser"),
+            new Pair<String, String>("abcd97e5-b", "prefixuser"));
 
     for (Pair<String, String> testCase : testCases) {
       String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, testCase.getFirst(),
