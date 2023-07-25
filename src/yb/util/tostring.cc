@@ -12,6 +12,7 @@
 //
 
 #include "yb/util/tostring.h"
+#include "yb/util/format.h"
 
 namespace yb {
 
@@ -29,7 +30,7 @@ std::string MillisecondsToString(int64_t milliseconds) {
 std::string CStringArrayToString(char** elements, int length) {
   std::string result = "[";
   for (int i = 0; i < length; i++) {
-    result += elements[i];
+    result += Format("$0$1", (i) ? "," : "", elements[i]);
   }
   result += "]";
   return result;

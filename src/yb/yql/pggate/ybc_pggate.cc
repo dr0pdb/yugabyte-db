@@ -337,14 +337,16 @@ const YBCPgCallbacks *YBCGetPgCallbacks() {
 }
 
 YBCStatus YBCValidateJWKS(const char *jwks_string) {
-  const std::string jwks_string_value(jwks_string ? jwks_string : "");
+  LOG_IF(DFATAL, jwks_string == nullptr) << "jwks_string value unexpectedly NULL";
+  const std::string jwks_string_value(jwks_string);
   return ToYBCStatus(util::ValidateJWKS(jwks_string_value));
 }
 
 YBCStatus YBCValidateJWT(
     const char *token, const YBCPgJwtAuthOptions *options,
     YBCPgJwtAuthIdentityClaims *identity_claims) {
-  const std::string token_value(token ? token : "");
+  LOG_IF(DFATAL, token == nullptr) << "JWT unexpectedly NULL";
+  const std::string token_value(token);
   std::set<std::string> identity_claims_set;
 
   auto status = util::ValidateJWT(token_value, options, &identity_claims_set);
