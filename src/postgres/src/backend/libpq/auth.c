@@ -3497,7 +3497,7 @@ void YbJwtAuthOptionsFromHba(YBCPgJwtAuthOptions *opt, HbaLine* hba_line)
 {
 	opt->jwks = hba_line->jwt_jwks;
 
-	// Use "sub" as the default matching claim key.
+	/* Use "sub" as the default matching claim key. */
 	if (hba_line->jwt_matching_claim_key == NULL) {
 		opt->matching_claim_key = "sub";
 	} else {

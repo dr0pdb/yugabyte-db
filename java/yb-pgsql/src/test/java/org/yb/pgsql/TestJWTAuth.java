@@ -33,12 +33,10 @@ import com.nimbusds.jose.util.Base64;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.yugabyte.util.PSQLException;
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.math.BigInteger;
+import java.nio.charset.Charset;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
@@ -52,6 +50,8 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
@@ -123,15 +123,7 @@ public class TestJWTAuth extends BasePgSQLTest {
   private static String populateJWKSFile(String content) throws IOException {
     String jwksPath = TestUtils.getBaseTmpDir() + "/" + JWKS_FILE_NAME;
     File f = new File(jwksPath);
-
-    // Truncate if already exists.
-    FileOutputStream fos = new FileOutputStream(f, false);
-    fos.close();
-
-    BufferedWriter writer = new BufferedWriter(new FileWriter(f));
-    writer.write(content);
-    writer.close();
-
+    FileUtils.writeStringToFile(f, content, Charset.defaultCharset());
     LOG.info("The JWKS content = " + content);
     return jwksPath;
   }
@@ -761,12 +753,10 @@ public class TestJWTAuth extends BasePgSQLTest {
           allowedIssuers, allowedAudiences, jwksPath, matchingClaimKey, mapName, identFileContents);
       fail("Expected exception but did not get any.");
     } catch (PSQLException e) {
-      if (StringUtils.containsIgnoreCase(e.getMessage(), "The connection attempt failed.")) {
-        LOG.info("Expected exception", e);
-      } else {
-        fail(String.format("Unexpected Error Message. Got: '%s', Expected to contain: '%s'",
-            e.getMessage(), "The connection attempt failed."));
-      }
+      // We cannot expect any specific error message here since we get different error messages on
+      // Mac and Linux. Error message on Linux: "The connection attempt failed" Error message on
+      // Mac: "Connection to <host> refused. Check that the hostname and port are correct and that
+      // the postmaster is accepting TCP/IP connections."
     } finally {
       // Mark the cluster for recreation so that the next test is not affected.
       markClusterNeedsRecreation();

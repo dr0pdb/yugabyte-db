@@ -396,7 +396,7 @@ Result<std::set<std::string>> GetClaimAsStringsSet(
 }
 
 Status ValidateJWKS(const std::string& jwks) {
-    auto parsed_jwks = VERIFY_RESULT(ParseJwks(jwks));
+    RETURN_NOT_OK(ParseJwks(jwks));
     return Status::OK();
 }
 
