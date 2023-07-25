@@ -3577,7 +3577,7 @@ YbGetSplitOptions(Relation rel)
 	OptSplit *split_options = makeNode(OptSplit);
 	split_options->split_type = NUM_TABLETS;
 	split_options->num_tablets = rel->yb_table_properties->num_tablets;
-	/* 
+	/*
 	 * Copy split points if we have a live range key.
 	 * (RelationGetPrimaryKeyIndex returns InvalidOid if pkey is currently
 	 * being dropped).
@@ -3648,6 +3648,8 @@ char* YbReadWholeFile(const char *filename, int *length)
 	size_t		bytes_to_read;
 	struct stat fst;
 
+	// TODO: Remove this. Only here for debugging Jenkins test failures.
+	YBC_LOG_INFO("The filename being read is: %s", filename);
 	if (stat(filename, &fst) < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),

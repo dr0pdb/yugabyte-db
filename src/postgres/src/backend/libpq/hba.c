@@ -2184,6 +2184,9 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 	else if (strcmp(name, "jwt_jwks_path") == 0) {
 		REQUIRE_AUTH_OPTION(uaYbJWT, "jwt_jwks_path", "jwt");
 
+		// TODO: Remove this. Only here for debugging Jenkins test failures.
+		YBC_LOG_INFO("The jwt_jwks_path value = %s", val);
+
 		hbaline->jwt_jwks_path_s = pstrdup(val);
 		hbaline->jwt_jwks = YbReadFile(HbaFileName, val, elevel);
 	}

@@ -37,6 +37,7 @@ import java.io.File;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.Charset;
+import java.nio.file.Paths;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
@@ -124,7 +125,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     String jwksPath = TestUtils.getBaseTmpDir() + "/" + JWKS_FILE_NAME;
     File f = new File(jwksPath);
     FileUtils.writeStringToFile(f, content, Charset.defaultCharset());
-    LOG.info("The JWKS content = " + content);
+    LOG.info(String.format("The jwksPath = %s and the JWKS content = %s", jwksPath, content));
     return jwksPath;
   }
 
@@ -264,6 +265,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     }
 
     restartClusterWithFlags(Collections.emptyMap(), flagMap);
+    LOG.info("Cluster restart finished");
   }
 
   // groupsOrRoles needs to be passed separately since Nimbus is not able to serialize the List when
