@@ -3533,8 +3533,17 @@ YBCCheckJWTAuth(Port *port)
 	/* Treat password as jwt */
 	jwt = recv_password_packet(port);
 	if (jwt == NULL)
-		return STATUS_EOF;		/* client wouldn't send jwt. Nothing to cleanup, so return early. */
+		return STATUS_EOF; /* client wouldn't send jwt. Nothing to cleanup, so
+							  return early. */
 
+	/*
+	 * We are allocating a temporary copy of the audiences and issuers List as
+	 * an Array from HbaLine. We do that since there is no easy way to send the
+	 * PG List to the C++ layer.
+	 * TODO: This can be improved in the future by either doing the
+	 * audience/issuer match in the C layer itself or by directly storing them
+	 * as Arrays in HbaLine.
+	 */
 	YBCPgJwtAuthOptions jwt_auth_options;
 	YbJwtAuthOptionsFromHba(&jwt_auth_options, port->hba);
 
@@ -3579,7 +3588,7 @@ jwt_auth_done:
 	}
 
 	/*
-	 * Free up jwt_auth_options.
+	 * Free up the temporary copies we made in YbJwtAuthOptionsFromHba.
 	 * Only audiences and issuers are palloc'd, rest are pointer assignments of
 	 * already allocated values.
 	 */
