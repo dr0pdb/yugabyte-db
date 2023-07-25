@@ -41,7 +41,7 @@ typedef enum UserAuth
 	uaRADIUS,
 	uaPeer,
 	uaYbJWT,
-#define USER_AUTH_LAST uaPeer	/* Must be last value of this enum */
+#define USER_AUTH_LAST uaYbJWT	/* Must be last value of this enum */
 } UserAuth;
 
 typedef enum IPCompareMethod
