@@ -70,12 +70,11 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.yb.YBTestRunner;
 import org.yb.client.TestUtils;
 import org.yb.util.Pair;
-import junitparams.JUnitParamsRunner;
-import junitparams.Parameters;
 
-@RunWith(value = JUnitParamsRunner.class)
+@RunWith(value = YBTestRunner.class)
 public class TestJWTAuth extends BasePgSQLTest {
   private static final Logger LOG = LoggerFactory.getLogger(TestJWTAuth.class);
 
@@ -339,14 +338,24 @@ public class TestJWTAuth extends BasePgSQLTest {
   }
 
   @Test
-  @Parameters(method = "getJwkParameters")
-  public void authWithSubjectWithoutIdent(JWSAlgorithm algorithm, String keyId) throws Exception {
+  public void authWithSubjectWithoutIdent() throws Exception {
     JWKSet jwks = createJwks();
     String jwksPath = populateJWKSFile(jwks);
 
     // "sub" is used as the default matching claim key.
     setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "", /* mapName */ "", /* identFileContents */ "");
+    List<Pair<JWSAlgorithm, String>> keysWithAlgorithms =
+        new ArrayList<Pair<JWSAlgorithm, String>>() {
+          {
+            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.RS256, RS256_KEYID));
+            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.PS256, PS256_KEYID));
+            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.ES256, ES256_KEYID));
+            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.RS256, RS256_KEYID_WITH_X5C));
+            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.PS256, PS256_KEYID_WITH_X5C));
+            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.ES256, ES256_KEYID_WITH_X5C));
+          }
+        };
 
     try (Statement statement = connection.createStatement()) {
       statement.execute("CREATE ROLE testuser1 LOGIN");
@@ -354,11 +363,14 @@ public class TestJWTAuth extends BasePgSQLTest {
 
     ConnectionBuilder passRoleUserConnBldr = getConnectionBuilder().withUser("testuser1");
 
-    String jwt = createJWT(algorithm, jwks, keyId, "testuser1",
-        "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000), null);
-    try (Connection connection = passRoleUserConnBldr.withPassword(jwt).connect()) {
-      // No-op.
+    // Ensure that login works with each key type.
+    for (Pair<JWSAlgorithm, String> key : keysWithAlgorithms) {
+      String jwt = createJWT(key.getFirst(), jwks, key.getSecond(), "testuser1",
+          "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
+          "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000), null);
+      try (Connection connection = passRoleUserConnBldr.withPassword(jwt).connect()) {
+        // No-op.
+      }
     }
 
     // Basic JWT login with incorrect password.
