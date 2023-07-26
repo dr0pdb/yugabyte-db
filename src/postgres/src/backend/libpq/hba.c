@@ -58,9 +58,6 @@
 #define MAX_TOKEN	256
 #define MAX_LINE	8192
 
-/* Maximum length of Json Web Key Set file for JWT authentication. */
-#define YB_JWT_JWKS_MAX_LENGTH 25000
-
 /* callback data for check_network_callback */
 typedef struct check_network_data
 {
@@ -2186,6 +2183,15 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 
 		hbaline->jwt_jwks_path_s = pstrdup(val);
 		hbaline->jwt_jwks = YbReadFile(HbaFileName, val, elevel);
+		if (hbaline->jwt_jwks == NULL)
+		{
+			ereport(elevel,
+					(errcode(ERRCODE_CONFIG_FILE_ERROR),
+					 errmsg("could not read jwks file at jwt_jwks_path \"%s\"", val),
+					 errcontext("line %d of configuration file \"%s\"",
+								line_num, HbaFileName)));
+			return false;
+		}
 	}
 	else if (strcmp(name, "jwt_audiences") == 0) {
 		List	   *parsed_audiences;

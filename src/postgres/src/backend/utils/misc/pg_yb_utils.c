@@ -34,6 +34,7 @@
 
 #include "c.h"
 #include "postgres.h"
+#include "commands/extension.h"
 #include "miscadmin.h"
 #include "access/htup.h"
 #include "access/htup_details.h"
@@ -3641,38 +3642,46 @@ bool YbIsStickyConnection(int *change)
 	return (yb_committed_sticky_object_count > 0);
 }
 
-char* YbReadWholeFile(const char *filename, int *length)
+char* YbReadWholeFile(const char *filename, int *length, int elevel)
 {
 	char	   *buf;
 	FILE	   *file;
 	size_t		bytes_to_read;
 	struct stat fst;
 
-	if (stat(filename, &fst) < 0)
-		ereport(ERROR,
+	if (stat(filename, &fst) < 0) {
+		ereport(elevel,
 				(errcode_for_file_access(),
 				 errmsg("could not stat file \"%s\": %m", filename)));
+		return NULL;
+	}
 
 	if (fst.st_size > (MaxAllocSize - 1))
-		ereport(ERROR,
-				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-				 errmsg("file \"%s\" is too large", filename)));
+	{
+		ereport(elevel, (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+						 errmsg("file \"%s\" is too large", filename)));
+		return NULL;
+	}
 	bytes_to_read = (size_t) fst.st_size;
 
-	if ((file = AllocateFile(filename, PG_BINARY_R)) == NULL)
-		ereport(ERROR,
+	if ((file = AllocateFile(filename, PG_BINARY_R)) == NULL) {
+		ereport(elevel,
 				(errcode_for_file_access(),
 				 errmsg("could not open file \"%s\" for reading: %m",
 						filename)));
+		return NULL;
+	}
 
 	buf = (char *) palloc(bytes_to_read + 1);
 
 	*length = fread(buf, 1, bytes_to_read, file);
 
-	if (ferror(file))
-		ereport(ERROR,
+	if (ferror(file)) {
+		ereport(elevel,
 				(errcode_for_file_access(),
 				 errmsg("could not read file \"%s\": %m", filename)));
+		return NULL;
+	}
 
 	FreeFile(file);
 
@@ -3702,7 +3711,7 @@ char* YbReadFile(const char *outer_filename, const char *filename, int elevel)
 		canonicalize_path(file_fullname);
 	}
 
-	file_contents = YbReadWholeFile(file_fullname, &len);
+	file_contents = YbReadWholeFile(file_fullname, &len, elevel);
 
 	pfree(file_fullname);
 	return file_contents;

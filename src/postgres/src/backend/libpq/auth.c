@@ -3493,30 +3493,39 @@ PerformRadiusTransaction(const char *server, const char *secret, const char *por
  *----------------------------------------------------------------
  */
 
-void YbJwtAuthOptionsFromHba(YBCPgJwtAuthOptions *opt, HbaLine* hba_line)
+void
+YbJwtAuthOptionsFromHba(YBCPgJwtAuthOptions *opt, HbaLine *hba_line)
 {
 	opt->jwks = hba_line->jwt_jwks;
 
-	/* Use "sub" as the default matching claim key. */
-	if (hba_line->jwt_matching_claim_key == NULL) {
+	/* Use "sub" as the default matching claim key */
+	if (hba_line->jwt_matching_claim_key == NULL)
+	{
 		opt->matching_claim_key = "sub";
-	} else {
+	}
+	else
+	{
 		opt->matching_claim_key = hba_line->jwt_matching_claim_key;
 	}
 
-	opt->issuers = (char **)palloc(sizeof(char *) * list_length(hba_line->jwt_issuers));
+	/* Allocated an array to hold the issuer and audience char* from the PG
+	 * List. The actual issuer and audience values aren't copied. */
+
+	opt->issuers =
+		(char **) palloc(sizeof(char *) * list_length(hba_line->jwt_issuers));
 	opt->issuers_length = 0;
 	ListCell *lc;
 	foreach (lc, hba_line->jwt_issuers)
 	{
-		opt->issuers[opt->issuers_length++] = (char *)lfirst(lc);
+		opt->issuers[opt->issuers_length++] = (char *) lfirst(lc);
 	}
 
-	opt->audiences = (char **)palloc(sizeof(char *) * list_length(hba_line->jwt_audiences));
+	opt->audiences =
+		(char **) palloc(sizeof(char *) * list_length(hba_line->jwt_audiences));
 	opt->audiences_length = 0;
 	foreach (lc, hba_line->jwt_audiences)
 	{
-		opt->audiences[opt->audiences_length++] = (char *)lfirst(lc);
+		opt->audiences[opt->audiences_length++] = (char *) lfirst(lc);
 	}
 }
 
@@ -3537,9 +3546,9 @@ YBCCheckJWTAuth(Port *port)
 							  return early. */
 
 	/*
-	 * We are allocating a temporary copy of the audiences and issuers List as
-	 * an Array from HbaLine. We do that since there is no easy way to send the
-	 * PG List to the C++ layer.
+	 * We are allocating a temporary array of char* for audiences and issuers
+	 * entries. We do that since there is no easy way to send the PG List to the
+	 * C++ layer.
 	 * TODO: This can be improved in the future by either doing the
 	 * audience/issuer match in the C layer itself or by directly storing them
 	 * as Arrays in HbaLine.
@@ -3587,11 +3596,7 @@ jwt_auth_done:
 		YBCFreeStatus(s);
 	}
 
-	/*
-	 * Free up the temporary copies we made in YbJwtAuthOptionsFromHba.
-	 * Only audiences and issuers are palloc'd, rest are pointer assignments of
-	 * already allocated values.
-	 */
+	/* Free up the temporary arrays we made in YbJwtAuthOptionsFromHba */
 	pfree(jwt_auth_options.audiences);
 	pfree(jwt_auth_options.issuers);
 
