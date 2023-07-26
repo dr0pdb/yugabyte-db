@@ -59,7 +59,7 @@
 #define MAX_LINE	8192
 
 /* Maximum length of Json Web Key Set file for JWT authentication. */
-#define YB_JWT_JWKS_MAX_LENGTH 20000
+#define YB_JWT_JWKS_MAX_LENGTH 25000
 
 /* callback data for check_network_callback */
 typedef struct check_network_data
