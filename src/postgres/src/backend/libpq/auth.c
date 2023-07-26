@@ -3508,7 +3508,7 @@ YbJwtAuthOptionsFromHba(YBCPgJwtAuthOptions *opt, HbaLine *hba_line)
 		opt->matching_claim_key = hba_line->jwt_matching_claim_key;
 	}
 
-	/* Allocated an array to hold the issuer and audience char* from the PG
+	/* Allocated arrays to hold the issuer and audience char* from the PG
 	 * List. The actual issuer and audience values aren't copied. */
 
 	opt->issuers =
@@ -3533,8 +3533,7 @@ static int
 YBCCheckJWTAuth(Port *port)
 {
 	char	*jwt;
-	int 	auth_result = STATUS_ERROR;
-	int		i;
+	int 	auth_result;
 
 	/* Send regular password request to client, and get the response */
 	sendAuthRequest(port, AUTH_REQ_PASSWORD, NULL, 0);
@@ -3549,50 +3548,20 @@ YBCCheckJWTAuth(Port *port)
 	 * We are allocating a temporary array of char* for audiences and issuers
 	 * entries. We do that since there is no easy way to send the PG List to the
 	 * C++ layer.
-	 * TODO: This can be improved in the future by either doing the
-	 * audience/issuer match in the C layer itself or by directly storing them
-	 * as Arrays in HbaLine.
+	 * TODO: This can be improved in the future by directly storing them as Arrays in HbaLine.
 	 */
 	YBCPgJwtAuthOptions jwt_auth_options;
 	YbJwtAuthOptionsFromHba(&jwt_auth_options, port->hba);
+	jwt_auth_options.usermap = port->hba->usermap;
+	jwt_auth_options.username = port->user_name;
 
-	YBCPgJwtAuthIdentityClaims identity_claims;
-	YBCStatus s = YBCValidateJWT(jwt, &jwt_auth_options, &identity_claims);
+	YBCStatus s = YBCValidateJWT(jwt, &jwt_auth_options);
+	auth_result = (!s) ? STATUS_OK : STATUS_ERROR;
 	if (s) /* !ok */
 	{
 		const char *error_msg = YBCStatusMessageBegin(s);
 		ereport(LOG,
 				(errmsg("JWT validation failed with error: %s", error_msg)));
-		auth_result = STATUS_ERROR;
-		goto jwt_auth_done;
-	}
-
-	/*
-	 * There must be at least one identity claim to match to.
-	 * In the case of claim keys such as "sub" or "email", there will be exactly
-	 * one entry while in the case of "groups"/"roles", there can be more than
-	 * one. We don't make assumptions based on that here though. As long as
-	 * there is a match with a single value of the list, it is OK to allow
-	 * login.
-	 */
-	if (identity_claims.identity_claim_values_length > 0)
-	{
-		for (i = 0; i < identity_claims.identity_claim_values_length; i++)
-		{
-			int match_result =
-				check_usermap(port->hba->usermap, port->user_name,
-							  identity_claims.identity_claim_values[i], false);
-			if (match_result == STATUS_OK)
-			{
-				auth_result = STATUS_OK;
-				goto jwt_auth_done;
-			}
-		}
-	}
-
-/* free up whatever we allocated */
-jwt_auth_done:
-	if (s != NULL) {
 		YBCFreeStatus(s);
 	}
 

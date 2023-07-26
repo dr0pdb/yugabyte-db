@@ -343,26 +343,39 @@ YBCStatus YBCValidateJWKS(const char *jwks_string) {
 }
 
 YBCStatus YBCValidateJWT(
-    const char *token, const YBCPgJwtAuthOptions *options,
-    YBCPgJwtAuthIdentityClaims *identity_claims) {
+    const char *token, const YBCPgJwtAuthOptions *options) {
   LOG_IF(DFATAL, token == nullptr) << "JWT unexpectedly NULL";
   const std::string token_value(token);
   std::set<std::string> identity_claims_set;
 
   auto status = util::ValidateJWT(token_value, options, &identity_claims_set);
+  if (!status.ok()) {
+    return ToYBCStatus(status);
+  }
 
+  // There must be at least one identity claim to match to.
+  // In the case of claim keys such as "sub" or "email", there will be exactly one entry while in
+  // the case of "groups"/"roles", there can be more than one.
+  // As long as there is a match with a single value of the list, the JWT is considered to be issued
+  // for a valid username.
+  int match_result = YBC_STATUS_ERROR;
   if (status.ok()) {
-    identity_claims->identity_claim_values_length = 0;
-    identity_claims->identity_claim_values =
-        static_cast<const char **>(YBCPAlloc(sizeof(char *) * identity_claims_set.size()));
     for (auto &identity : identity_claims_set) {
       VLOG(4) << "Identity claim entry for JWT authentication: " << identity;
-      identity_claims->identity_claim_values[identity_claims->identity_claim_values_length++] =
-          YBCPAllocStdString(identity);
+      match_result = YBCGetPgCallbacks()->CheckUserMap(
+                         options->usermap, options->username, identity.c_str(), false);
+      if (match_result == YBC_STATUS_OK) {
+        VLOG(4) << "Identity match between IDP user: " << identity
+                << " and YSQL user: " << options->username;
+        break;
+      }
     }
   }
 
-  return ToYBCStatus(status);
+  if (match_result == YBC_STATUS_OK) {
+    return YBCStatusOK();
+  }
+  return ToYBCStatus(STATUS(InvalidArgument, "Identity match failed with status"));
 }
 
 YBCStatus YBCPgInitSession(const char* database_name, YBCPgExecStatsState* session_stats) {

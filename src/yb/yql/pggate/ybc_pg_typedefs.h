@@ -54,6 +54,10 @@ YB_DEFINE_HANDLE_TYPE(PgTableDesc);
 // Handle to a memory context.
 YB_DEFINE_HANDLE_TYPE(PgMemctx);
 
+// Represents STATUS_* definitions from src/postgres/src/include/c.h.
+#define YBC_STATUS_OK				(0)
+#define YBC_STATUS_ERROR		(-1)
+
 //--------------------------------------------------------------------------------------------------
 // Other definitions are the same between C++ and C.
 //--------------------------------------------------------------------------------------------------
@@ -366,6 +370,8 @@ typedef struct PgCallbacks {
   int64_t (*PostgresEpochToUnixEpoch)(int64_t);
   int64_t (*UnixEpochToPostgresEpoch)(int64_t);
   void (*ConstructTextArrayDatum)(const char **, const int, char **, size_t *);
+  /* hba.c */
+  int (*CheckUserMap)(const char *, const char *, const char *, bool case_insensitive);
 } YBCPgCallbacks;
 
 typedef struct PgGFlagsAccessor {
@@ -473,12 +479,9 @@ typedef struct PgJwtAuthOptions {
   int issuers_length;
   char** audiences;
   int audiences_length;
+  char* username;
+  char* usermap;
 } YBCPgJwtAuthOptions;
-
-typedef struct PgJwtAuthIdentityClaims {
-  const char** identity_claim_values;
-  int identity_claim_values_length;
-} YBCPgJwtAuthIdentityClaims;
 
 // source:
 // https://github.com/gperftools/gperftools/blob/master/src/gperftools/malloc_extension.h#L154

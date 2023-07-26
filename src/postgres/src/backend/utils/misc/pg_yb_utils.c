@@ -35,6 +35,7 @@
 #include "c.h"
 #include "postgres.h"
 #include "commands/extension.h"
+#include "libpq/hba.h"
 #include "miscadmin.h"
 #include "access/htup.h"
 #include "access/htup_details.h"
@@ -661,6 +662,7 @@ YBInitPostgresBackend(
 		callbacks.UnixEpochToPostgresEpoch = &YbUnixEpochToPostgresEpoch;
 		callbacks.PostgresEpochToUnixEpoch= &YbPostgresEpochToUnixEpoch;
 		callbacks.ConstructTextArrayDatum = &YbConstructTextArrayDatum;
+		callbacks.CheckUserMap = &check_usermap;
 		YBCInitPgGate(type_table, count, callbacks);
 		YBCInstallTxnDdlHook();
 
