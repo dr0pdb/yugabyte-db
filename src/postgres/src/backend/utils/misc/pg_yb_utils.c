@@ -3648,8 +3648,6 @@ char* YbReadWholeFile(const char *filename, int *length)
 	size_t		bytes_to_read;
 	struct stat fst;
 
-	// TODO: Remove this. Only here for debugging Jenkins test failures.
-	YBC_LOG_INFO("The filename being read is: %s", filename);
 	if (stat(filename, &fst) < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),

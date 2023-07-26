@@ -81,7 +81,7 @@ public class TestJWTAuth extends BasePgSQLTest {
 
   private static final String INCORRECT_JWT_AUTH_MSG = "JWT authentication failed for user";
 
-  private static final String JWKS_FILE_NAME = "jwt_jwks";
+  private static final String JWKS_FILE_NAME = "jwt_jwks#hello";
   private static final String RS256_KEYID = "rs256_keyid";
   private static final String PS256_KEYID = "ps256_keyid";
   private static final String ES256_KEYID = "es256_keyid";
@@ -125,8 +125,10 @@ public class TestJWTAuth extends BasePgSQLTest {
     String jwksPath = TestUtils.getBaseTmpDir() + "/" + JWKS_FILE_NAME;
     File f = new File(jwksPath);
     FileUtils.writeStringToFile(f, content, Charset.defaultCharset());
-    LOG.info(String.format("The jwksPath = %s and the JWKS content = %s", jwksPath, content));
-    return jwksPath;
+
+    String quotedJwksPath =  String.format("\"\"%s\"\"", jwksPath);
+    LOG.info(String.format("The jwksPath = %s and the JWKS content = %s", quotedJwksPath, content));
+    return quotedJwksPath;
   }
 
   private static String populateJWKSFile(JWKSet jwks) throws IOException {
