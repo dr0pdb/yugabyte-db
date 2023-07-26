@@ -55,8 +55,8 @@ YB_DEFINE_HANDLE_TYPE(PgTableDesc);
 YB_DEFINE_HANDLE_TYPE(PgMemctx);
 
 // Represents STATUS_* definitions from src/postgres/src/include/c.h.
-#define YBC_STATUS_OK				(0)
-#define YBC_STATUS_ERROR		(-1)
+#define YBC_STATUS_OK     (0)
+#define YBC_STATUS_ERROR  (-1)
 
 //--------------------------------------------------------------------------------------------------
 // Other definitions are the same between C++ and C.
