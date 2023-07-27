@@ -604,6 +604,9 @@ public class TestJWTAuth extends BasePgSQLTest {
             add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.RS256, RS256_KEYID_WITH_X5C));
             add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.PS256, PS256_KEYID_WITH_X5C));
             add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.ES256, ES256_KEYID_WITH_X5C));
+            // We don't have keys with X5C in the below algorithms because the code path is the same
+            // as the ones covered in the above RS256, PS256 and ES256 algorithms with X5C. The
+            // interesting bits are when it is not present and we have to calculate them.
             add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.RS384, "rs384_keyid"));
             add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.RS512, "rs512_keyid"));
             add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.PS384, "ps384_keyid"));
