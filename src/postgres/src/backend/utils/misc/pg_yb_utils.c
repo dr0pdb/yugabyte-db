@@ -34,7 +34,6 @@
 
 #include "c.h"
 #include "postgres.h"
-#include "libpq/hba.h"
 #include "miscadmin.h"
 #include "access/htup.h"
 #include "access/htup_details.h"
@@ -78,6 +77,7 @@
 #include "commands/extension.h"
 #include "commands/variable.h"
 #include "common/pg_yb_common.h"
+#include "libpq/hba.h"
 #include "lib/stringinfo.h"
 #include "optimizer/cost.h"
 #include "tcop/utility.h"
