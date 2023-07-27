@@ -299,8 +299,7 @@ Result<std::string> GetKeyAsPEM(const jwt::jwk<json_traits> jwk) {
 
 template <typename json_traits>
 Status ValidateJWT(
-    const jwt::decoded_jwt<json_traits> decoded_jwt,
-    const jwt::jwk<json_traits> jwk) {
+    const jwt::decoded_jwt<json_traits> decoded_jwt, const jwt::jwk<json_traits> jwk) {
   try {
     // To verify the JWT, the library expects the key to be provided in the PEM format (see
     // GetVerifier). Ref: https://github.com/Thalhammer/jwt-cpp/issues/271.
@@ -377,9 +376,12 @@ Result<std::set<std::string>> GetClaimAsStringsSet(
         result = claim_value.as_set();
         break;
       }
-      case jwt::json::type::boolean: FALLTHROUGH_INTENDED;
-      case jwt::json::type::integer: FALLTHROUGH_INTENDED;
-      case jwt::json::type::number: FALLTHROUGH_INTENDED;
+      case jwt::json::type::boolean:
+        FALLTHROUGH_INTENDED;
+      case jwt::json::type::integer:
+        FALLTHROUGH_INTENDED;
+      case jwt::json::type::number:
+        FALLTHROUGH_INTENDED;
       case jwt::json::type::object:
         return STATUS_FORMAT(
             InvalidArgument, "Claim value with name $0 was not a string or array of string.", name);
@@ -395,13 +397,13 @@ Result<std::set<std::string>> GetClaimAsStringsSet(
 }
 
 Status ValidateJWKS(const std::string& jwks) {
-    RETURN_NOT_OK(ParseJwks(jwks));
-    return Status::OK();
+  RETURN_NOT_OK(ParseJwks(jwks));
+  return Status::OK();
 }
 
 Status ValidateJWT(
-    const std::string &token, const YBCPgJwtAuthOptions *options,
-    std::set<std::string> *identity_claims) {
+    const std::string& token, const YBCPgJwtAuthOptions* options,
+    std::set<std::string>* identity_claims) {
   LOG_IF(DFATAL, options == nullptr) << "JWT options unexpectedly NULL";
 
   VLOG(4) << Format(
@@ -420,8 +422,8 @@ Status ValidateJWT(
 
   // Validate issuer.
   auto jwt_issuer = VERIFY_RESULT(util::GetIssuer(decoded_jwt));
-  bool valid_issuer =
-      DoesValueExist(jwt_issuer, options->allowed_issuers, options->allowed_issuers_length, "issuer");
+  bool valid_issuer = DoesValueExist(
+      jwt_issuer, options->allowed_issuers, options->allowed_issuers_length, "issuer");
   if (!valid_issuer) {
     return STATUS_FORMAT(InvalidArgument, "Invalid JWT issuer: $0", jwt_issuer);
   }
@@ -431,8 +433,8 @@ Status ValidateJWT(
   auto jwt_audience = VERIFY_RESULT(util::GetAudiences(decoded_jwt));
   bool valid_audience = false;
   for (auto jwt_aud : jwt_audience) {
-    valid_audience =
-        DoesValueExist(jwt_aud, options->allowed_audiences, options->allowed_audiences_length, "audience");
+    valid_audience = DoesValueExist(
+        jwt_aud, options->allowed_audiences, options->allowed_audiences_length, "audience");
     if (valid_audience) {
       break;
     }
