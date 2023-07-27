@@ -343,9 +343,9 @@ YBCStatus YBCValidateJWKS(const char *jwks_string) {
 
 YBCStatus YBCValidateJWT(const char *token, const YBCPgJwtAuthOptions *options) {
   const std::string token_value(DCHECK_NOTNULL(token));
-  std::set<std::string> identity_claims_set;
+  std::vector<std::string> identity_claims;
 
-  auto status = util::ValidateJWT(token_value, options, &identity_claims_set);
+  auto status = util::ValidateJWT(token_value, options, &identity_claims);
   if (!status.ok()) {
     return ToYBCStatus(status);
   }
@@ -356,7 +356,7 @@ YBCStatus YBCValidateJWT(const char *token, const YBCPgJwtAuthOptions *options) 
   // As long as there is a match with a single value of the list, the JWT is considered to be issued
   // for a valid username.
   int match_result = YBC_STATUS_ERROR;
-  for (const auto &identity : identity_claims_set) {
+  for (const auto &identity : identity_claims) {
     VLOG(4) << "Identity claim entry for JWT authentication: " << identity;
     match_result = YBCGetPgCallbacks()->CheckUserMap(
         options->usermap, options->username, identity.c_str(), false);

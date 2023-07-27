@@ -38,13 +38,19 @@
 #include "yb/util/result.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 
+using jwt::decoded_jwt;
+using jwt::json::type;
+using jwt::jwk;
+using jwt::jwks;
+using jwt::traits::kazuho_picojson;
+
 namespace yb::util {
 
 namespace {
 
 bool DoesValueExist(
-    const std::string &value, const char* const* values, int length,
-    const std::string &field_name) {
+    const std::string& value, const char* const* values, int length,
+    const std::string& field_name) {
   for (auto idx = 0; idx < length; idx++) {
     LOG_IF(DFATAL, values[idx] == nullptr)
         << "JWT " << field_name << " unexpectedly NULL for idx " << idx;
@@ -61,7 +67,7 @@ bool DoesValueExist(
 
 }  // namespace
 
-Result<jwt::jwks<jwt::traits::kazuho_picojson>> ParseJwks(const std::string& key_set) {
+Result<jwks<kazuho_picojson>> ParseJwks(const std::string& key_set) {
   try {
     return jwt::parse_jwks(key_set);
   } catch (...) {
@@ -70,9 +76,8 @@ Result<jwt::jwks<jwt::traits::kazuho_picojson>> ParseJwks(const std::string& key
   }
 }
 
-template <typename json_traits>
-Result<jwt::jwk<json_traits>> GetJwkForJwt(
-    jwt::jwks<json_traits> jwks, const jwt::decoded_jwt<json_traits> decoded_jwt) {
+Result<jwk<kazuho_picojson>> GetJwkForJwt(
+    jwks<kazuho_picojson> jwks, const decoded_jwt<kazuho_picojson> decoded_jwt) {
   try {
     auto key_id = decoded_jwt.get_key_id();
 
@@ -85,8 +90,7 @@ Result<jwt::jwk<json_traits>> GetJwkForJwt(
   }
 }
 
-template <typename json_traits>
-Result<std::string> TryGetX5cFromJWK(jwt::jwk<json_traits> jwk) {
+Result<std::string> TryGetX5cFromJWK(jwk<kazuho_picojson> jwk) {
   try {
     return jwk.get_x5c_key_value();
   } catch (const std::exception& e) {
@@ -96,8 +100,7 @@ Result<std::string> TryGetX5cFromJWK(jwt::jwk<json_traits> jwk) {
   }
 }
 
-template <typename json_traits>
-Result<std::string> GetClaimFromJWKAsString(jwt::jwk<json_traits> jwk, const std::string& key) {
+Result<std::string> GetClaimFromJWKAsString(jwk<kazuho_picojson> jwk, const std::string& key) {
   try {
     // Exception will be thrown if the key does not exist or is not a string.
     return jwk.get_jwk_claim(key).as_string();
@@ -109,7 +112,7 @@ Result<std::string> GetClaimFromJWKAsString(jwt::jwk<json_traits> jwk, const std
   }
 }
 
-Result<jwt::decoded_jwt<jwt::traits::kazuho_picojson>> DecodeJwt(const std::string& token) {
+Result<decoded_jwt<kazuho_picojson>> DecodeJwt(const std::string& token) {
   try {
     return jwt::decode(token);
   } catch (const std::exception& e) {
@@ -119,7 +122,7 @@ Result<jwt::decoded_jwt<jwt::traits::kazuho_picojson>> DecodeJwt(const std::stri
   }
 }
 
-Result<jwt::verifier<jwt::default_clock, jwt::traits::kazuho_picojson>> GetVerifier(
+Result<jwt::verifier<jwt::default_clock, kazuho_picojson>> GetVerifier(
     const std::string& key_pem, const std::string& algo) {
   try {
     auto verifier = jwt::verify();
@@ -175,8 +178,7 @@ Result<jwt::verifier<jwt::default_clock, jwt::traits::kazuho_picojson>> GetVerif
 
 // Convert a JWK to the PEM format.
 // Supports conversion for RSA and EC family of keys.
-template <typename json_traits>
-Result<std::string> GetKeyAsPEM(const jwt::jwk<json_traits> jwk) {
+Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
   try {
     auto decode = [](const std::string& base64url_encoded) {
       return jwt::base::decode<jwt::alphabet::base64url>(
@@ -297,9 +299,7 @@ Result<std::string> GetKeyAsPEM(const jwt::jwk<json_traits> jwk) {
   }
 }
 
-template <typename json_traits>
-Status ValidateJWT(
-    const jwt::decoded_jwt<json_traits> decoded_jwt, const jwt::jwk<json_traits> jwk) {
+Status ValidateJWT(const decoded_jwt<kazuho_picojson> decoded_jwt, const jwk<kazuho_picojson> jwk) {
   try {
     // To verify the JWT, the library expects the key to be provided in the PEM format (see
     // GetVerifier). Ref: https://github.com/Thalhammer/jwt-cpp/issues/271.
@@ -331,9 +331,7 @@ Status ValidateJWT(
   }
 }
 
-template <typename json_traits>
-Result<typename json_traits::string_type> GetIssuer(
-    const jwt::decoded_jwt<json_traits> decoded_jwt) {
+Result<std::string> GetIssuer(const decoded_jwt<kazuho_picojson> decoded_jwt) {
   try {
     return decoded_jwt.get_issuer();
   } catch (const std::exception& e) {
@@ -343,8 +341,7 @@ Result<typename json_traits::string_type> GetIssuer(
   }
 }
 
-template <typename json_traits>
-Result<std::set<std::string>> GetAudiences(const jwt::decoded_jwt<json_traits> decoded_jwt) {
+Result<std::set<std::string>> GetAudiences(const decoded_jwt<kazuho_picojson> decoded_jwt) {
   try {
     return decoded_jwt.get_audience();
   } catch (const std::exception& e) {
@@ -357,32 +354,45 @@ Result<std::set<std::string>> GetAudiences(const jwt::decoded_jwt<json_traits> d
 
 // Returns the claim value with the given name from the decoded jwt.
 // Assumes that the claim value is either a string or an array of string. In both the cases, we
-// return a set<string> to the caller.
+// return a vector<string> to the caller.
 // In case the claim value isn't a string/array of string, an error is returned.
 template <typename json_traits>
-Result<std::set<std::string>> GetClaimAsStringsSet(
-    const jwt::decoded_jwt<json_traits> decoded_jwt, const std::string& name) {
+Result<std::vector<std::string>> GetClaimAsStringsArray(
+    const decoded_jwt<json_traits> decoded_jwt, const std::string& name) {
   try {
-    std::set<std::string> result;
+    std::vector<std::string> result;
     auto claim_value = decoded_jwt.get_payload_claim(name);
 
     auto claim_value_type = claim_value.get_type();
     switch (claim_value_type) {
-      case jwt::json::type::string: {
-        result.insert(claim_value.as_string());
+      case type::string: {
+        result.push_back(claim_value.as_string());
         break;
       }
-      case jwt::json::type::array: {
-        result = claim_value.as_set();
-        break;
+      case type::array: {
+        auto value_array = claim_value.as_array();
+        if (value_array.empty()) {
+          return result;
+        }
+
+        // Ensure that the type of the array element is a string and populate the result.
+        if (jwt::traits::kazuho_picojson::get_type(value_array[0]) == type::string) {
+          for (const auto& e : value_array) {
+            result.push_back(jwt::traits::kazuho_picojson::as_string(e));
+          }
+          break;
+        }
+
+        // We reach here when the inner elements of the array aren't strings. So we fallthrough.
+        FALLTHROUGH_INTENDED;
       }
-      case jwt::json::type::boolean:
+      case type::boolean:
         FALLTHROUGH_INTENDED;
-      case jwt::json::type::integer:
+      case type::integer:
         FALLTHROUGH_INTENDED;
-      case jwt::json::type::number:
+      case type::number:
         FALLTHROUGH_INTENDED;
-      case jwt::json::type::object:
+      case type::object:
         return STATUS_FORMAT(
             InvalidArgument, "Claim value with name $0 was not a string or array of string.", name);
     }
@@ -403,7 +413,7 @@ Status ValidateJWKS(const std::string& jwks) {
 
 Status ValidateJWT(
     const std::string& token, const YBCPgJwtAuthOptions* options,
-    std::set<std::string>* identity_claims) {
+    std::vector<std::string>* identity_claims) {
   LOG_IF(DFATAL, options == nullptr) << "JWT options unexpectedly NULL";
 
   VLOG(4) << Format(
@@ -448,7 +458,7 @@ Status ValidateJWT(
   // Get the matching claim key and return to the caller.
   auto matching_claim_key = std::string(options->matching_claim_key);
   auto matching_claim_values =
-      VERIFY_RESULT(util::GetClaimAsStringsSet(decoded_jwt, matching_claim_key));
+      VERIFY_RESULT(util::GetClaimAsStringsArray(decoded_jwt, matching_claim_key));
   *identity_claims = std::move(matching_claim_values);
 
   VLOG(1) << "JWT validation successful";
