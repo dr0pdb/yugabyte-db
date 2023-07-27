@@ -337,15 +337,12 @@ const YBCPgCallbacks *YBCGetPgCallbacks() {
 }
 
 YBCStatus YBCValidateJWKS(const char *jwks_string) {
-  LOG_IF(DFATAL, jwks_string == nullptr) << "jwks_string value unexpectedly NULL";
-  const std::string jwks_string_value(jwks_string);
+  const std::string jwks_string_value(DCHECK_NOTNULL(jwks_string));
   return ToYBCStatus(util::ValidateJWKS(jwks_string_value));
 }
 
-YBCStatus YBCValidateJWT(
-    const char *token, const YBCPgJwtAuthOptions *options) {
-  LOG_IF(DFATAL, token == nullptr) << "JWT unexpectedly NULL";
-  const std::string token_value(token);
+YBCStatus YBCValidateJWT(const char *token, const YBCPgJwtAuthOptions *options) {
+  const std::string token_value(DCHECK_NOTNULL(token));
   std::set<std::string> identity_claims_set;
 
   auto status = util::ValidateJWT(token_value, options, &identity_claims_set);
@@ -359,16 +356,14 @@ YBCStatus YBCValidateJWT(
   // As long as there is a match with a single value of the list, the JWT is considered to be issued
   // for a valid username.
   int match_result = YBC_STATUS_ERROR;
-  if (status.ok()) {
-    for (auto &identity : identity_claims_set) {
-      VLOG(4) << "Identity claim entry for JWT authentication: " << identity;
-      match_result = YBCGetPgCallbacks()->CheckUserMap(
-                         options->usermap, options->username, identity.c_str(), false);
-      if (match_result == YBC_STATUS_OK) {
-        VLOG(4) << "Identity match between IDP user: " << identity
-                << " and YSQL user: " << options->username;
-        break;
-      }
+  for (const auto &identity : identity_claims_set) {
+    VLOG(4) << "Identity claim entry for JWT authentication: " << identity;
+    match_result = YBCGetPgCallbacks()->CheckUserMap(
+        options->usermap, options->username, identity.c_str(), false);
+    if (match_result == YBC_STATUS_OK) {
+      VLOG(4) << "Identity match between IDP user " << identity << " and YSQL user "
+              << options->username;
+      break;
     }
   }
 

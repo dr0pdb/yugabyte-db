@@ -225,7 +225,7 @@ static int	PerformRadiusTransaction(const char *server, const char *secret, cons
  * JWT Authentication
  *----------------------------------------------------------------
  */
-static int	YBCCheckJWTAuth(Port *port);
+static int	YbCheckJWTAuth(Port *port);
 
 /*
  * Maximum accepted size of GSS and SSPI authentication tokens.
@@ -664,12 +664,14 @@ ClientAuthentication(Port *port)
 		case uaRADIUS:
 			status = CheckRADIUSAuth(port);
 			break;
-		case uaYbJWT:
-			status = YBCCheckJWTAuth(port);
-			break;
 		case uaTrust:
 			status = STATUS_OK;
 			break;
+
+		case uaYbJWT:
+			status = YbCheckJWTAuth(port);
+			break;
+
 	}
 
 	if (ClientAuthentication_hook)
@@ -3493,81 +3495,78 @@ PerformRadiusTransaction(const char *server, const char *secret, const char *por
  *----------------------------------------------------------------
  */
 
-void
-YbJwtAuthOptionsFromHba(YBCPgJwtAuthOptions *opt, HbaLine *hba_line)
+static void
+ybGetJwtAuthOptionsFromPort(Port *port, YBCPgJwtAuthOptions *opt)
 {
-	opt->jwks = hba_line->jwt_jwks;
+	HbaLine*	hba_line = port->hba;
+
+	opt->jwks = hba_line->yb_jwt_jwks;
 
 	/* Use "sub" as the default matching claim key */
-	if (hba_line->jwt_matching_claim_key == NULL)
-	{
-		opt->matching_claim_key = "sub";
-	}
-	else
-	{
-		opt->matching_claim_key = hba_line->jwt_matching_claim_key;
-	}
+	opt->matching_claim_key = hba_line->yb_jwt_matching_claim_key ?: "sub";
 
-	/* Allocated arrays to hold the issuer and audience char* from the PG
-	 * List. The actual issuer and audience values aren't copied. */
+	/*
+	 * Shallow-copy jwt_issuers and jwt_audiences.
+	 */
 
-	opt->issuers =
-		(char **) palloc(sizeof(char *) * list_length(hba_line->jwt_issuers));
-	opt->issuers_length = 0;
+	opt->allowed_issuers = (char **) palloc(sizeof(char *) *
+									list_length(hba_line->yb_jwt_issuers));
+	opt->allowed_issuers_length = 0;
 	ListCell *lc;
-	foreach (lc, hba_line->jwt_issuers)
+	foreach (lc, hba_line->yb_jwt_issuers)
 	{
-		opt->issuers[opt->issuers_length++] = (char *) lfirst(lc);
+		opt->allowed_issuers[opt->allowed_issuers_length++] = (char *) lfirst(lc);
 	}
 
-	opt->audiences =
-		(char **) palloc(sizeof(char *) * list_length(hba_line->jwt_audiences));
-	opt->audiences_length = 0;
-	foreach (lc, hba_line->jwt_audiences)
+	opt->allowed_audiences = (char **) palloc(sizeof(char *) *
+									  list_length(hba_line->yb_jwt_audiences));
+	opt->allowed_audiences_length = 0;
+	foreach (lc, hba_line->yb_jwt_audiences)
 	{
-		opt->audiences[opt->audiences_length++] = (char *) lfirst(lc);
+		opt->allowed_audiences[opt->allowed_audiences_length++] = (char *) lfirst(lc);
 	}
+
+	opt->usermap = hba_line->usermap;
+	opt->username = port->user_name;
 }
 
 static int
-YBCCheckJWTAuth(Port *port)
+YbCheckJWTAuth(Port *port)
 {
-	char	*jwt;
-	int 	auth_result;
+	char	   *jwt;
+	int			auth_result;
 
 	/* Send regular password request to client, and get the response */
 	sendAuthRequest(port, AUTH_REQ_PASSWORD, NULL, 0);
 
-	/* Treat password as jwt */
+	/* Interpret password as jwt */
 	jwt = recv_password_packet(port);
 	if (jwt == NULL)
-		return STATUS_EOF; /* client wouldn't send jwt. Nothing to cleanup, so
-							  return early. */
+		return STATUS_EOF; /* client didn't send jwt */
 
 	/*
 	 * We are allocating a temporary array of char* for audiences and issuers
 	 * entries. We do that since there is no easy way to send the PG List to the
 	 * C++ layer.
-	 * TODO: This can be improved in the future by directly storing them as Arrays in HbaLine.
+	 * TODO: This can be improved in the future by directly storing them as
+	 * Arrays in HbaLine.
 	 */
 	YBCPgJwtAuthOptions jwt_auth_options;
-	YbJwtAuthOptionsFromHba(&jwt_auth_options, port->hba);
-	jwt_auth_options.usermap = port->hba->usermap;
-	jwt_auth_options.username = port->user_name;
+	ybGetJwtAuthOptionsFromPort(port, &jwt_auth_options);
 
 	YBCStatus s = YBCValidateJWT(jwt, &jwt_auth_options);
-	auth_result = (!s) ? STATUS_OK : STATUS_ERROR;
+	auth_result = (s) ? STATUS_ERROR : STATUS_OK;
 	if (s) /* !ok */
 	{
-		const char *error_msg = YBCStatusMessageBegin(s);
 		ereport(LOG,
-				(errmsg("JWT validation failed with error: %s", error_msg)));
+				(errmsg("JWT login failed with error: %s",
+						YBCStatusMessageBegin(s))));
 		YBCFreeStatus(s);
 	}
 
 	/* Free up the temporary arrays we made in YbJwtAuthOptionsFromHba */
-	pfree(jwt_auth_options.audiences);
-	pfree(jwt_auth_options.issuers);
+	pfree(jwt_auth_options.allowed_audiences);
+	pfree(jwt_auth_options.allowed_issuers);
 
 	pfree(jwt);
 	return auth_result;

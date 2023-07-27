@@ -102,13 +102,14 @@ typedef struct HbaLine
 	char	   *radiusidentifiers_s;
 	List	   *radiusports;
 	char	   *radiusports_s;
-	char	   *jwt_jwks;
-	char	   *jwt_jwks_path_s;
-	List	   *jwt_audiences;
-	char	   *jwt_audiences_s;
-	List	   *jwt_issuers;
-	char	   *jwt_issuers_s;
-	char	   *jwt_matching_claim_key;
+
+	char	   *yb_jwt_jwks;
+	char	   *yb_jwt_jwks_path_s;
+	List	   *yb_jwt_audiences;
+	char	   *yb_jwt_audiences_s;
+	List	   *yb_jwt_issuers;
+	char	   *yb_jwt_issuers_s;
+	char	   *yb_jwt_matching_claim_key;
 } HbaLine;
 
 typedef struct IdentLine

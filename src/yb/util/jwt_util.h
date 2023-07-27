@@ -18,8 +18,7 @@
 #include "yb/util/status.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 
-namespace yb {
-namespace util {
+namespace yb::util {
 
 // Validate that the parameter jwks is a valid JSON Web Key Set.
 // Returns Status::OK for valid and errors for invalid jwks.
@@ -31,5 +30,4 @@ Status ValidateJWT(
     const std::string& token, const YBCPgJwtAuthOptions* options,
     std::set<std::string>* identity_claims);
 
-}  // namespace util
-}  // namespace yb
+}  // namespace yb::util

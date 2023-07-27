@@ -38,8 +38,7 @@
 #include "yb/util/result.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 
-namespace yb {
-namespace util {
+namespace yb::util {
 
 namespace {
 
@@ -409,8 +408,8 @@ Status ValidateJWT(
       "Start with token = $0, jwks = $1, matching_claim_key = $2, allowed_issuers = $3, "
       "allowed_audiences = $4",
       token, options->jwks, options->matching_claim_key,
-      CStringArrayToString(options->issuers, options->issuers_length),
-      CStringArrayToString(options->audiences, options->audiences_length));
+      CStringArrayToString(options->allowed_issuers, options->allowed_issuers_length),
+      CStringArrayToString(options->allowed_audiences, options->allowed_audiences_length));
 
   auto jwks = VERIFY_RESULT(util::ParseJwks(options->jwks));
   auto decoded_jwt = VERIFY_RESULT(util::DecodeJwt(token));
@@ -422,7 +421,7 @@ Status ValidateJWT(
   // Validate issuer.
   auto jwt_issuer = VERIFY_RESULT(util::GetIssuer(decoded_jwt));
   bool valid_issuer =
-      DoesValueExist(jwt_issuer, options->issuers, options->issuers_length, "issuer");
+      DoesValueExist(jwt_issuer, options->allowed_issuers, options->allowed_issuers_length, "issuer");
   if (!valid_issuer) {
     return STATUS_FORMAT(InvalidArgument, "Invalid JWT issuer: $0", jwt_issuer);
   }
@@ -433,7 +432,7 @@ Status ValidateJWT(
   bool valid_audience = false;
   for (auto jwt_aud : jwt_audience) {
     valid_audience =
-        DoesValueExist(jwt_aud, options->audiences, options->audiences_length, "audience");
+        DoesValueExist(jwt_aud, options->allowed_audiences, options->allowed_audiences_length, "audience");
     if (valid_audience) {
       break;
     }
@@ -454,5 +453,4 @@ Status ValidateJWT(
   return Status::OK();
 }
 
-}  // namespace util
-}  // namespace yb
+}  // namespace yb::util

@@ -3644,14 +3644,16 @@ bool YbIsStickyConnection(int *change)
 	return (yb_committed_sticky_object_count > 0);
 }
 
-char* YbReadWholeFile(const char *filename, int *length, int elevel)
+char *
+YbReadWholeFile(const char *filename, int *length, int elevel)
 {
 	char	   *buf;
 	FILE	   *file;
 	size_t		bytes_to_read;
 	struct stat fst;
 
-	if (stat(filename, &fst) < 0) {
+	if (stat(filename, &fst) < 0)
+	{
 		ereport(elevel,
 				(errcode_for_file_access(),
 				 errmsg("could not stat file \"%s\": %m", filename)));
@@ -3666,7 +3668,8 @@ char* YbReadWholeFile(const char *filename, int *length, int elevel)
 	}
 	bytes_to_read = (size_t) fst.st_size;
 
-	if ((file = AllocateFile(filename, PG_BINARY_R)) == NULL) {
+	if ((file = AllocateFile(filename, PG_BINARY_R)) == NULL)
+	{
 		ereport(elevel,
 				(errcode_for_file_access(),
 				 errmsg("could not open file \"%s\" for reading: %m",
@@ -3691,7 +3694,8 @@ char* YbReadWholeFile(const char *filename, int *length, int elevel)
 	return buf;
 }
 
-char* YbReadFile(const char *outer_filename, const char *filename, int elevel)
+char *
+YbReadFile(const char *outer_filename, const char *filename, int elevel)
 {
 	char *file_fullname;
 	char *file_contents;

@@ -11,8 +11,8 @@
 // under the License.
 //
 
-#include "yb/util/tostring.h"
 #include "yb/util/format.h"
+#include "yb/util/tostring.h"
 
 namespace yb {
 

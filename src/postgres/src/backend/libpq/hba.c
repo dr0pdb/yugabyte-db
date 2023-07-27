@@ -1653,33 +1653,39 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 	}
 
 	if (parsedline->auth_method == uaYbJWT) {
-		MANDATORY_AUTH_ARG(parsedline->jwt_jwks, "jwt_jwks_path", "jwt");
-		YBCStatus s = YBCValidateJWKS(parsedline->jwt_jwks);
+		MANDATORY_AUTH_ARG(parsedline->yb_jwt_jwks, "jwt_jwks_path", "jwt");
+		YBCStatus s = YBCValidateJWKS(parsedline->yb_jwt_jwks);
 		if (s) /* !ok */
 		{
-			ereport(LOG, (errcode(ERRCODE_CONFIG_FILE_ERROR),
-						  errmsg("invalid jwt_jwks content"),
-						  errcontext("line %d of configuration file \"%s\"",
-									 line_num, HbaFileName)));
+			ereport(elevel,
+					(errcode(ERRCODE_CONFIG_FILE_ERROR),
+					 errmsg("invalid jwt_jwks content"),
+					 errcontext("line %d of configuration file \"%s\"",
+								line_num, HbaFileName)));
+			*err_msg = "invalid jwt_jwks content";
 			YBCFreeStatus(s);
 			return NULL;
 		}
 
-		if (list_length(parsedline->jwt_audiences) < 1)
+		if (list_length(parsedline->yb_jwt_audiences) < 1)
 		{
-			ereport(LOG, (errcode(ERRCODE_CONFIG_FILE_ERROR),
-						  errmsg("list of JWT audiences cannot be empty"),
-						  errcontext("line %d of configuration file \"%s\"",
-									 line_num, HbaFileName)));
+			ereport(elevel,
+					(errcode(ERRCODE_CONFIG_FILE_ERROR),
+					 errmsg("list of JWT audiences cannot be empty"),
+					 errcontext("line %d of configuration file \"%s\"",
+								line_num, HbaFileName)));
+			*err_msg = "list of JWT audiences cannot be empty";
 			return NULL;
 		}
 
-		if (list_length(parsedline->jwt_issuers) < 1)
+		if (list_length(parsedline->yb_jwt_issuers) < 1)
 		{
-			ereport(LOG, (errcode(ERRCODE_CONFIG_FILE_ERROR),
-						  errmsg("list of JWT issuers cannot be empty"),
-						  errcontext("line %d of configuration file \"%s\"",
-									 line_num, HbaFileName)));
+			ereport(elevel,
+					(errcode(ERRCODE_CONFIG_FILE_ERROR),
+					 errmsg("list of JWT issuers cannot be empty"),
+					 errcontext("line %d of configuration file \"%s\"",
+								line_num, HbaFileName)));
+			*err_msg = "list of JWT issuers cannot be empty";
 			return NULL;
 		}
 	}
@@ -2178,12 +2184,13 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 		hbaline->radiusidentifiers = parsed_identifiers;
 		hbaline->radiusidentifiers_s = pstrdup(val);
 	}
-	else if (strcmp(name, "jwt_jwks_path") == 0) {
+	else if (strcmp(name, "jwt_jwks_path") == 0)
+	{
 		REQUIRE_AUTH_OPTION(uaYbJWT, "jwt_jwks_path", "jwt");
 
-		hbaline->jwt_jwks_path_s = pstrdup(val);
-		hbaline->jwt_jwks = YbReadFile(HbaFileName, val, elevel);
-		if (hbaline->jwt_jwks == NULL)
+		hbaline->yb_jwt_jwks_path_s = pstrdup(val);
+		hbaline->yb_jwt_jwks = YbReadFile(HbaFileName, val, elevel);
+		if (hbaline->yb_jwt_jwks == NULL)
 		{
 			ereport(elevel,
 					(errcode(ERRCODE_CONFIG_FILE_ERROR),
@@ -2193,7 +2200,8 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 			return false;
 		}
 	}
-	else if (strcmp(name, "jwt_audiences") == 0) {
+	else if (strcmp(name, "jwt_audiences") == 0)
+	{
 		List	   *parsed_audiences;
 		char	   *dupval = pstrdup(val);
 
@@ -2211,10 +2219,11 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 			return false;
 		}
 
-		hbaline->jwt_audiences = parsed_audiences;
-		hbaline->jwt_audiences_s = pstrdup(val);
+		hbaline->yb_jwt_audiences = parsed_audiences;
+		hbaline->yb_jwt_audiences_s = pstrdup(val);
 	}
-	else if (strcmp(name, "jwt_issuers") == 0) {
+	else if (strcmp(name, "jwt_issuers") == 0)
+	{
 		List	   *parsed_issuers;
 		char	   *dupval = pstrdup(val);
 
@@ -2232,12 +2241,13 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 			return false;
 		}
 
-		hbaline->jwt_issuers = parsed_issuers;
-		hbaline->jwt_issuers_s = pstrdup(val);
+		hbaline->yb_jwt_issuers = parsed_issuers;
+		hbaline->yb_jwt_issuers_s = pstrdup(val);
 	}
-	else if (strcmp(name, "jwt_matching_claim_key") == 0) {
+	else if (strcmp(name, "jwt_matching_claim_key") == 0)
+	{
 		REQUIRE_AUTH_OPTION(uaYbJWT, "jwt_matching_claim_key", "jwt");
-		hbaline->jwt_matching_claim_key = pstrdup(val);
+		hbaline->yb_jwt_matching_claim_key = pstrdup(val);
 	}
 	else
 	{
@@ -2584,21 +2594,25 @@ gethba_options(HbaLine *hba)
 
 	if (hba->auth_method == uaYbJWT)
 	{
-		if (hba->jwt_jwks_path_s)
+		if (hba->yb_jwt_jwks_path_s)
 			options[noptions++] =
-				CStringGetTextDatum(psprintf("jwt_jwks_path=%s", hba->jwt_jwks_path_s));
+				CStringGetTextDatum(psprintf("jwt_jwks_path=%s",
+											 hba->yb_jwt_jwks_path_s));
 
-		if (hba->jwt_audiences_s)
+		if (hba->yb_jwt_audiences_s)
 			options[noptions++] =
-				CStringGetTextDatum(psprintf("jwt_audiences=%s", hba->jwt_audiences_s));
+				CStringGetTextDatum(psprintf("jwt_audiences=%s",
+											 hba->yb_jwt_audiences_s));
 
-		if (hba->jwt_issuers_s)
+		if (hba->yb_jwt_issuers_s)
 			options[noptions++] =
-				CStringGetTextDatum(psprintf("jwt_issuers=%s", hba->jwt_issuers_s));
+				CStringGetTextDatum(psprintf("jwt_issuers=%s",
+											 hba->yb_jwt_issuers_s));
 
-		if (hba->jwt_matching_claim_key)
-			options[noptions++] = CStringGetTextDatum(psprintf(
-				"jwt_matching_claim_key=%s", hba->jwt_matching_claim_key));
+		if (hba->yb_jwt_matching_claim_key)
+			options[noptions++] =
+				CStringGetTextDatum(psprintf("jwt_matching_claim_key=%s",
+											 hba->yb_jwt_matching_claim_key));
 	}
 
 	/* If you add more options, consider increasing MAX_HBA_OPTIONS. */

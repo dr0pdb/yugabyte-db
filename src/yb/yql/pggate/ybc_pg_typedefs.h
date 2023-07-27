@@ -475,10 +475,10 @@ typedef struct PgSessionTxnInfo {
 typedef struct PgJwtAuthOptions {
   char* jwks;
   char* matching_claim_key;
-  char** issuers;
-  int issuers_length;
-  char** audiences;
-  int audiences_length;
+  char** allowed_issuers;
+  int allowed_issuers_length;
+  char** allowed_audiences;
+  int allowed_audiences_length;
   char* username;
   char* usermap;
 } YBCPgJwtAuthOptions;
