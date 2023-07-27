@@ -925,21 +925,7 @@ extern bool YbIsStickyConnection(int *change);
 
 extern bool yb_is_client_ysqlconnmgr;
 
-/*
- * Reads the contents of the given file assuming that the filename is an
- * absolute path.
- *
- * The file contents are returned as a single palloc'd chunk with an extra \0
- * byte added to the end.
- *
- * This function is a slightly modified version of the read_whole_file function
- * from src/postgres/src/backend/commands/extension.c.
- *
- * The difference is in the error handling. The original function always logs
- * errors at ERROR while in this function, the errors are reported by logging
- * messages at ereport level elevel and returning NULL if elevel < ERROR.
- */
-extern char* YbReadWholeFile(const char *filename, int *length, int elevel);
+extern char** YbShallowCopyCharListToArray(const List* list, int* length);
 
 /*
  * Reads the contents of the given file path. If the file path is a relative

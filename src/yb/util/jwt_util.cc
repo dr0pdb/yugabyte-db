@@ -430,11 +430,11 @@ Status ValidateJWT(
 
   // Validate audiences. A JWT can be issued for more than one audience and is valid as long as one
   // of the audience matches the allowed audiences in the JWT config.
-  auto jwt_audience = VERIFY_RESULT(util::GetAudiences(decoded_jwt));
+  auto jwt_audiences = VERIFY_RESULT(util::GetAudiences(decoded_jwt));
   bool valid_audience = false;
-  for (auto jwt_aud : jwt_audience) {
+  for (const auto& audience : jwt_audiences) {
     valid_audience = DoesValueExist(
-        jwt_aud, options->allowed_audiences, options->allowed_audiences_length, "audience");
+        audience, options->allowed_audiences, options->allowed_audiences_length, "audience");
     if (valid_audience) {
       break;
     }

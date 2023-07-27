@@ -124,7 +124,6 @@ static void ApplyExtensionUpdates(Oid extensionOid,
 					  char *origSchemaName,
 					  bool cascade,
 					  bool is_create);
-static char *read_whole_file(const char *filename, int *length);
 
 
 /*
@@ -661,7 +660,7 @@ read_extension_script_file(const ExtensionControlFile *control,
 	char	   *dest_str;
 	int			len;
 
-	src_str = read_whole_file(filename, &len);
+	src_str = read_whole_file(filename, &len, ERROR);
 
 	/* use database encoding if not given */
 	if (control->encoding < 0)
@@ -3336,9 +3335,13 @@ ExecAlterExtensionContentsStmt(AlterExtensionContentsStmt *stmt,
  *
  * The file contents are returned as a single palloc'd chunk. For convenience
  * of the callers, an extra \0 byte is added to the end.
+ *
+ * The error handling depends on the passed elevel. For elevels >= ERROR,
+ * pg_unreachable is called which halts the execution otherwise NULL is
+ * returned.
  */
-static char *
-read_whole_file(const char *filename, int *length)
+char *
+read_whole_file(const char *filename, int *length, int elevel)
 {
 	char	   *buf;
 	FILE	   *file;
@@ -3346,30 +3349,42 @@ read_whole_file(const char *filename, int *length)
 	struct stat fst;
 
 	if (stat(filename, &fst) < 0)
-		ereport(ERROR,
+	{
+		ereport(elevel,
 				(errcode_for_file_access(),
 				 errmsg("could not stat file \"%s\": %m", filename)));
+		return NULL;
+	}
 
 	if (fst.st_size > (MaxAllocSize - 1))
-		ereport(ERROR,
+	{
+		ereport(elevel,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 				 errmsg("file \"%s\" is too large", filename)));
+		return NULL;
+	}
 	bytes_to_read = (size_t) fst.st_size;
 
 	if ((file = AllocateFile(filename, PG_BINARY_R)) == NULL)
-		ereport(ERROR,
+	{
+		ereport(elevel,
 				(errcode_for_file_access(),
 				 errmsg("could not open file \"%s\" for reading: %m",
 						filename)));
+		return NULL;
+	}
 
 	buf = (char *) palloc(bytes_to_read + 1);
 
 	*length = fread(buf, 1, bytes_to_read, file);
 
 	if (ferror(file))
-		ereport(ERROR,
+	{
+		ereport(elevel,
 				(errcode_for_file_access(),
 				 errmsg("could not read file \"%s\": %m", filename)));
+		return NULL;
+	}
 
 	FreeFile(file);
 

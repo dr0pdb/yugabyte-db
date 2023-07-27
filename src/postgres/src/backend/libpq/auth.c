@@ -3501,33 +3501,21 @@ ybGetJwtAuthOptionsFromPort(Port *port, YBCPgJwtAuthOptions *opt)
 	HbaLine*	hba_line = port->hba;
 
 	opt->jwks = hba_line->yb_jwt_jwks;
+	opt->usermap = hba_line->usermap;
+	opt->username = port->user_name;
 
 	/* Use "sub" as the default matching claim key */
 	opt->matching_claim_key = hba_line->yb_jwt_matching_claim_key ?: "sub";
 
 	/*
-	 * Shallow-copy jwt_issuers and jwt_audiences.
+	 * Shallow-copy yb_jwt_issuers and yb_jwt_audiences.
 	 */
 
-	opt->allowed_issuers = (char **) palloc(sizeof(char *) *
-									list_length(hba_line->yb_jwt_issuers));
-	opt->allowed_issuers_length = 0;
-	ListCell *lc;
-	foreach (lc, hba_line->yb_jwt_issuers)
-	{
-		opt->allowed_issuers[opt->allowed_issuers_length++] = (char *) lfirst(lc);
-	}
+	opt->allowed_issuers = YbShallowCopyCharListToArray(
+		hba_line->yb_jwt_issuers, &opt->allowed_issuers_length);
 
-	opt->allowed_audiences = (char **) palloc(sizeof(char *) *
-									  list_length(hba_line->yb_jwt_audiences));
-	opt->allowed_audiences_length = 0;
-	foreach (lc, hba_line->yb_jwt_audiences)
-	{
-		opt->allowed_audiences[opt->allowed_audiences_length++] = (char *) lfirst(lc);
-	}
-
-	opt->usermap = hba_line->usermap;
-	opt->username = port->user_name;
+	opt->allowed_audiences = YbShallowCopyCharListToArray(
+		hba_line->yb_jwt_audiences, &opt->allowed_audiences_length);
 }
 
 static int

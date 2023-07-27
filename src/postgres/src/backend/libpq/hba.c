@@ -2194,9 +2194,12 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 		{
 			ereport(elevel,
 					(errcode(ERRCODE_CONFIG_FILE_ERROR),
-					 errmsg("could not read jwks file at jwt_jwks_path \"%s\"", val),
+					 errmsg("could not read jwks file at jwt_jwks_path \"%s\"",
+					 		val),
 					 errcontext("line %d of configuration file \"%s\"",
 								line_num, HbaFileName)));
+			*err_msg = psprintf(
+				"could not read jwks file at jwt_jwks_path: \"%s\"", val);
 			return false;
 		}
 	}
@@ -2216,6 +2219,8 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 							val),
 					 errcontext("line %d of configuration file \"%s\"",
 								line_num, HbaFileName)));
+			*err_msg = psprintf(
+				"could not parse JWT audience list: \"%s\"", val);
 			return false;
 		}
 
@@ -2238,6 +2243,8 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 							val),
 					 errcontext("line %d of configuration file \"%s\"",
 								line_num, HbaFileName)));
+			*err_msg = psprintf(
+				"could not parse JWT issuer list: \"%s\"", val);
 			return false;
 		}
 
