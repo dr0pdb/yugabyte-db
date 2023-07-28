@@ -447,7 +447,8 @@ public class TestJWTAuth extends BasePgSQLTest {
     String jwtWithDifferentEmail =
         createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "AnySubject_Doesnotmatter",
             "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-            "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, new HashMap<String, String>() {
+            "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME,
+            EXPIRATION_TIME, new HashMap<String, String>() {
               { put("email", "testuser1@random.com"); }
             }, null);
     assertFailedAuthentication(passRoleUserConnBldr, jwtWithDifferentEmail);
