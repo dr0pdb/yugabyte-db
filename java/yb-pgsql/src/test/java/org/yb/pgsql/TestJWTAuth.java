@@ -327,20 +327,6 @@ public class TestJWTAuth extends BasePgSQLTest {
         new HashMap<String, String>(), null);
   }
 
-  private static void assertFailedAuthentication(
-      ConnectionBuilder passRoleUserConnBldr, String password) throws Exception {
-    try (Connection connection = passRoleUserConnBldr.withPassword(password).connect()) {
-      fail("Expected exception but did not get any.");
-    } catch (PSQLException e) {
-      if (StringUtils.containsIgnoreCase(e.getMessage(), INCORRECT_JWT_AUTH_MSG)) {
-        LOG.info("Expected exception", e);
-      } else {
-        fail(String.format("Unexpected Error Message. Got: '%s', Expected to contain: '%s'",
-            e.getMessage(), INCORRECT_JWT_AUTH_MSG));
-      }
-    }
-  }
-
   @Test
   public void authWithSubjectWithoutIdent() throws Exception {
     JWKSet jwks = createJwks();
@@ -681,6 +667,42 @@ public class TestJWTAuth extends BasePgSQLTest {
         // No-op.
       }
     }
+  }
+
+  private static void assertFailedAuthentication(
+      ConnectionBuilder passRoleUserConnBldr, String password) throws Exception {
+    try (Connection connection = passRoleUserConnBldr.withPassword(password).connect()) {
+      fail("Expected exception but did not get any.");
+    } catch (PSQLException e) {
+      if (StringUtils.containsIgnoreCase(e.getMessage(), INCORRECT_JWT_AUTH_MSG)) {
+        LOG.info("Expected exception", e);
+      } else {
+        fail(String.format("Unexpected Error Message. Got: '%s', Expected to contain: '%s'",
+            e.getMessage(), INCORRECT_JWT_AUTH_MSG));
+      }
+    }
+  }
+
+  @Test
+  public void illformattedRegexMapping() throws Exception {
+    JWKSet jwks = createJwks();
+    String jwksPath = populateJWKSFile(jwks);
+
+    // We didn't specify who the IDP user "john" maps to.
+    String identFileContents = "\"map1 john \"";
+
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
+        /* matchingClaimKey */ "", /* mapName */ "map1", identFileContents);
+
+    try (Statement statement = connection.createStatement()) {
+      statement.execute("CREATE ROLE johndoe LOGIN");
+    }
+
+    // Create and use JWT for user "john". Illformatted mapping should lead to failed authentication
+    // but not a crash.
+    String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "john", ALLOWED_ISSUERS.get(0),
+        ALLOWED_AUDIENCES.get(0), ISSUED_AT_TIME, EXPIRATION_TIME);
+    assertFailedAuthentication(getConnectionBuilder().withUser("johndoe"), jwt);
   }
 
   @Test

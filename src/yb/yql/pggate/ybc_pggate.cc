@@ -370,7 +370,7 @@ YBCStatus YBCValidateJWT(const char *token, const YBCPgJwtAuthOptions *options) 
   if (match_result == YBC_STATUS_OK) {
     return YBCStatusOK();
   }
-  return ToYBCStatus(STATUS(InvalidArgument, "Identity match failed with status"));
+  return ToYBCStatus(STATUS(InvalidArgument, "Identity match failed"));
 }
 
 YBCStatus YBCPgInitSession(const char* database_name, YBCPgExecStatsState* session_stats) {
