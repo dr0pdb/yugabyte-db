@@ -356,7 +356,7 @@ YBCStatus YBCValidateJWT(const char *token, const YBCPgJwtAuthOptions *options) 
   // As long as there is a match with a single value of the list, the JWT is considered to be issued
   // for a valid username.
   int match_result = YBC_STATUS_ERROR;
-  for (const auto &identity : identity_claims) {
+  for (const auto& identity : identity_claims) {
     VLOG(4) << "Identity claim entry for JWT authentication: " << identity;
     match_result = YBCGetPgCallbacks()->CheckUserMap(
         options->usermap, options->username, identity.c_str(), false);

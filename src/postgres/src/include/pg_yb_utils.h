@@ -907,14 +907,14 @@ OptSplit *YbGetSplitOptions(Relation rel);
 #endif
 
 /*
- * Increments a tally of sticky objects (TEMP TABLES/WITH HOLD CURSORS) 
- * maintained for every transaction. 
+ * Increments a tally of sticky objects (TEMP TABLES/WITH HOLD CURSORS)
+ * maintained for every transaction.
  */
 extern void increment_sticky_object_count();
 
 /*
- * Decrements a tally of sticky objects (TEMP TABLES/WITH HOLD CURSORS) 
- * maintained for every transaction. 
+ * Decrements a tally of sticky objects (TEMP TABLES/WITH HOLD CURSORS)
+ * maintained for every transaction.
  */
 extern void decrement_sticky_object_count();
 
@@ -929,7 +929,7 @@ extern char** YbShallowCopyCharListToArray(const List* list, int* length);
 
 /*
  * Reads the contents of the given file path. If the file path is a relative
- * path, it is treated as relative to the directry of the provided
+ * path, it is treated as relative to the directory of the provided
  * outer_filename.
  *
  * Errors are reported by logging messages at ereport level elevel and by
