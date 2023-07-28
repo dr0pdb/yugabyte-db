@@ -81,13 +81,17 @@ public class TestJWTAuth extends BasePgSQLTest {
 
   private static final String INCORRECT_JWT_AUTH_MSG = "JWT authentication failed for user";
 
-  private static final String JWKS_FILE_NAME = "jwt_jwks#hello";
+  private static final String JWKS_FILE_NAME = "jwt_jwks";
   private static final String RS256_KEYID = "rs256_keyid";
   private static final String PS256_KEYID = "ps256_keyid";
   private static final String ES256_KEYID = "es256_keyid";
   private static final String RS256_KEYID_WITH_X5C = "rs256_keyid_with_x5c";
   private static final String PS256_KEYID_WITH_X5C = "ps256_keyid_with_x5c";
   private static final String ES256_KEYID_WITH_X5C = "es256_keyid_with_x5c";
+
+  // The test shouldn't take 24 hours, so these constants are ok.
+  private static final Date ISSUED_AT_TIME = new Date(new Date().getTime() - 24 * 60 * 60 * 1000);
+  private static final Date EXPIRATION_TIME = new Date(new Date().getTime() + 24 * 60 * 60 * 1000);
 
   private static final List<String> ALLOWED_ISSUERS = new ArrayList<String>() {
     {
@@ -273,8 +277,9 @@ public class TestJWTAuth extends BasePgSQLTest {
   // groupsOrRoles needs to be passed separately since Nimbus is not able to serialize the List when
   // it receives it as a object.
   private static String createJWT(JWSAlgorithm algorithm, JWKSet jwks, String keyId, String sub,
-      String issuer, String audience, Date expirationTime, Map<String, String> optionalClaims,
-      Pair<String, List<String>> groupsOrRoles) throws Exception {
+      String issuer, String audience, Date issuedAtTime, Date expirationTime,
+      Map<String, String> optionalClaims, Pair<String, List<String>> groupsOrRoles)
+      throws Exception {
     JWK key = jwks.getKeyByKeyId(keyId);
     assertNotNull(key);
 
@@ -286,9 +291,12 @@ public class TestJWTAuth extends BasePgSQLTest {
     }
     assertNotNull(signer);
 
-    JWTClaimsSet.Builder claimsSetBuilder =
-        new JWTClaimsSet.Builder().subject(sub).issuer(issuer).audience(audience).expirationTime(
-            expirationTime);
+    JWTClaimsSet.Builder claimsSetBuilder = new JWTClaimsSet.Builder()
+                                                .subject(sub)
+                                                .issuer(issuer)
+                                                .audience(audience)
+                                                .expirationTime(expirationTime)
+                                                .issueTime(issuedAtTime);
 
     for (Map.Entry<String, String> entry : optionalClaims.entrySet()) {
       claimsSetBuilder.claim(entry.getKey(), entry.getValue());
@@ -307,15 +315,15 @@ public class TestJWTAuth extends BasePgSQLTest {
   }
 
   private static String createJWT(JWSAlgorithm algorithm, JWKSet jwks, String keyId, String sub,
-      String issuer, String audience, Date expirationTime, Pair<String, List<String>> groupsOrRoles)
-      throws Exception {
-    return createJWT(algorithm, jwks, keyId, sub, issuer, audience, expirationTime,
+      String issuer, String audience, Date issuedAtTime, Date expirationTime,
+      Pair<String, List<String>> groupsOrRoles) throws Exception {
+    return createJWT(algorithm, jwks, keyId, sub, issuer, audience, issuedAtTime, expirationTime,
         new HashMap<String, String>(), groupsOrRoles);
   }
 
   private static String createJWT(JWSAlgorithm algorithm, JWKSet jwks, String keyId, String sub,
-      String issuer, String audience, Date expirationTime) throws Exception {
-    return createJWT(algorithm, jwks, keyId, sub, issuer, audience, expirationTime,
+      String issuer, String audience, Date issuedAtTime, Date expirationTime) throws Exception {
+    return createJWT(algorithm, jwks, keyId, sub, issuer, audience, issuedAtTime, expirationTime,
         new HashMap<String, String>(), null);
   }
 
@@ -363,7 +371,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     for (Pair<JWSAlgorithm, String> key : keysWithAlgorithms) {
       String jwt = createJWT(key.getFirst(), jwks, key.getSecond(), "testuser1",
           "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-          "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000), null);
+          "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, null);
       try (Connection connection = passRoleUserConnBldr.withPassword(jwt).connect()) {
         // No-op.
       }
@@ -393,7 +401,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     // login.
     String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "testuser1@example.com",
         "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000), null);
+        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, null);
     try (Connection connection = passRoleUserConnBldr.withPassword(jwt).connect()) {
       // No-op.
     }
@@ -402,7 +410,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     String jwtWithDifferentSubject = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID,
         "testuser1@random.com",
         "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000), null);
+        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, null);
     assertFailedAuthentication(passRoleUserConnBldr, jwtWithDifferentSubject);
   }
 
@@ -427,8 +435,8 @@ public class TestJWTAuth extends BasePgSQLTest {
     // login.
     String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "AnySubject_Doesnotmatter",
         "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002",
-        new Date(new Date().getTime() + 60 * 1000), new HashMap<String, String>() {
+        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME,
+        EXPIRATION_TIME, new HashMap<String, String>() {
           { put("email", "testuser1@example.com"); }
         }, null);
     try (Connection connection = passRoleUserConnBldr.withPassword(jwt).connect()) {
@@ -439,8 +447,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     String jwtWithDifferentEmail =
         createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "AnySubject_Doesnotmatter",
             "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-            "795c2b42-2156-11ee-be56-0242ac120002",
-            new Date(new Date().getTime() + 60 * 1000), new HashMap<String, String>() {
+            "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, new HashMap<String, String>() {
               { put("email", "testuser1@random.com"); }
             }, null);
     assertFailedAuthentication(passRoleUserConnBldr, jwtWithDifferentEmail);
@@ -464,7 +471,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     // The user is part of the dbadmintest group, so login must be successful.
     String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "Anysubject_Doesnotmatter",
         "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000),
+        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME,
         new HashMap<String, String>() {
           { put("email", "doesnotmatter@random.com"); } // doesn't matter.
         },
@@ -479,7 +486,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     String jwtWithDifferentGroups = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID,
         "AnySubject_Doesnotmatter",
         "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000),
+        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME,
         new HashMap<String, String>() {
           { put("email", "doesnotmatter@random.com"); } // doesn't matter.
         },
@@ -508,7 +515,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     // login must be successful.
     String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "Anysubject_Doesnotmatter",
         "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000),
+        "795c2b42-2156-11ee-be56-0242ac120002",  ISSUED_AT_TIME, EXPIRATION_TIME,
         new HashMap<String, String>() {
           { put("email", "doesnotmatter@random.com"); } // doesn't matter.
         },
@@ -522,7 +529,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     String jwtWithDifferentGroups = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID,
         "AnySubject_Doesnotmatter",
         "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000),
+        "795c2b42-2156-11ee-be56-0242ac120002",  ISSUED_AT_TIME, EXPIRATION_TIME,
         new HashMap<String, String>() {
           { put("email", "doesnotmatter@random.com"); } // doesn't matter.
         },
@@ -629,7 +636,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     for (Pair<JWSAlgorithm, String> key : keysWithAlgorithms) {
       String jwt = createJWT(key.getFirst(), jwks, key.getSecond(), "testuser1",
           "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-          "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000), null);
+          "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, null);
       try (Connection connection = passRoleUserConnBldr.withPassword(jwt).connect()) {
         // No-op.
       }
@@ -667,8 +674,7 @@ public class TestJWTAuth extends BasePgSQLTest {
 
     for (Pair<String, String> testCase : testCases) {
       String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, testCase.getFirst(),
-          ALLOWED_ISSUERS.get(0), ALLOWED_AUDIENCES.get(0),
-          new Date(new Date().getTime() + 60 * 1000));
+          ALLOWED_ISSUERS.get(0), ALLOWED_AUDIENCES.get(0), ISSUED_AT_TIME, EXPIRATION_TIME);
       try (Connection connection =
                getConnectionBuilder().withUser(testCase.getSecond()).withPassword(jwt).connect()) {
         // No-op.
@@ -692,7 +698,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     // Valid login just for sanity check.
     String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "testuser1",
         "oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000), null);
+        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, null);
     try (Connection connection = passRoleUserConnBldr.withPassword(jwt).connect()) {
       // No-op.
     } catch (PSQLException e) {
@@ -707,25 +713,35 @@ public class TestJWTAuth extends BasePgSQLTest {
     // Invalid Issuer.
     jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "testuser1",
         "login.issuer1.secured.example.com/some_invalid_id/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000), null);
+        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, null);
     assertFailedAuthentication(passRoleUserConnBldr, jwt);
 
     // Invalid Audience.
     jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "testuser1",
         "oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0",
-        "12344_incorrect_audience", new Date(new Date().getTime() + 60 * 1000), null);
+        "12344_incorrect_audience", ISSUED_AT_TIME, EXPIRATION_TIME, null);
     assertFailedAuthentication(passRoleUserConnBldr, jwt);
 
     // Null value of matching claim key.
     jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, null,
         "oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 60 * 1000), null);
+        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, null);
     assertFailedAuthentication(passRoleUserConnBldr, jwt);
 
-    // Token already expired an hour ago.
+    // Token already expired 10 minutes ago.
     jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "testuser1",
         "oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() - 60 * 1000), null);
+        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME,
+        new Date(new Date().getTime() - 10 * 60 * 1000), null);
+    assertFailedAuthentication(passRoleUserConnBldr, jwt);
+
+    // Token issued 10 minutes in the future.
+    // Just for information: The JWT-CPP library used internally classifies this also as "expired
+    // token".
+    jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "testuser1",
+        "oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0",
+        "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 10 * 60 * 1000),
+        EXPIRATION_TIME, null);
     assertFailedAuthentication(passRoleUserConnBldr, jwt);
 
     // Token signed by a different key than the ones present in JWKS.
@@ -761,9 +777,10 @@ public class TestJWTAuth extends BasePgSQLTest {
       fail("Expected exception but did not get any.");
     } catch (PSQLException e) {
       // We cannot expect any specific error message here since we get different error messages on
-      // Mac and Linux. Error message on Linux: "The connection attempt failed" Error message on
-      // Mac: "Connection to <host> refused. Check that the hostname and port are correct and that
-      // the postmaster is accepting TCP/IP connections."
+      // Mac and Linux.
+      // Error message on Linux: "The connection attempt failed".
+      // Error message on Mac: "Connection to <host> refused. Check that the hostname and port are
+      // correct and that the postmaster is accepting TCP/IP connections."
     } finally {
       // Mark the cluster for recreation so that the next test is not affected.
       markClusterNeedsRecreation();
