@@ -736,8 +736,7 @@ public class TestJWTAuth extends BasePgSQLTest {
     assertFailedAuthentication(passRoleUserConnBldr, jwt);
 
     // Token issued 10 minutes in the future.
-    // Just for information: The JWT-CPP library used internally classifies this also as "expired
-    // token".
+    // Note: The JWT-CPP library used internally classifies this also as an expired token.
     jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "testuser1",
         "oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0",
         "795c2b42-2156-11ee-be56-0242ac120002", new Date(new Date().getTime() + 10 * 60 * 1000),
@@ -756,7 +755,7 @@ public class TestJWTAuth extends BasePgSQLTest {
             .subject("testuser1")
             .issuer("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0")
             .audience("795c2b42-2156-11ee-be56-0242ac120002")
-            .expirationTime(new Date(new Date().getTime() + 60 * 1000));
+            .expirationTime(EXPIRATION_TIME);
     SignedJWT signedJWT = new SignedJWT(
         new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("not_present_in_jwks").build(),
         claimsSetBuilder.build());
@@ -764,6 +763,55 @@ public class TestJWTAuth extends BasePgSQLTest {
     signedJWT.sign(signer);
     jwt = signedJWT.serialize();
     assertFailedAuthentication(passRoleUserConnBldr, jwt);
+  }
+
+  // These test cases are separate from invalidAuthentication because we need to set a non-default
+  // matching claim key since Nimbus library does not allow subject to be anything other than
+  // string.
+  @Test
+  public void invalidMatchingClaimKey() throws Exception {
+    JWKSet jwks = createJwks();
+    String jwksPath = populateJWKSFile(jwks);
+    String matchingClaimKey = "anything_except_sub";
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
+        matchingClaimKey, /* mapName */ "", /* identFileContents */ "");
+
+    try (Statement statement = connection.createStatement()) {
+      statement.execute("CREATE ROLE testuser1 LOGIN");
+    }
+
+    ConnectionBuilder passRoleUserConnBldr = getConnectionBuilder().withUser("testuser1");
+
+    JWSSigner signer = new RSASSASigner(jwks.getKeyByKeyId(RS256_KEYID).toRSAKey().toPrivateKey());
+    JWTClaimsSet.Builder claimsSetBuilder =
+        new JWTClaimsSet.Builder()
+            .subject("does_not_matter")
+            .issuer("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0")
+            .audience("795c2b42-2156-11ee-be56-0242ac120002")
+            .expirationTime(EXPIRATION_TIME);
+
+    // Claim value is a boolean.
+    {
+      claimsSetBuilder.claim(matchingClaimKey, true);
+      SignedJWT signedJWT =
+          new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(RS256_KEYID).build(),
+              claimsSetBuilder.build());
+      signedJWT.sign(signer);
+      String jwt = signedJWT.serialize();
+      assertFailedAuthentication(passRoleUserConnBldr, jwt);
+    }
+
+    // Claim value is an array but inner type is not a string.
+    {
+      claimsSetBuilder.claim(
+          matchingClaimKey, Arrays.asList(Arrays.asList("a", "b"), Arrays.asList("c", "d")));
+      SignedJWT signedJWT =
+          new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(RS256_KEYID).build(),
+              claimsSetBuilder.build());
+      signedJWT.sign(signer);
+      String jwt = signedJWT.serialize();
+      assertFailedAuthentication(passRoleUserConnBldr, jwt);
+    }
   }
 
   // Asserts that the cluster restart failed by expecting an exception. There doesn't seem to be a

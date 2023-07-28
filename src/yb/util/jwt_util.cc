@@ -46,8 +46,6 @@ using jwt::traits::kazuho_picojson;
 
 namespace yb::util {
 
-namespace {
-
 bool DoesValueExist(
     const std::string& value, const char* const* values, int length,
     const std::string& field_name) {
@@ -64,8 +62,6 @@ bool DoesValueExist(
   }
   return false;
 }
-
-}  // namespace
 
 Result<jwks<kazuho_picojson>> ParseJwks(const std::string& key_set) {
   try {
@@ -299,7 +295,8 @@ Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
   }
 }
 
-Status ValidateJWT(const decoded_jwt<kazuho_picojson> decoded_jwt, const jwk<kazuho_picojson> jwk) {
+Status ValidateDecodedJWT(
+    const decoded_jwt<kazuho_picojson> decoded_jwt, const jwk<kazuho_picojson> jwk) {
   try {
     // To verify the JWT, the library expects the key to be provided in the PEM format (see
     // GetVerifier). Ref: https://github.com/Thalhammer/jwt-cpp/issues/271.
@@ -356,9 +353,8 @@ Result<std::set<std::string>> GetAudiences(const decoded_jwt<kazuho_picojson> de
 // Assumes that the claim value is either a string or an array of string. In both the cases, we
 // return a vector<string> to the caller.
 // In case the claim value isn't a string/array of string, an error is returned.
-template <typename json_traits>
 Result<std::vector<std::string>> GetClaimAsStringsArray(
-    const decoded_jwt<json_traits> decoded_jwt, const std::string& name) {
+    const decoded_jwt<kazuho_picojson> decoded_jwt, const std::string& name) {
   try {
     std::vector<std::string> result;
     auto claim_value = decoded_jwt.get_payload_claim(name);
@@ -376,9 +372,9 @@ Result<std::vector<std::string>> GetClaimAsStringsArray(
         }
 
         // Ensure that the type of the array element is a string and populate the result.
-        if (jwt::traits::kazuho_picojson::get_type(value_array[0]) == type::string) {
+        if (kazuho_picojson::get_type(value_array[0]) == type::string) {
           for (const auto& e : value_array) {
-            result.push_back(jwt::traits::kazuho_picojson::as_string(e));
+            result.push_back(kazuho_picojson::as_string(e));
           }
           break;
         }
@@ -423,15 +419,15 @@ Status ValidateJWT(
       CStringArrayToString(options->allowed_issuers, options->allowed_issuers_length),
       CStringArrayToString(options->allowed_audiences, options->allowed_audiences_length));
 
-  auto jwks = VERIFY_RESULT(util::ParseJwks(options->jwks));
-  auto decoded_jwt = VERIFY_RESULT(util::DecodeJwt(token));
-  auto jwk = VERIFY_RESULT(util::GetJwkForJwt(jwks, decoded_jwt));
+  auto jwks = VERIFY_RESULT(ParseJwks(options->jwks));
+  auto decoded_jwt = VERIFY_RESULT(DecodeJwt(token));
+  auto jwk = VERIFY_RESULT(GetJwkForJwt(jwks, decoded_jwt));
 
   // Validate for signature, expiry and issued_at.
-  RETURN_NOT_OK(util::ValidateJWT(decoded_jwt, jwk));
+  RETURN_NOT_OK(ValidateDecodedJWT(decoded_jwt, jwk));
 
   // Validate issuer.
-  auto jwt_issuer = VERIFY_RESULT(util::GetIssuer(decoded_jwt));
+  auto jwt_issuer = VERIFY_RESULT(GetIssuer(decoded_jwt));
   bool valid_issuer = DoesValueExist(
       jwt_issuer, options->allowed_issuers, options->allowed_issuers_length, "issuer");
   if (!valid_issuer) {
@@ -440,7 +436,7 @@ Status ValidateJWT(
 
   // Validate audiences. A JWT can be issued for more than one audience and is valid as long as one
   // of the audience matches the allowed audiences in the JWT config.
-  auto jwt_audiences = VERIFY_RESULT(util::GetAudiences(decoded_jwt));
+  auto jwt_audiences = VERIFY_RESULT(GetAudiences(decoded_jwt));
   bool valid_audience = false;
   for (const auto& audience : jwt_audiences) {
     valid_audience = DoesValueExist(
@@ -458,7 +454,7 @@ Status ValidateJWT(
   // Get the matching claim key and return to the caller.
   auto matching_claim_key = std::string(options->matching_claim_key);
   auto matching_claim_values =
-      VERIFY_RESULT(util::GetClaimAsStringsArray(decoded_jwt, matching_claim_key));
+      VERIFY_RESULT(GetClaimAsStringsArray(decoded_jwt, matching_claim_key));
   *identity_claims = std::move(matching_claim_values);
 
   VLOG(1) << "JWT validation successful";
