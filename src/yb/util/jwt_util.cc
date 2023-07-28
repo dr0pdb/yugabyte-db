@@ -220,8 +220,6 @@ Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
 
       BIO_free(pem_bio);
       EVP_PKEY_free(pkey);
-      BN_free(bnModulus);
-      BN_free(bnExponent);
       return pem;
     } else if (key_type == "EC") {
       auto x_claim = VERIFY_RESULT(GetClaimFromJWKAsString(jwk, "x"));
