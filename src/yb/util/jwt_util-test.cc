@@ -60,7 +60,6 @@ UwkSSNPJlcIiN84obfQ5Doem2uak0+GqpKBForup7/dz52o5X0i/
 -----END RSA PRIVATE KEY-----
 )";
 
-// NOLINT
 const std::string JWK_RS256 = R"(
 {
   "kty": "RSA",
@@ -109,7 +108,6 @@ aZvRTtyYq9wwYaVFMcbDpufgbstu+xToBRDpSRWeYW5iqiHqBemcOwP4PgBZeDa5
 nPLvydzhsXY5r8SHFuFexphbOMAMypC5Bg4DZTfrLJu0D3XnH0vT7Nw=
 -----END RSA PRIVATE KEY-----
 )";
-// NOLINT
 const std::string JWK_RS384 = R"(
 {
   "kty": "RSA",
@@ -159,7 +157,6 @@ HIYu8ckjcnNX8+FdAbDR3P16Kisx9DMeswoecXp3IMgSS00Z+MNWkvNiaEtaW54Z
 1jiuIyS4aNVodleE1P94FutrAtjwf40eeEcF+uOAqfLLLfXNiKmhuGQ=
 -----END RSA PRIVATE KEY-----
 )";
-// NOLINT
 const std::string JWK_RS512 = R"(
 {
   "kty": "RSA",
@@ -209,7 +206,6 @@ zYo8pyAJV3HBH+/0t7ZucY4KplazPIpRcR78CC3ws7qzFKrEYkgMggaffRXWNZ1o
 aqV9+CDcF+WasYXnyva1776OjCZk33b0MQxjKghTRdM/cril3ufQ
 -----END RSA PRIVATE KEY-----
 )";
-// NOLINT
 const std::string JWK_PS256 = R"(
 {
   "kty": "RSA",
@@ -258,7 +254,6 @@ Lf8EuPuFSRH7v05THU4mhUFzQSRO9pPOcAMuQqm2bo9UfM9wYxe7jD6V2lrcqaYV
 oaeW3Z1XGBYjtYJyR0Pogg7umSBeHD37zSELB8HYebCL3SuE184=
 -----END RSA PRIVATE KEY-----
 )";
-// NOLINT
 const std::string JWK_PS384 = R"(
 {
   "kty": "RSA",
@@ -308,7 +303,6 @@ i68KM2bwQtQyNqPlGJRbhTAwCqes6zdpZH1eSGxz4i3WGnTXJ9UYH+AX1lyyuxy2
 3Z2oID2FZgPpZHuZ0CCdvAl94cQXKpDAfDKZgqdUu+4DC6zlAPw=
 -----END RSA PRIVATE KEY-----
 )";
-// NOLINT
 const std::string JWK_PS512 = R"(
 {
   "kty": "RSA",
@@ -331,7 +325,6 @@ OhzYIX0kD9WdWz4jo+tXK6h2xxuhRANCAASs5ZDYaNzFGiwjjpUvXrNMvdWW2Leu
 LTItTonofQ3D7eqC8Fec3xJq5JmSAY2rfdnpwdxfsMvfu7qMsAHRkXNh
 -----END PRIVATE KEY-----
 )";
-// NOLINT
 const std::string JWK_ES256 = R"(
 {
   "kty": "EC",
@@ -357,7 +350,6 @@ YqDn6APZvUoxXkuK58+yKbBpsVG70Q0IzJ1yUF77/byI+kHOKzLyJPMqydFrpBUk
 9vwEI6M8ZVNfjxw56hPoGt2pi3MrUiIDwvswjCeDFNUsqm2WLMQ8wNI=
 -----END PRIVATE KEY-----
 )";
-// NOLINT
 const std::string JWK_ES384 = R"(
 {
   "kty": "EC",
@@ -385,7 +377,6 @@ x6h4BcVhBonAW1zaH4F8LjrhyirKuykjUpodoY086D1TgDNbF5jAv54UIJrSgmZy
 4w==
 -----END PRIVATE KEY-----
 )";
-// NOLINT
 const std::string JWK_ES512 = R"(
 {
   "kty": "EC",
@@ -409,7 +400,6 @@ oGMebq1OaQl7OZpsUbx0x9ahRANCAAQgyXICF/aepjWBO1W5CEeOvywkZNH1QCWo
 TIgClQ1krEb99nHQqlqA4XFhPn3qfMTINkkd4aouE3q9CfSZP1W/
 -----END PRIVATE KEY-----
 )";
-// NOLINT
 const std::string JWK_ES256K = R"(
 {
   "kty": "EC",
@@ -421,7 +411,6 @@ const std::string JWK_ES256K = R"(
   "alg": "ES256K"
 })";
 
-// NOLINT
 const std::string JWKS = R"(
 {
   "keys": [
