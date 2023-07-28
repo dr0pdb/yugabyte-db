@@ -60,7 +60,6 @@ UwkSSNPJlcIiN84obfQ5Doem2uak0+GqpKBForup7/dz52o5X0i/
 -----END RSA PRIVATE KEY-----
 )";
 
-// NOLINT
 const std::string JWK_RS256 =
     R"({"kty":"RSA","e":"AQAB","kid":"rs256_keyid","alg":"RS256","n":"3dkN0LTLvH9wl-vL-MYXtVsvyd4NS9oatGzPfJWTIUOii-N7SmMV383XHfysAm6M_DTqW3HOxzDF0hLIMXzqUDjyQizGIZ37RkF4GqIcOSEYwkc2IWVnWl4WcSK-2KUlwMe3PpXdxtVZBFGdOVkwbXrdsFiYU11kRhfTbz0pP3lmm84QEzCrP9Jueu1zqeyj_SBLUszNkgofp_DpTVPKTVtkkqqNYBRF7HhPgR3G2F90NCfHMTjUQICFNP-HT-UO7XS35dmqBJNgAO7aIiokrZhl3TrQUrknwlxBTF3gv1Zjru1YG6k_lTHVFcVN3pY-Lr2IiJUdppgpreklY7n8jw"})";  // NOLINT
 
