@@ -60,14 +60,9 @@ UwkSSNPJlcIiN84obfQ5Doem2uak0+GqpKBForup7/dz52o5X0i/
 -----END RSA PRIVATE KEY-----
 )";
 
-const std::string JWK_RS256 = R"(
-{
-  "kty": "RSA",
-  "e": "AQAB",
-  "kid": "rs256_keyid",
-  "alg": "RS256",
-  "n": "3dkN0LTLvH9wl-vL-MYXtVsvyd4NS9oatGzPfJWTIUOii-N7SmMV383XHfysAm6M_DTqW3HOxzDF0hLIMXzqUDjyQizGIZ37RkF4GqIcOSEYwkc2IWVnWl4WcSK-2KUlwMe3PpXdxtVZBFGdOVkwbXrdsFiYU11kRhfTbz0pP3lmm84QEzCrP9Jueu1zqeyj_SBLUszNkgofp_DpTVPKTVtkkqqNYBRF7HhPgR3G2F90NCfHMTjUQICFNP-HT-UO7XS35dmqBJNgAO7aIiokrZhl3TrQUrknwlxBTF3gv1Zjru1YG6k_lTHVFcVN3pY-Lr2IiJUdppgpreklY7n8jw"
-})";
+// NOLINT
+const std::string JWK_RS256 =
+    R"({"kty":"RSA","e":"AQAB","kid":"rs256_keyid","alg":"RS256","n":"3dkN0LTLvH9wl-vL-MYXtVsvyd4NS9oatGzPfJWTIUOii-N7SmMV383XHfysAm6M_DTqW3HOxzDF0hLIMXzqUDjyQizGIZ37RkF4GqIcOSEYwkc2IWVnWl4WcSK-2KUlwMe3PpXdxtVZBFGdOVkwbXrdsFiYU11kRhfTbz0pP3lmm84QEzCrP9Jueu1zqeyj_SBLUszNkgofp_DpTVPKTVtkkqqNYBRF7HhPgR3G2F90NCfHMTjUQICFNP-HT-UO7XS35dmqBJNgAO7aIiokrZhl3TrQUrknwlxBTF3gv1Zjru1YG6k_lTHVFcVN3pY-Lr2IiJUdppgpreklY7n8jw"})";  // NOLINT
 
 // RS384
 const std::string PEM_RS384_PUBLIC = R"(-----BEGIN PUBLIC KEY-----
@@ -108,15 +103,8 @@ aZvRTtyYq9wwYaVFMcbDpufgbstu+xToBRDpSRWeYW5iqiHqBemcOwP4PgBZeDa5
 nPLvydzhsXY5r8SHFuFexphbOMAMypC5Bg4DZTfrLJu0D3XnH0vT7Nw=
 -----END RSA PRIVATE KEY-----
 )";
-const std::string JWK_RS384 = R"(
-{
-  "kty": "RSA",
-  "e": "AQAB",
-  "use": "sig",
-  "kid": "rs384_keyid",
-  "alg": "RS384",
-  "n": "qtUV_qPEXN7a2jR_E4k9pdqy1wiRHKyQoiybOW7Nm-JMR7qa6fq6U95YyeuC6mpDEQUpnEyqLrEP8HxBZOgwHkln5PwUhyAS2kcsQTf0RDGG2YBeNNA-sCb4-oM5O0NwWt0pJIoFPNIyOxRYdSZBA3h5MvwIgQPbj4-a-YSjQsborfEywcqozHUDQ4VFadoO9tIIVaPIRqANs54BokCfOyduP-dqlf2d3q1yukFQ2K7L27mrDtCXcWjS5CJW-oGf_CyOSj-yyaNug7sOlvU5AwjG3l7EZ0GRFeROWl5pj6Hf054o4WI2m3xXY8S38hO6jb_NvlG0pg4ZHZEvvqCMdQ"
-})";
+const std::string JWK_RS384 =
+    R"({"kty":"RSA","e":"AQAB","use":"sig","kid":"rs384_keyid","alg":"RS384","n":"qtUV_qPEXN7a2jR_E4k9pdqy1wiRHKyQoiybOW7Nm-JMR7qa6fq6U95YyeuC6mpDEQUpnEyqLrEP8HxBZOgwHkln5PwUhyAS2kcsQTf0RDGG2YBeNNA-sCb4-oM5O0NwWt0pJIoFPNIyOxRYdSZBA3h5MvwIgQPbj4-a-YSjQsborfEywcqozHUDQ4VFadoO9tIIVaPIRqANs54BokCfOyduP-dqlf2d3q1yukFQ2K7L27mrDtCXcWjS5CJW-oGf_CyOSj-yyaNug7sOlvU5AwjG3l7EZ0GRFeROWl5pj6Hf054o4WI2m3xXY8S38hO6jb_NvlG0pg4ZHZEvvqCMdQ"})";  // NOLINT
 
 // RS512
 const std::string PEM_RS512_PUBLIC = R"(-----BEGIN PUBLIC KEY-----
@@ -157,15 +145,8 @@ HIYu8ckjcnNX8+FdAbDR3P16Kisx9DMeswoecXp3IMgSS00Z+MNWkvNiaEtaW54Z
 1jiuIyS4aNVodleE1P94FutrAtjwf40eeEcF+uOAqfLLLfXNiKmhuGQ=
 -----END RSA PRIVATE KEY-----
 )";
-const std::string JWK_RS512 = R"(
-{
-  "kty": "RSA",
-  "e": "AQAB",
-  "use": "sig",
-  "kid": "rs512_keyid",
-  "alg": "RS512",
-  "n": "oF6oCRUztdPc2_jCuuD0aKlv-baqMmymiYYwU1Gf-UZ4dNUI8gxDLHZW7tS0uYYTn85r8UJ3DeSskT41FdAZb1Bfi21fSqAhT169P-hB8RYIyVQNubyJsFXK1xfRp7H3tlO60C1lrv9YLNNXXxQnhGdxAAXQeAsecEUQ_GQS1PdS22vl95cn42051pLf4_ssmReZZmRz3htlJDIumVMMP6FJLbxvBgdODCdUappMwkI_com2Orz4sYFk8GYvsJC4o_hsE9AQU8OTm0z9JxmyWDu6FE_BOr9UryKwsqon_2K4ufAqU5ePvmiEv0goqInC9DU7fGFLc8shv4S3fY8wvw"
-})";
+const std::string JWK_RS512 =
+    R"({"kty":"RSA","e":"AQAB","use":"sig","kid":"rs512_keyid","alg":"RS512","n":"oF6oCRUztdPc2_jCuuD0aKlv-baqMmymiYYwU1Gf-UZ4dNUI8gxDLHZW7tS0uYYTn85r8UJ3DeSskT41FdAZb1Bfi21fSqAhT169P-hB8RYIyVQNubyJsFXK1xfRp7H3tlO60C1lrv9YLNNXXxQnhGdxAAXQeAsecEUQ_GQS1PdS22vl95cn42051pLf4_ssmReZZmRz3htlJDIumVMMP6FJLbxvBgdODCdUappMwkI_com2Orz4sYFk8GYvsJC4o_hsE9AQU8OTm0z9JxmyWDu6FE_BOr9UryKwsqon_2K4ufAqU5ePvmiEv0goqInC9DU7fGFLc8shv4S3fY8wvw"})";  // NOLINT
 
 // PS256
 const std::string PEM_PS256_PUBLIC = R"(-----BEGIN PUBLIC KEY-----
@@ -206,14 +187,8 @@ zYo8pyAJV3HBH+/0t7ZucY4KplazPIpRcR78CC3ws7qzFKrEYkgMggaffRXWNZ1o
 aqV9+CDcF+WasYXnyva1776OjCZk33b0MQxjKghTRdM/cril3ufQ
 -----END RSA PRIVATE KEY-----
 )";
-const std::string JWK_PS256 = R"(
-{
-  "kty": "RSA",
-  "e": "AQAB",
-  "kid": "ps256_keyid",
-  "alg": "PS256",
-  "n": "o2vAJwdvkyIICvLRvvGn0rEsoSkQHFyPIVoELqKXNxBke8Xkn-yxe1zWx62d71h6ewIpPPHZ7K5lMZJbj-XqJIy-g2_7ZWujQhmE_v1JY3TNkAGNsKJupBWPqsyUzEou-ApERvj-IHASQ-zinitDUxhFPb-1q32T1gRgzU2YWVDTa7StgPxu5cu-GuCeh5uc5FCmCYvtD2TOzWWbh8qiESmYTFR_4n6gQyt_v16iRJCDuR7_HUG0LlgDf78AJDQOZllPXG8Kcj1_Y1lOosUWg0hjMIS6KqB2nQ-PiLoc9QqOklfHDy2JHrOFb5P1S6vmK75JL3kdd1EyxkgVOWAEiQ"
-})";
+const std::string JWK_PS256 =
+    R"({"kty":"RSA","e":"AQAB","kid":"ps256_keyid","alg":"PS256","n":"o2vAJwdvkyIICvLRvvGn0rEsoSkQHFyPIVoELqKXNxBke8Xkn-yxe1zWx62d71h6ewIpPPHZ7K5lMZJbj-XqJIy-g2_7ZWujQhmE_v1JY3TNkAGNsKJupBWPqsyUzEou-ApERvj-IHASQ-zinitDUxhFPb-1q32T1gRgzU2YWVDTa7StgPxu5cu-GuCeh5uc5FCmCYvtD2TOzWWbh8qiESmYTFR_4n6gQyt_v16iRJCDuR7_HUG0LlgDf78AJDQOZllPXG8Kcj1_Y1lOosUWg0hjMIS6KqB2nQ-PiLoc9QqOklfHDy2JHrOFb5P1S6vmK75JL3kdd1EyxkgVOWAEiQ"})";  // NOLINT
 
 // PS384
 const std::string PEM_PS384_PUBLIC = R"(-----BEGIN PUBLIC KEY-----
@@ -254,15 +229,8 @@ Lf8EuPuFSRH7v05THU4mhUFzQSRO9pPOcAMuQqm2bo9UfM9wYxe7jD6V2lrcqaYV
 oaeW3Z1XGBYjtYJyR0Pogg7umSBeHD37zSELB8HYebCL3SuE184=
 -----END RSA PRIVATE KEY-----
 )";
-const std::string JWK_PS384 = R"(
-{
-  "kty": "RSA",
-  "e": "AQAB",
-  "use": "sig",
-  "kid": "ps384_keyid",
-  "alg": "PS384",
-  "n": "-an4opwpewibqEzJ3nzoyjT6fJrXxG8cwLaUy1HYs_CfsuD3-sV_XAXxvY6x8n6P-VBNRY7XUCfL-Z4qodLaj2rmzGw6Drjxpj-4EDqf4OsTdIe00qfYcdUvuEcuDtnKhE-oHVuGd_nFn4sFjsa7rMpvqn9JVTe0farJ8w2oAxh8SAE3bv0WsazCSKR9d8StgqJc24RfiylP_pDm36y5Tp_VgLxlJDuH_3_27BcNvcts7P7ZFxQ2lbJBYSsouI7n9bryLX6FXhBYZOoBwXjzjvsjU_mpbIlI_CCoP0CJps_XRa4yIG1vQf9zKdnULje-OnCuPJa-sb43XPDzQuq-iQ"
-})";
+const std::string JWK_PS384 =
+    R"({"kty":"RSA","e":"AQAB","use":"sig","kid":"ps384_keyid","alg":"PS384","n":"-an4opwpewibqEzJ3nzoyjT6fJrXxG8cwLaUy1HYs_CfsuD3-sV_XAXxvY6x8n6P-VBNRY7XUCfL-Z4qodLaj2rmzGw6Drjxpj-4EDqf4OsTdIe00qfYcdUvuEcuDtnKhE-oHVuGd_nFn4sFjsa7rMpvqn9JVTe0farJ8w2oAxh8SAE3bv0WsazCSKR9d8StgqJc24RfiylP_pDm36y5Tp_VgLxlJDuH_3_27BcNvcts7P7ZFxQ2lbJBYSsouI7n9bryLX6FXhBYZOoBwXjzjvsjU_mpbIlI_CCoP0CJps_XRa4yIG1vQf9zKdnULje-OnCuPJa-sb43XPDzQuq-iQ"})";  // NOLINT
 
 // PS512
 const std::string PEM_PS512_PUBLIC = R"(-----BEGIN PUBLIC KEY-----
@@ -303,15 +271,8 @@ i68KM2bwQtQyNqPlGJRbhTAwCqes6zdpZH1eSGxz4i3WGnTXJ9UYH+AX1lyyuxy2
 3Z2oID2FZgPpZHuZ0CCdvAl94cQXKpDAfDKZgqdUu+4DC6zlAPw=
 -----END RSA PRIVATE KEY-----
 )";
-const std::string JWK_PS512 = R"(
-{
-  "kty": "RSA",
-  "e": "AQAB",
-  "use": "sig",
-  "kid": "ps512_keyid",
-  "alg": "PS512",
-  "n": "hcPDlRPlk7J_Ch6CcPu93L5TsESmYcnJbSfKhobOqpKmoQGDVB6wE-Lel5nZzB23-rPpBa0tUPeWHn0g4vJ9vGjZQMDYvJJ3q5QPkO-KGqigNAMGQkv4tc2y6tdutuZ9q6ftlsysDuooKrtpNDMHOhUIIVf8W9aaMrJa5PwnjoLS0eaZQVKi_uMYY7gdICjKP173GYJg733Tvv0rVTZsRvFgj5EQRx2e8vfFxJFtXGUcAEpEViYKwWjjvwJDlDsI_zjiggAgoIQfZJxqRuyYb5FAuIUJyd9fNM67YzidYrS3JzoBftrOWU2trO5lqpt0VE-Y98UzLslnGEXiBrcXrQ"
-})";
+const std::string JWK_PS512 =
+    R"({"kty":"RSA","e":"AQAB","use":"sig","kid":"ps512_keyid","alg":"PS512","n":"hcPDlRPlk7J_Ch6CcPu93L5TsESmYcnJbSfKhobOqpKmoQGDVB6wE-Lel5nZzB23-rPpBa0tUPeWHn0g4vJ9vGjZQMDYvJJ3q5QPkO-KGqigNAMGQkv4tc2y6tdutuZ9q6ftlsysDuooKrtpNDMHOhUIIVf8W9aaMrJa5PwnjoLS0eaZQVKi_uMYY7gdICjKP173GYJg733Tvv0rVTZsRvFgj5EQRx2e8vfFxJFtXGUcAEpEViYKwWjjvwJDlDsI_zjiggAgoIQfZJxqRuyYb5FAuIUJyd9fNM67YzidYrS3JzoBftrOWU2trO5lqpt0VE-Y98UzLslnGEXiBrcXrQ"})";  // NOLINT
 
 // ES256
 const std::string PEM_ES256_PUBLIC = R"(-----BEGIN PUBLIC KEY-----
@@ -411,93 +372,8 @@ const std::string JWK_ES256K = R"(
   "alg": "ES256K"
 })";
 
-const std::string JWKS = R"(
-{
-  "keys": [
-    {
-      "kty": "RSA",
-      "e": "AQAB",
-      "use": "sig",
-      "kid": "rs384_keyid",
-      "alg": "RS384",
-      "n": "qtUV_qPEXN7a2jR_E4k9pdqy1wiRHKyQoiybOW7Nm-JMR7qa6fq6U95YyeuC6mpDEQUpnEyqLrEP8HxBZOgwHkln5PwUhyAS2kcsQTf0RDGG2YBeNNA-sCb4-oM5O0NwWt0pJIoFPNIyOxRYdSZBA3h5MvwIgQPbj4-a-YSjQsborfEywcqozHUDQ4VFadoO9tIIVaPIRqANs54BokCfOyduP-dqlf2d3q1yukFQ2K7L27mrDtCXcWjS5CJW-oGf_CyOSj-yyaNug7sOlvU5AwjG3l7EZ0GRFeROWl5pj6Hf054o4WI2m3xXY8S38hO6jb_NvlG0pg4ZHZEvvqCMdQ"
-    },
-    {
-      "kty": "RSA",
-      "e": "AQAB",
-      "use": "sig",
-      "kid": "rs512_keyid",
-      "alg": "RS512",
-      "n": "oF6oCRUztdPc2_jCuuD0aKlv-baqMmymiYYwU1Gf-UZ4dNUI8gxDLHZW7tS0uYYTn85r8UJ3DeSskT41FdAZb1Bfi21fSqAhT169P-hB8RYIyVQNubyJsFXK1xfRp7H3tlO60C1lrv9YLNNXXxQnhGdxAAXQeAsecEUQ_GQS1PdS22vl95cn42051pLf4_ssmReZZmRz3htlJDIumVMMP6FJLbxvBgdODCdUappMwkI_com2Orz4sYFk8GYvsJC4o_hsE9AQU8OTm0z9JxmyWDu6FE_BOr9UryKwsqon_2K4ufAqU5ePvmiEv0goqInC9DU7fGFLc8shv4S3fY8wvw"
-    },
-    {
-      "kty": "RSA",
-      "e": "AQAB",
-      "use": "sig",
-      "kid": "ps384_keyid",
-      "alg": "PS384",
-      "n": "-an4opwpewibqEzJ3nzoyjT6fJrXxG8cwLaUy1HYs_CfsuD3-sV_XAXxvY6x8n6P-VBNRY7XUCfL-Z4qodLaj2rmzGw6Drjxpj-4EDqf4OsTdIe00qfYcdUvuEcuDtnKhE-oHVuGd_nFn4sFjsa7rMpvqn9JVTe0farJ8w2oAxh8SAE3bv0WsazCSKR9d8StgqJc24RfiylP_pDm36y5Tp_VgLxlJDuH_3_27BcNvcts7P7ZFxQ2lbJBYSsouI7n9bryLX6FXhBYZOoBwXjzjvsjU_mpbIlI_CCoP0CJps_XRa4yIG1vQf9zKdnULje-OnCuPJa-sb43XPDzQuq-iQ"
-    },
-    {
-      "kty": "RSA",
-      "e": "AQAB",
-      "use": "sig",
-      "kid": "ps512_keyid",
-      "alg": "PS512",
-      "n": "hcPDlRPlk7J_Ch6CcPu93L5TsESmYcnJbSfKhobOqpKmoQGDVB6wE-Lel5nZzB23-rPpBa0tUPeWHn0g4vJ9vGjZQMDYvJJ3q5QPkO-KGqigNAMGQkv4tc2y6tdutuZ9q6ftlsysDuooKrtpNDMHOhUIIVf8W9aaMrJa5PwnjoLS0eaZQVKi_uMYY7gdICjKP173GYJg733Tvv0rVTZsRvFgj5EQRx2e8vfFxJFtXGUcAEpEViYKwWjjvwJDlDsI_zjiggAgoIQfZJxqRuyYb5FAuIUJyd9fNM67YzidYrS3JzoBftrOWU2trO5lqpt0VE-Y98UzLslnGEXiBrcXrQ"
-    },
-    {
-        "kty": "EC",
-        "d": "N8JUNzTt-alwdQjCCDzdoGMebq1OaQl7OZpsUbx0x9Y",
-        "crv": "secp256k1",
-        "kid": "es256k_keyid",
-        "x": "IMlyAhf2nqY1gTtVuQhHjr8sJGTR9UAlqEyIApUNZKw",
-        "y": "Rv32cdCqWoDhcWE-fep8xMg2SR3hqi4Ter0J9Jk_Vb8",
-        "alg": "ES256K"
-    },
-    {
-        "kty": "EC",
-        "d": "dKm92BVXljbysYDDd731iTdUjzMfzRpLkZ1SaGbxYIhdgG_YYkWIQXMO0NqJFcTN",
-        "crv": "P-384",
-        "kid": "es384_keyid",
-        "x": "ptnqg7gKUWKg5-gD2b1KMV5LiufPsimwabFRu9ENCMydclBe-_28iPpBzisy8iTz",
-        "y": "KsnRa6QVJPb8BCOjPGVTX48cOeoT6BrdqYtzK1IiA8L7MIwngxTVLKptlizEPMDS",
-        "alg": "ES384"
-    },
-    {
-        "kty": "EC",
-        "d": "AHhv8WAkNgZApSn3o-xJMwbL1SD8XeUUZJrQwefFFc7K2iKVbeFq2ST0P3SwRcBJWSCv1cFAuKNWpZ82G5aqxzze",
-        "crv": "P-521",
-        "kid": "es512_keyid",
-        "x": "AXG9qhKzCrmb0f_8tvC4l1yl2WG60qWCgp_OPe05WR-9ZnfveJMYzyYF8xOveSesMWEKzWxnjbai3kUuwxsD52ep",
-        "y": "AZ_lP_rrZx8Z6sxIoaFlbgvHqHgFxWEGicBbXNofgXwuOuHKKsq7KSNSmh2hjTzoPVOAM1sXmMC_nhQgmtKCZnLj",
-        "alg": "ES512"
-    },
-    {
-        "kty": "RSA",
-        "e": "AQAB",
-        "kid": "rs256_keyid",
-        "alg": "RS256",
-        "n": "3dkN0LTLvH9wl-vL-MYXtVsvyd4NS9oatGzPfJWTIUOii-N7SmMV383XHfysAm6M_DTqW3HOxzDF0hLIMXzqUDjyQizGIZ37RkF4GqIcOSEYwkc2IWVnWl4WcSK-2KUlwMe3PpXdxtVZBFGdOVkwbXrdsFiYU11kRhfTbz0pP3lmm84QEzCrP9Jueu1zqeyj_SBLUszNkgofp_DpTVPKTVtkkqqNYBRF7HhPgR3G2F90NCfHMTjUQICFNP-HT-UO7XS35dmqBJNgAO7aIiokrZhl3TrQUrknwlxBTF3gv1Zjru1YG6k_lTHVFcVN3pY-Lr2IiJUdppgpreklY7n8jw"
-    },
-    {
-        "kty": "RSA",
-        "e": "AQAB",
-        "kid": "ps256_keyid",
-        "alg": "PS256",
-        "n": "o2vAJwdvkyIICvLRvvGn0rEsoSkQHFyPIVoELqKXNxBke8Xkn-yxe1zWx62d71h6ewIpPPHZ7K5lMZJbj-XqJIy-g2_7ZWujQhmE_v1JY3TNkAGNsKJupBWPqsyUzEou-ApERvj-IHASQ-zinitDUxhFPb-1q32T1gRgzU2YWVDTa7StgPxu5cu-GuCeh5uc5FCmCYvtD2TOzWWbh8qiESmYTFR_4n6gQyt_v16iRJCDuR7_HUG0LlgDf78AJDQOZllPXG8Kcj1_Y1lOosUWg0hjMIS6KqB2nQ-PiLoc9QqOklfHDy2JHrOFb5P1S6vmK75JL3kdd1EyxkgVOWAEiQ"
-    },
-    {
-        "kty": "EC",
-        "d": "zapLxXUHHWO5eI1IOhzYIX0kD9WdWz4jo-tXK6h2xxs",
-        "crv": "P-256",
-        "kid": "es256_keyid",
-        "x": "rOWQ2GjcxRosI46VL16zTL3Vlti3ri0yLU6J6H0Nw-0",
-        "y": "6oLwV5zfEmrkmZIBjat92enB3F-wy9-7uoywAdGRc2E",
-        "alg": "ES256"
-    }
-  ]
-})";
+const std::string JWKS =
+    R"({"keys":[{"kty":"RSA","e":"AQAB","use":"sig","kid":"rs384_keyid","alg":"RS384","n":"qtUV_qPEXN7a2jR_E4k9pdqy1wiRHKyQoiybOW7Nm-JMR7qa6fq6U95YyeuC6mpDEQUpnEyqLrEP8HxBZOgwHkln5PwUhyAS2kcsQTf0RDGG2YBeNNA-sCb4-oM5O0NwWt0pJIoFPNIyOxRYdSZBA3h5MvwIgQPbj4-a-YSjQsborfEywcqozHUDQ4VFadoO9tIIVaPIRqANs54BokCfOyduP-dqlf2d3q1yukFQ2K7L27mrDtCXcWjS5CJW-oGf_CyOSj-yyaNug7sOlvU5AwjG3l7EZ0GRFeROWl5pj6Hf054o4WI2m3xXY8S38hO6jb_NvlG0pg4ZHZEvvqCMdQ"},{"kty":"RSA","e":"AQAB","use":"sig","kid":"rs512_keyid","alg":"RS512","n":"oF6oCRUztdPc2_jCuuD0aKlv-baqMmymiYYwU1Gf-UZ4dNUI8gxDLHZW7tS0uYYTn85r8UJ3DeSskT41FdAZb1Bfi21fSqAhT169P-hB8RYIyVQNubyJsFXK1xfRp7H3tlO60C1lrv9YLNNXXxQnhGdxAAXQeAsecEUQ_GQS1PdS22vl95cn42051pLf4_ssmReZZmRz3htlJDIumVMMP6FJLbxvBgdODCdUappMwkI_com2Orz4sYFk8GYvsJC4o_hsE9AQU8OTm0z9JxmyWDu6FE_BOr9UryKwsqon_2K4ufAqU5ePvmiEv0goqInC9DU7fGFLc8shv4S3fY8wvw"},{"kty":"RSA","e":"AQAB","use":"sig","kid":"ps384_keyid","alg":"PS384","n":"-an4opwpewibqEzJ3nzoyjT6fJrXxG8cwLaUy1HYs_CfsuD3-sV_XAXxvY6x8n6P-VBNRY7XUCfL-Z4qodLaj2rmzGw6Drjxpj-4EDqf4OsTdIe00qfYcdUvuEcuDtnKhE-oHVuGd_nFn4sFjsa7rMpvqn9JVTe0farJ8w2oAxh8SAE3bv0WsazCSKR9d8StgqJc24RfiylP_pDm36y5Tp_VgLxlJDuH_3_27BcNvcts7P7ZFxQ2lbJBYSsouI7n9bryLX6FXhBYZOoBwXjzjvsjU_mpbIlI_CCoP0CJps_XRa4yIG1vQf9zKdnULje-OnCuPJa-sb43XPDzQuq-iQ"},{"kty":"RSA","e":"AQAB","use":"sig","kid":"ps512_keyid","alg":"PS512","n":"hcPDlRPlk7J_Ch6CcPu93L5TsESmYcnJbSfKhobOqpKmoQGDVB6wE-Lel5nZzB23-rPpBa0tUPeWHn0g4vJ9vGjZQMDYvJJ3q5QPkO-KGqigNAMGQkv4tc2y6tdutuZ9q6ftlsysDuooKrtpNDMHOhUIIVf8W9aaMrJa5PwnjoLS0eaZQVKi_uMYY7gdICjKP173GYJg733Tvv0rVTZsRvFgj5EQRx2e8vfFxJFtXGUcAEpEViYKwWjjvwJDlDsI_zjiggAgoIQfZJxqRuyYb5FAuIUJyd9fNM67YzidYrS3JzoBftrOWU2trO5lqpt0VE-Y98UzLslnGEXiBrcXrQ"},{"kty":"EC","d":"N8JUNzTt-alwdQjCCDzdoGMebq1OaQl7OZpsUbx0x9Y","crv":"secp256k1","kid":"es256k_keyid","x":"IMlyAhf2nqY1gTtVuQhHjr8sJGTR9UAlqEyIApUNZKw","y":"Rv32cdCqWoDhcWE-fep8xMg2SR3hqi4Ter0J9Jk_Vb8","alg":"ES256K"},{"kty":"EC","d":"dKm92BVXljbysYDDd731iTdUjzMfzRpLkZ1SaGbxYIhdgG_YYkWIQXMO0NqJFcTN","crv":"P-384","kid":"es384_keyid","x":"ptnqg7gKUWKg5-gD2b1KMV5LiufPsimwabFRu9ENCMydclBe-_28iPpBzisy8iTz","y":"KsnRa6QVJPb8BCOjPGVTX48cOeoT6BrdqYtzK1IiA8L7MIwngxTVLKptlizEPMDS","alg":"ES384"},{"kty":"EC","d":"AHhv8WAkNgZApSn3o-xJMwbL1SD8XeUUZJrQwefFFc7K2iKVbeFq2ST0P3SwRcBJWSCv1cFAuKNWpZ82G5aqxzze","crv":"P-521","kid":"es512_keyid","x":"AXG9qhKzCrmb0f_8tvC4l1yl2WG60qWCgp_OPe05WR-9ZnfveJMYzyYF8xOveSesMWEKzWxnjbai3kUuwxsD52ep","y":"AZ_lP_rrZx8Z6sxIoaFlbgvHqHgFxWEGicBbXNofgXwuOuHKKsq7KSNSmh2hjTzoPVOAM1sXmMC_nhQgmtKCZnLj","alg":"ES512"},{"kty":"RSA","e":"AQAB","kid":"rs256_keyid","alg":"RS256","n":"3dkN0LTLvH9wl-vL-MYXtVsvyd4NS9oatGzPfJWTIUOii-N7SmMV383XHfysAm6M_DTqW3HOxzDF0hLIMXzqUDjyQizGIZ37RkF4GqIcOSEYwkc2IWVnWl4WcSK-2KUlwMe3PpXdxtVZBFGdOVkwbXrdsFiYU11kRhfTbz0pP3lmm84QEzCrP9Jueu1zqeyj_SBLUszNkgofp_DpTVPKTVtkkqqNYBRF7HhPgR3G2F90NCfHMTjUQICFNP-HT-UO7XS35dmqBJNgAO7aIiokrZhl3TrQUrknwlxBTF3gv1Zjru1YG6k_lTHVFcVN3pY-Lr2IiJUdppgpreklY7n8jw"},{"kty":"RSA","e":"AQAB","kid":"ps256_keyid","alg":"PS256","n":"o2vAJwdvkyIICvLRvvGn0rEsoSkQHFyPIVoELqKXNxBke8Xkn-yxe1zWx62d71h6ewIpPPHZ7K5lMZJbj-XqJIy-g2_7ZWujQhmE_v1JY3TNkAGNsKJupBWPqsyUzEou-ApERvj-IHASQ-zinitDUxhFPb-1q32T1gRgzU2YWVDTa7StgPxu5cu-GuCeh5uc5FCmCYvtD2TOzWWbh8qiESmYTFR_4n6gQyt_v16iRJCDuR7_HUG0LlgDf78AJDQOZllPXG8Kcj1_Y1lOosUWg0hjMIS6KqB2nQ-PiLoc9QqOklfHDy2JHrOFb5P1S6vmK75JL3kdd1EyxkgVOWAEiQ"},{"kty":"EC","d":"zapLxXUHHWO5eI1IOhzYIX0kD9WdWz4jo-tXK6h2xxs","crv":"P-256","kid":"es256_keyid","x":"rOWQ2GjcxRosI46VL16zTL3Vlti3ri0yLU6J6H0Nw-0","y":"6oLwV5zfEmrkmZIBjat92enB3F-wy9-7uoywAdGRc2E","alg":"ES256"}]})";  // NOLINT
 const std::string CLAIM_KEY = "sub";
 const std::string ISSUER = "anyissuer";
 const std::string AUDIENCE = "anyaud";
