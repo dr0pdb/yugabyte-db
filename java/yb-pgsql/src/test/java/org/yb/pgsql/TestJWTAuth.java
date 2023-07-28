@@ -170,17 +170,14 @@ public class TestJWTAuth extends BasePgSQLTest {
   // based algorithms.
   private static JWKSet createJwks() throws Exception {
     RSAKey rs256Key = new RSAKeyGenerator(2048)
-                          .keyUse(KeyUse.SIGNATURE)
                           .keyID(RS256_KEYID)
                           .algorithm(JWSAlgorithm.RS256)
                           .generate();
     RSAKey ps256Key = new RSAKeyGenerator(2048)
-                          .keyUse(KeyUse.SIGNATURE)
                           .keyID(PS256_KEYID)
                           .algorithm(JWSAlgorithm.PS256)
                           .generate();
     ECKey ecKey = new ECKeyGenerator(Curve.P_256)
-                      .keyUse(KeyUse.SIGNATURE)
                       .keyID(ES256_KEYID)
                       .algorithm(JWSAlgorithm.ES256)
                       .generate();
@@ -529,108 +526,6 @@ public class TestJWTAuth extends BasePgSQLTest {
   }
 
   @Test
-  public void authWithAllSupportedAlgorithms() throws Exception {
-    JWKSet commonJwks = createJwks();
-
-    // Create additional keys which are not included in the commoJwks. We don't create all of these
-    // in other tests as that is unnecessary and can slow down the tests.
-    RSAKey rs356Key = new RSAKeyGenerator(2048)
-                          .keyUse(KeyUse.SIGNATURE)
-                          .keyID("rs384_keyid")
-                          .algorithm(JWSAlgorithm.RS384)
-                          .generate();
-    RSAKey rs512Key = new RSAKeyGenerator(2048)
-                          .keyUse(KeyUse.SIGNATURE)
-                          .keyID("rs512_keyid")
-                          .algorithm(JWSAlgorithm.RS512)
-                          .generate();
-    RSAKey ps384Key = new RSAKeyGenerator(2048)
-                          .keyUse(KeyUse.SIGNATURE)
-                          .keyID("ps384_keyid")
-                          .algorithm(JWSAlgorithm.PS384)
-                          .generate();
-    RSAKey ps512Key = new RSAKeyGenerator(2048)
-                          .keyUse(KeyUse.SIGNATURE)
-                          .keyID("ps512_keyid")
-                          .algorithm(JWSAlgorithm.PS512)
-                          .generate();
-    ECKey es256kKey = new ECKeyGenerator(Curve.SECP256K1)
-                          .keyUse(KeyUse.SIGNATURE)
-                          .keyID("es256k_keyid")
-                          .algorithm(JWSAlgorithm.ES256K)
-                          .generate();
-    ECKey es384Key = new ECKeyGenerator(Curve.P_384)
-                         .keyUse(KeyUse.SIGNATURE)
-                         .keyID("es384_keyid")
-                         .algorithm(JWSAlgorithm.ES384)
-                         .generate();
-    ECKey es512Key = new ECKeyGenerator(Curve.P_521)
-                         .keyUse(KeyUse.SIGNATURE)
-                         .keyID("es512_keyid")
-                         .algorithm(JWSAlgorithm.ES512)
-                         .generate();
-
-    List<JWK> allKeys = new ArrayList<JWK>() {
-      {
-        add(rs356Key);
-        add(rs512Key);
-        add(ps384Key);
-        add(ps512Key);
-        add(es256kKey);
-        add(es384Key);
-        add(es512Key);
-      }
-    };
-    allKeys.addAll(commonJwks.getKeys());
-    JWKSet jwks = new JWKSet(allKeys);
-
-    String jwksPath = populateJWKSFile(jwks);
-
-    // "sub" is used as the default matching claim key.
-    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
-        /* matchingClaimKey */ "", /* mapName */ "", /* identFileContents */ "");
-    List<Pair<JWSAlgorithm, String>> keysWithAlgorithms =
-        new ArrayList<Pair<JWSAlgorithm, String>>() {
-          {
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.RS256, RS256_KEYID));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.PS256, PS256_KEYID));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.ES256, ES256_KEYID));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.RS256, RS256_KEYID_WITH_X5C));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.PS256, PS256_KEYID_WITH_X5C));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.ES256, ES256_KEYID_WITH_X5C));
-            // We don't have keys with X5C in the below algorithms because the code path is the same
-            // as the ones covered in the above RS256, PS256 and ES256 algorithms with X5C. The
-            // interesting bits are when it is not present and we have to calculate them.
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.RS384, "rs384_keyid"));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.RS512, "rs512_keyid"));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.PS384, "ps384_keyid"));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.PS512, "ps512_keyid"));
-            // This is an important test case since we have hardcoded logic of conversion from curve
-            // name to NID for ES256K.
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.ES256K, "es256k_keyid"));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.ES384, "es384_keyid"));
-            add(new Pair<JWSAlgorithm, String>(JWSAlgorithm.ES512, "es512_keyid"));
-          }
-        };
-
-    try (Statement statement = connection.createStatement()) {
-      statement.execute("CREATE ROLE testuser1 LOGIN");
-    }
-
-    ConnectionBuilder passRoleUserConnBldr = getConnectionBuilder().withUser("testuser1");
-
-    // Ensure that login works with each key type.
-    for (Pair<JWSAlgorithm, String> key : keysWithAlgorithms) {
-      String jwt = createJWT(key.getFirst(), jwks, key.getSecond(), "testuser1",
-          "login.issuer1.secured.example.com/2ac843f8-2156-11ee-be56-0242ac120002/v2.0",
-          "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, null);
-      try (Connection connection = passRoleUserConnBldr.withPassword(jwt).connect()) {
-        // No-op.
-      }
-    }
-  }
-
-  @Test
   public void regexMapping() throws Exception {
     JWKSet jwks = createJwks();
     String jwksPath = populateJWKSFile(jwks);
@@ -786,55 +681,6 @@ public class TestJWTAuth extends BasePgSQLTest {
     signedJWT.sign(signer);
     jwt = signedJWT.serialize();
     assertFailedAuthentication(passRoleUserConnBldr, jwt);
-  }
-
-  // These test cases are separate from invalidAuthentication because we need to set a non-default
-  // matching claim key since Nimbus library does not allow subject to be anything other than
-  // string.
-  @Test
-  public void invalidMatchingClaimKey() throws Exception {
-    JWKSet jwks = createJwks();
-    String jwksPath = populateJWKSFile(jwks);
-    String matchingClaimKey = "anything_except_sub";
-    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
-        matchingClaimKey, /* mapName */ "", /* identFileContents */ "");
-
-    try (Statement statement = connection.createStatement()) {
-      statement.execute("CREATE ROLE testuser1 LOGIN");
-    }
-
-    ConnectionBuilder passRoleUserConnBldr = getConnectionBuilder().withUser("testuser1");
-
-    JWSSigner signer = new RSASSASigner(jwks.getKeyByKeyId(RS256_KEYID).toRSAKey().toPrivateKey());
-    JWTClaimsSet.Builder claimsSetBuilder =
-        new JWTClaimsSet.Builder()
-            .subject("does_not_matter")
-            .issuer("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0")
-            .audience("795c2b42-2156-11ee-be56-0242ac120002")
-            .expirationTime(EXPIRATION_TIME);
-
-    // Claim value is a boolean.
-    {
-      claimsSetBuilder.claim(matchingClaimKey, true);
-      SignedJWT signedJWT =
-          new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(RS256_KEYID).build(),
-              claimsSetBuilder.build());
-      signedJWT.sign(signer);
-      String jwt = signedJWT.serialize();
-      assertFailedAuthentication(passRoleUserConnBldr, jwt);
-    }
-
-    // Claim value is an array but inner type is not a string.
-    {
-      claimsSetBuilder.claim(
-          matchingClaimKey, Arrays.asList(Arrays.asList("a", "b"), Arrays.asList("c", "d")));
-      SignedJWT signedJWT =
-          new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(RS256_KEYID).build(),
-              claimsSetBuilder.build());
-      signedJWT.sign(signer);
-      String jwt = signedJWT.serialize();
-      assertFailedAuthentication(passRoleUserConnBldr, jwt);
-    }
   }
 
   // Asserts that the cluster restart failed by expecting an exception. There doesn't seem to be a

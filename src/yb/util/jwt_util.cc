@@ -46,6 +46,8 @@ using jwt::traits::kazuho_picojson;
 
 namespace yb::util {
 
+#define OPENSSL_SUCCESS 1
+
 bool DoesValueExist(
     const std::string& value, const char* const* values, int length,
     const std::string& field_name) {
@@ -172,11 +174,11 @@ Result<jwt::verifier<jwt::default_clock, kazuho_picojson>> GetVerifier(
   }
 }
 
-// Convert a JWK to the PEM format.
+// Convert a JWK to the PEM format using OpenSSL.
 // Supports conversion for RSA and EC family of keys.
 Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
   try {
-    auto decode = [](const std::string& base64url_encoded) {
+    auto base64urlDecode = [](const std::string& base64url_encoded) {
       return jwt::base::decode<jwt::alphabet::base64url>(
           jwt::base::pad<jwt::alphabet::base64url>(base64url_encoded));
     };
@@ -186,8 +188,8 @@ Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
       auto n = VERIFY_RESULT(GetClaimFromJWKAsString(jwk, "n"));
       auto e = VERIFY_RESULT(GetClaimFromJWKAsString(jwk, "e"));
 
-      auto modulus = decode(n);
-      auto exponent = decode(e);
+      auto modulus = base64urlDecode(n);
+      auto exponent = base64urlDecode(e);
 
       BIGNUM* bnModulus = BN_bin2bn(
           pointer_cast<const unsigned char*>(modulus.data()), narrow_cast<int>(modulus.size()),
@@ -195,13 +197,18 @@ Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
       BIGNUM* bnExponent = BN_bin2bn(
           pointer_cast<const unsigned char*>(exponent.data()), narrow_cast<int>(exponent.size()),
           nullptr /* ret */);
+      if (bnModulus == nullptr || bnExponent == nullptr) {
+        return STATUS(InvalidArgument, "Could not get modulus or exponent of RSA key.");
+      }
 
       RSA* rsa_key = RSA_new();
-      RSA_set0_key(rsa_key, bnModulus, bnExponent, NULL);
+      if(RSA_set0_key(rsa_key, bnModulus, bnExponent, NULL) != OPENSSL_SUCCESS) {
+        return STATUS(InvalidArgument, "Failed to set modulus and exponent to RSA key");
+      }
 
       EVP_PKEY* pkey = EVP_PKEY_new();
       auto res = EVP_PKEY_assign_RSA(pkey, rsa_key);
-      if (res != 1) {
+      if (res != OPENSSL_SUCCESS) {
         return STATUS(InvalidArgument, "Failed to assign private key");
       }
 
@@ -210,7 +217,7 @@ Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
         return STATUS(InternalError, "Could not create pem_bio");
       }
 
-      if (PEM_write_bio_RSA_PUBKEY(pem_bio, rsa_key) != 1) {
+      if (PEM_write_bio_RSA_PUBKEY(pem_bio, rsa_key) != OPENSSL_SUCCESS) {
         return STATUS(InternalError, "Could not write RSA key into the pem_bio");
       }
 
@@ -226,8 +233,8 @@ Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
       auto y_claim = VERIFY_RESULT(GetClaimFromJWKAsString(jwk, "y"));
       auto curve_name = VERIFY_RESULT(GetClaimFromJWKAsString(jwk, "crv"));
 
-      auto x_coordinate = decode(x_claim);
-      auto y_coordinate = decode(y_claim);
+      auto x_coordinate = base64urlDecode(x_claim);
+      auto y_coordinate = base64urlDecode(y_claim);
 
       auto nid = EC_curve_nist2nid(curve_name.c_str());
       if (nid == NID_undef) {
@@ -260,8 +267,11 @@ Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
       BIGNUM* y = BN_bin2bn(
           reinterpret_cast<const unsigned char*>(y_coordinate.data()),
           narrow_cast<int>(y_coordinate.size()), nullptr);
+      if (x == nullptr || y == nullptr) {
+        return STATUS(InvalidArgument, "Could not get x or y coordinates of EC key.");
+      }
 
-      if (EC_KEY_set_public_key_affine_coordinates(ec_key, x, y) != 1) {
+      if (EC_KEY_set_public_key_affine_coordinates(ec_key, x, y) != OPENSSL_SUCCESS) {
         return STATUS(InvalidArgument, "Could not set public key affine coordinates.");
       }
       EC_KEY_set_asn1_flag(ec_key, OPENSSL_EC_NAMED_CURVE);
@@ -271,7 +281,7 @@ Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
         return STATUS(InternalError, "Could not create pem_bio.");
       }
 
-      if (PEM_write_bio_EC_PUBKEY(pem_bio, ec_key) != 1) {
+      if (PEM_write_bio_EC_PUBKEY(pem_bio, ec_key) != OPENSSL_SUCCESS) {
         return STATUS(InternalError, "Could not write EC key into the pem_bio.");
       }
 
@@ -459,6 +469,15 @@ Status ValidateJWT(
 
   VLOG(1) << "JWT validation successful";
   return Status::OK();
+}
+
+Result<std::string> TEST_GetKeyAsPEM(const std::string& jwk_string) {
+  try {
+    auto jwk = jwt::parse_jwk(jwk_string);
+    return GetKeyAsPEM(jwk);
+  } catch (...) {
+    return STATUS(InvalidArgument, "Couldn't convert JWK string to PEM format");
+  }
 }
 
 }  // namespace yb::util

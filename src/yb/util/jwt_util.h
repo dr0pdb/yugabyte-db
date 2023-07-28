@@ -30,4 +30,6 @@ Status ValidateJWT(
     const std::string& token, const YBCPgJwtAuthOptions* options,
     std::vector<std::string>* identity_claims);
 
+Result<std::string> TEST_GetKeyAsPEM(const std::string& jwk_string);
+
 }  // namespace yb::util
