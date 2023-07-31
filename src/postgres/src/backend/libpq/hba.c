@@ -1842,7 +1842,7 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 			hbaline->auth_method != uaSSPI &&
 			hbaline->auth_method != uaCert &&
 			hbaline->auth_method != uaYbJWT)
-			INVALID_AUTH_OPTION("map", gettext_noop("ident, peer, gssapi, sspi, cert and jwt"));
+			INVALID_AUTH_OPTION("map", gettext_noop("ident, peer, gssapi, sspi, cert, and jwt"));
 		hbaline->usermap = pstrdup(val);
 	}
 	else if (strcmp(name, "clientcert") == 0)

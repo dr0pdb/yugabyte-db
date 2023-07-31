@@ -413,8 +413,7 @@ Result<std::vector<std::string>> GetClaimAsStringsArray(
 }
 
 Status ValidateJWKS(const std::string& jwks) {
-  RETURN_NOT_OK(ParseJwks(jwks));
-  return Status::OK();
+  return ResultToStatus(ParseJwks(jwks));
 }
 
 Status ValidateJWT(

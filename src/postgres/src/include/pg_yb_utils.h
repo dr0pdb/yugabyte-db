@@ -928,6 +928,15 @@ extern bool yb_is_client_ysqlconnmgr;
 extern char** YbShallowCopyCharListToArray(const List* list, int* length);
 
 /*
+ * Reads the contents of the given file assuming that the filename is an
+ * absolute path.
+ *
+ * The file contents are returned as a single palloc'd chunk with an extra \0
+ * byte added to the end.
+ */
+extern char* YbReadWholeFile(const char *filename, int* length, int elevel);
+
+/*
  * Reads the contents of the given file path. If the file path is a relative
  * path, it is treated as relative to the directory of the provided
  * outer_filename.

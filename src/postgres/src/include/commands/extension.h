@@ -53,6 +53,4 @@ extern ObjectAddress AlterExtensionNamespace(const char *extensionName, const ch
 
 extern void AlterExtensionOwner_oid(Oid extensionOid, Oid newOwnerId);
 
-extern char *read_whole_file(const char *filename, int *length, int elevel);
-
 #endif							/* EXTENSION_H */

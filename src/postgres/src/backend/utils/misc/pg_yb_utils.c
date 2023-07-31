@@ -74,7 +74,6 @@
 #include "catalog/yb_type.h"
 #include "commands/dbcommands.h"
 #include "commands/defrem.h"
-#include "commands/extension.h"
 #include "commands/variable.h"
 #include "common/pg_yb_common.h"
 #include "lib/stringinfo.h"
@@ -3660,6 +3659,58 @@ YbShallowCopyCharListToArray(const List* list, int* length) {
 }
 
 char *
+YbReadWholeFile(const char *filename, int* length, int elevel)
+{
+	char	   *buf;
+	FILE	   *file;
+	size_t		bytes_to_read;
+	struct stat fst;
+
+	if (stat(filename, &fst) < 0)
+	{
+		ereport(elevel,
+				(errcode_for_file_access(),
+				 errmsg("could not stat file \"%s\": %m", filename)));
+		return NULL;
+	}
+
+	if (fst.st_size > (MaxAllocSize - 1))
+	{
+		ereport(elevel,
+				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+				 errmsg("file \"%s\" is too large", filename)));
+		return NULL;
+	}
+	bytes_to_read = (size_t) fst.st_size;
+
+	if ((file = AllocateFile(filename, PG_BINARY_R)) == NULL)
+	{
+		ereport(elevel,
+				(errcode_for_file_access(),
+				 errmsg("could not open file \"%s\" for reading: %m",
+						filename)));
+		return NULL;
+	}
+
+	buf = (char *) palloc(bytes_to_read + 1);
+
+	*length = fread(buf, 1, bytes_to_read, file);
+
+	if (ferror(file))
+	{
+		ereport(elevel,
+				(errcode_for_file_access(),
+				 errmsg("could not read file \"%s\": %m", filename)));
+		return NULL;
+	}
+
+	FreeFile(file);
+
+	buf[*length] = '\0';
+	return buf;
+}
+
+char *
 YbReadFile(const char *outer_filename, const char *filename, int elevel)
 {
 	char *file_fullname;
@@ -3682,7 +3733,21 @@ YbReadFile(const char *outer_filename, const char *filename, int elevel)
 		canonicalize_path(file_fullname);
 	}
 
-	file_contents = read_whole_file(file_fullname, &len, elevel);
+	file_contents = YbReadWholeFile(file_fullname, &len, elevel);
+
+	/*
+	 * Make sure the contents are valid.
+	 *
+	 * We use noError as true because we want to have control over the ereport
+	 * elevel in case of invalid file contents.
+	 */
+	if (!pg_verifymbstr(file_contents, len, /* noError */ true))
+	{
+		ereport(elevel,
+				(errcode_for_file_access(),
+				 errmsg("invalid encoding of file \"%s\": %m", filename)));
+		return NULL;
+	}
 
 	pfree(file_fullname);
 	return file_contents;
