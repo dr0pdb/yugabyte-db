@@ -3744,8 +3744,8 @@ YbReadFile(const char *outer_filename, const char *filename, int elevel)
 	if (!pg_verifymbstr(file_contents, len, /* noError */ true))
 	{
 		ereport(elevel,
-				(errcode_for_file_access(),
-				 errmsg("invalid encoding of file \"%s\": %m", filename)));
+				(errcode(ERRCODE_CHARACTER_NOT_IN_REPERTOIRE),
+				 errmsg("invalid encoding of file \"%s\"", filename)));
 		return NULL;
 	}
 

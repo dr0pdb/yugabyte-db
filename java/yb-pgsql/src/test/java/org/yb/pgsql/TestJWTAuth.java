@@ -526,7 +526,7 @@ public class TestJWTAuth extends BasePgSQLTest {
   }
 
   @Test
-  public void regexMapping() throws Exception {
+  public void identMapping() throws Exception {
     JWKSet jwks = createJwks();
     String jwksPath = populateJWKSFile(jwks);
 
@@ -736,6 +736,15 @@ public class TestJWTAuth extends BasePgSQLTest {
   @Test
   public void invalidJWKSJson() throws Exception {
     String jwksPath = populateJWKSFile("some_invalid_json");
+
+    assertClusterRestartFailure(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
+        /* matchingClaimKey */ "",
+        /* mapName */ "", /* identFileContents */ "");
+  }
+
+  @Test
+  public void invalidJWKSNullBytes() throws Exception {
+    String jwksPath = populateJWKSFile("\0\0\0");
 
     assertClusterRestartFailure(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "",
