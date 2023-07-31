@@ -84,8 +84,8 @@ IsProfileHandlingRequired(UserAuth auth_method)
 		case uaBSD:
 		case uaLDAP:
 		case uaCert:
-		case uaYbJWT:
 		case uaRADIUS:
+		case uaYbJWT:
 			return true;
 	}
 	elog(ERROR, "unexpected auth method %u", auth_method);

@@ -126,6 +126,7 @@ static void ApplyExtensionUpdates(Oid extensionOid,
 					  bool is_create);
 static char *read_whole_file(const char *filename, int *length);
 
+
 /*
  * get_extension_oid - given an extension name, look up the OID
  *
