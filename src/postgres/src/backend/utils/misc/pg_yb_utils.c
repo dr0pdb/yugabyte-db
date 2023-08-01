@@ -3658,6 +3658,13 @@ YbShallowCopyCharListToArray(const List* list, int* length) {
 	return buf;
 }
 
+/*
+ * This function is almost equivalent to the `read_whole_file` function of
+ * src/postgres/src/backend/commands/extension.c. It differs only in its error
+ * handling. The original read_whole_file function logs errors elevel ERROR
+ * while this function accepts the elevel as the argument for better control
+ * over error handling.
+ */
 char *
 YbReadWholeFile(const char *filename, int* length, int elevel)
 {
