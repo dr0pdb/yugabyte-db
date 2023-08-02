@@ -3644,13 +3644,13 @@ bool YbIsStickyConnection(int *change)
 }
 
 char**
-YbShallowCopyCharListToArray(const List* list, int* length) {
+YbShallowCopyStrListToArray(const List* str_list, int* length) {
 	char		**buf;
 	ListCell	*lc;
 
-	buf = (char **) palloc(sizeof(char *) * list_length(list));
+	buf = (char **) palloc(sizeof(char *) * list_length(str_list));
 	*length = 0;
-	foreach (lc, list)
+	foreach (lc, str_list)
 	{
 		buf[(*length)++] = (char *) lfirst(lc);
 	}
@@ -3715,47 +3715,4 @@ YbReadWholeFile(const char *filename, int* length, int elevel)
 
 	buf[*length] = '\0';
 	return buf;
-}
-
-char *
-YbReadFile(const char *outer_filename, const char *filename, int elevel)
-{
-	char *file_fullname;
-	char *file_contents;
-	int len;
-
-	if (is_absolute_path(filename))
-	{
-		/* absolute path is taken as-is */
-		file_fullname = pstrdup(filename);
-	}
-	else
-	{
-		/* relative path is relative to dir of calling file */
-		file_fullname = (char *) palloc(strlen(outer_filename) + 1 +
-									   strlen(filename) + 1);
-		strcpy(file_fullname, outer_filename);
-		get_parent_directory(file_fullname);
-		join_path_components(file_fullname, file_fullname, filename);
-		canonicalize_path(file_fullname);
-	}
-
-	file_contents = YbReadWholeFile(file_fullname, &len, elevel);
-
-	/*
-	 * Make sure the contents are valid.
-	 *
-	 * We use noError as true because we want to have control over the ereport
-	 * elevel in case of invalid file contents.
-	 */
-	if (!pg_verifymbstr(file_contents, len, /* noError */ true))
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_CHARACTER_NOT_IN_REPERTOIRE),
-				 errmsg("invalid encoding of file \"%s\"", filename)));
-		return NULL;
-	}
-
-	pfree(file_fullname);
-	return file_contents;
 }

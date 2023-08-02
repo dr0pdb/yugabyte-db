@@ -91,9 +91,6 @@ bool YBCTryMemRelease(int64_t bytes);
 
 YBCStatus YBCGetHeapConsumption(YbTcmallocStats *desc);
 
-// Validate whether the provided string can be parsed as a valid Json Web Key Set.
-YBCStatus YBCValidateJWKS(const char *jwks_string);
-
 // Validate the JWT based on the options including the identity matching based on the identity map.
 YBCStatus YBCValidateJWT(const char *token, const YBCPgJwtAuthOptions *options);
 

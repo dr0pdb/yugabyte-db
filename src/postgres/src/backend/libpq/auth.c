@@ -671,7 +671,6 @@ ClientAuthentication(Port *port)
 		case uaYbJWT:
 			status = YbCheckJWTAuth(port);
 			break;
-
 	}
 
 	if (ClientAuthentication_hook)
@@ -3498,7 +3497,7 @@ PerformRadiusTransaction(const char *server, const char *secret, const char *por
 static void
 ybGetJwtAuthOptionsFromPort(Port *port, YBCPgJwtAuthOptions *opt)
 {
-	HbaLine*	hba_line = port->hba;
+	HbaLine	   *hba_line = port->hba;
 
 	opt->jwks = hba_line->yb_jwt_jwks;
 	opt->usermap = hba_line->usermap;
@@ -3507,14 +3506,10 @@ ybGetJwtAuthOptionsFromPort(Port *port, YBCPgJwtAuthOptions *opt)
 	/* Use "sub" as the default matching claim key */
 	opt->matching_claim_key = hba_line->yb_jwt_matching_claim_key ?: "sub";
 
-	/*
-	 * Shallow-copy yb_jwt_issuers and yb_jwt_audiences.
-	 */
-
-	opt->allowed_issuers = YbShallowCopyCharListToArray(
+	opt->allowed_issuers = YbShallowCopyStrListToArray(
 		hba_line->yb_jwt_issuers, &opt->allowed_issuers_length);
 
-	opt->allowed_audiences = YbShallowCopyCharListToArray(
+	opt->allowed_audiences = YbShallowCopyStrListToArray(
 		hba_line->yb_jwt_audiences, &opt->allowed_audiences_length);
 }
 
@@ -3536,8 +3531,6 @@ YbCheckJWTAuth(Port *port)
 	 * We are allocating a temporary array of char* for audiences and issuers
 	 * entries. We do that since there is no easy way to send the PG List to the
 	 * C++ layer.
-	 * TODO: This can be improved in the future by directly storing them as
-	 * Arrays in HbaLine.
 	 */
 	YBCPgJwtAuthOptions jwt_auth_options;
 	ybGetJwtAuthOptionsFromPort(port, &jwt_auth_options);

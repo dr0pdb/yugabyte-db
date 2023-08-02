@@ -34,7 +34,6 @@
 #include "libpq/ifaddr.h"
 #include "libpq/libpq.h"
 #include "miscadmin.h"
-#include "pg_yb_utils.h"
 #include "postmaster/postmaster.h"
 #include "regex/regex.h"
 #include "replication/walsender.h"
@@ -45,6 +44,8 @@
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+
+#include "pg_yb_utils.h"
 
 #ifdef USE_LDAP
 #ifdef WIN32
@@ -169,6 +170,7 @@ static void fill_hba_line(Tuplestorestate *tuple_store, TupleDesc tupdesc,
 			  int lineno, HbaLine *hba, const char *err_msg);
 static void fill_hba_view(Tuplestorestate *tuple_store, TupleDesc tupdesc);
 
+static char *YbReadFile(const char *filename, const char *ref_filename, int elevel);
 
 /*
  * isblank() exists in the ISO C99 spec, but it's not very portable yet,
@@ -1652,44 +1654,6 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 		}
 	}
 
-	if (parsedline->auth_method == uaYbJWT) {
-		MANDATORY_AUTH_ARG(parsedline->yb_jwt_jwks, "jwt_jwks_path", "jwt");
-		YBCStatus s = YBCValidateJWKS(parsedline->yb_jwt_jwks);
-		if (s) /* !ok */
-		{
-			ereport(elevel,
-					(errcode(ERRCODE_CONFIG_FILE_ERROR),
-					 errmsg("invalid jwt_jwks content"),
-					 errcontext("line %d of configuration file \"%s\"",
-								line_num, HbaFileName)));
-			*err_msg = "invalid jwt_jwks content";
-			YBCFreeStatus(s);
-			return NULL;
-		}
-
-		if (list_length(parsedline->yb_jwt_audiences) < 1)
-		{
-			ereport(elevel,
-					(errcode(ERRCODE_CONFIG_FILE_ERROR),
-					 errmsg("list of JWT audiences cannot be empty"),
-					 errcontext("line %d of configuration file \"%s\"",
-								line_num, HbaFileName)));
-			*err_msg = "list of JWT audiences cannot be empty";
-			return NULL;
-		}
-
-		if (list_length(parsedline->yb_jwt_issuers) < 1)
-		{
-			ereport(elevel,
-					(errcode(ERRCODE_CONFIG_FILE_ERROR),
-					 errmsg("list of JWT issuers cannot be empty"),
-					 errcontext("line %d of configuration file \"%s\"",
-								line_num, HbaFileName)));
-			*err_msg = "list of JWT issuers cannot be empty";
-			return NULL;
-		}
-	}
-
 	if (parsedline->auth_method == uaRADIUS)
 	{
 		MANDATORY_AUTH_ARG(parsedline->radiusservers, "radiusservers", "radius");
@@ -1738,6 +1702,36 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 									   "RADIUS servers",
 									   line_num))
 			return NULL;
+	}
+
+	if (parsedline->auth_method == uaYbJWT) {
+		/*
+		 * Validation of the json content is done during the authentication
+		 * process.
+		 */
+		MANDATORY_AUTH_ARG(parsedline->yb_jwt_jwks, "jwt_jwks_path", "jwt");
+
+		if (list_length(parsedline->yb_jwt_audiences) < 1)
+		{
+			ereport(elevel,
+					(errcode(ERRCODE_CONFIG_FILE_ERROR),
+					 errmsg("list of JWT audiences cannot be empty"),
+					 errcontext("line %d of configuration file \"%s\"",
+								line_num, HbaFileName)));
+			*err_msg = "list of JWT audiences cannot be empty";
+			return NULL;
+		}
+
+		if (list_length(parsedline->yb_jwt_issuers) < 1)
+		{
+			ereport(elevel,
+					(errcode(ERRCODE_CONFIG_FILE_ERROR),
+					 errmsg("list of JWT issuers cannot be empty"),
+					 errcontext("line %d of configuration file \"%s\"",
+								line_num, HbaFileName)));
+			*err_msg = "list of JWT issuers cannot be empty";
+			return NULL;
+		}
 	}
 
 	/*
@@ -2189,7 +2183,7 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 		REQUIRE_AUTH_OPTION(uaYbJWT, "jwt_jwks_path", "jwt");
 
 		hbaline->yb_jwt_jwks_path_s = pstrdup(val);
-		hbaline->yb_jwt_jwks = YbReadFile(HbaFileName, val, elevel);
+		hbaline->yb_jwt_jwks = YbReadFile(val, HbaFileName, elevel);
 		if (hbaline->yb_jwt_jwks == NULL)
 		{
 			ereport(elevel,
@@ -3320,4 +3314,56 @@ void
 hba_getauthmethod(hbaPort *port)
 {
 	check_hba(port);
+}
+
+/*
+ * Reads the contents of the given file path. If the file path is a relative
+ * path, it is treated as relative to the directory of the provided
+ * ref_filename.
+ *
+ * Errors are reported by logging messages at ereport level elevel and by
+ * returning NULL if elevel < ERROR.
+ */
+static char *
+YbReadFile(const char *filename, const char *ref_filename, int elevel)
+{
+	char *file_fullname;
+	char *file_contents;
+	int len;
+
+	if (is_absolute_path(filename))
+	{
+		/* absolute path is taken as-is */
+		file_fullname = pstrdup(filename);
+	}
+	else
+	{
+		/* relative path is relative to dir of file from which the path was
+		 * referenced. */
+		file_fullname =
+			(char *) palloc(strlen(ref_filename) + 1 + strlen(filename) + 1);
+		strcpy(file_fullname, ref_filename);
+		get_parent_directory(file_fullname);
+		join_path_components(file_fullname, file_fullname, filename);
+		canonicalize_path(file_fullname);
+	}
+
+	file_contents = YbReadWholeFile(file_fullname, &len, elevel);
+
+	/*
+	 * Make sure the contents are valid.
+	 *
+	 * We use noError as true because we want to have control over the ereport
+	 * elevel in case of invalid file contents.
+	 */
+	if (!pg_verifymbstr(file_contents, len, /* noError */ true))
+	{
+		ereport(elevel,
+				(errcode(ERRCODE_CHARACTER_NOT_IN_REPERTOIRE),
+				 errmsg("invalid encoding of file \"%s\"", filename)));
+		return NULL;
+	}
+
+	pfree(file_fullname);
+	return file_contents;
 }

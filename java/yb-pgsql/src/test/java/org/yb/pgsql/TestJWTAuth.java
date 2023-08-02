@@ -15,29 +15,10 @@ package org.yb.pgsql;
 import static org.yb.AssertionWrappers.assertNotNull;
 import static org.yb.AssertionWrappers.fail;
 
-import com.google.common.base.Strings;
-import com.nimbusds.jose.JWSAlgorithm;
-import com.nimbusds.jose.JWSHeader;
-import com.nimbusds.jose.JWSSigner;
-import com.nimbusds.jose.crypto.ECDSASigner;
-import com.nimbusds.jose.crypto.RSASSASigner;
-import com.nimbusds.jose.jwk.Curve;
-import com.nimbusds.jose.jwk.ECKey;
-import com.nimbusds.jose.jwk.JWK;
-import com.nimbusds.jose.jwk.JWKSet;
-import com.nimbusds.jose.jwk.KeyUse;
-import com.nimbusds.jose.jwk.RSAKey;
-import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
-import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
-import com.nimbusds.jose.util.Base64;
-import com.nimbusds.jwt.JWTClaimsSet;
-import com.nimbusds.jwt.SignedJWT;
-import com.yugabyte.util.PSQLException;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.Charset;
-import java.nio.file.Paths;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
@@ -74,6 +55,25 @@ import org.slf4j.LoggerFactory;
 import org.yb.YBTestRunner;
 import org.yb.client.TestUtils;
 import org.yb.util.Pair;
+
+import com.google.common.base.Strings;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSSigner;
+import com.nimbusds.jose.crypto.ECDSASigner;
+import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
+import com.nimbusds.jose.jwk.JWK;
+import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.KeyUse;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
+import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
+import com.nimbusds.jose.util.Base64;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
+import com.yugabyte.util.PSQLException;
 
 @RunWith(value = YBTestRunner.class)
 public class TestJWTAuth extends BasePgSQLTest {
@@ -600,6 +600,8 @@ public class TestJWTAuth extends BasePgSQLTest {
     assertFailedAuthentication(getConnectionBuilder().withUser("johndoe"), jwt);
   }
 
+  // TODO: Some of these test cases can be moved to C++ unit tests for jwt_util.cc which are much
+  // faster.
   @Test
   public void invalidAuthentication() throws Exception {
     JWKSet jwks = createJwks();
@@ -735,19 +737,21 @@ public class TestJWTAuth extends BasePgSQLTest {
 
   @Test
   public void invalidJWKSJson() throws Exception {
+    JWKSet jwks = createJwks();
     String jwksPath = populateJWKSFile("some_invalid_json");
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
+        /* matchingClaimKey */ "", /* mapName */ "", /* identFileContents */ "");
 
-    assertClusterRestartFailure(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
-        /* matchingClaimKey */ "",
-        /* mapName */ "", /* identFileContents */ "");
-  }
+    try (Statement statement = connection.createStatement()) {
+      statement.execute("CREATE ROLE testuser1 LOGIN");
+    }
 
-  @Test
-  public void invalidJWKSNullBytes() throws Exception {
-    String jwksPath = populateJWKSFile("\0\0\0");
+    ConnectionBuilder passRoleUserConnBldr = getConnectionBuilder().withUser("testuser1");
 
-    assertClusterRestartFailure(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
-        /* matchingClaimKey */ "",
-        /* mapName */ "", /* identFileContents */ "");
+    // JWKS json is parsed and validated during authentication.
+    String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "testuser1",
+        "login.issuer1.secured.example.com/some_invalid_id/v2.0",
+        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, null);
+    assertFailedAuthentication(passRoleUserConnBldr, jwt);
   }
 }

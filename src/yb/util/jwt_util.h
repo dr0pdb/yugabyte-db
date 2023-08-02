@@ -20,16 +20,10 @@
 
 namespace yb::util {
 
-// Validate that the parameter jwks is a valid JSON Web Key Set.
-// Returns Status::OK for valid and errors for invalid jwks.
-Status ValidateJWKS(const std::string& jwks);
-
 // Validate the provided JWT based on the authentication options.
 // Populates the identity claims from the JWT into identity_claims.
 Status ValidateJWT(
     const std::string& token, const YBCPgJwtAuthOptions* options,
     std::vector<std::string>* identity_claims);
-
-Result<std::string> TEST_GetKeyAsPEM(const std::string& jwk_string);
 
 }  // namespace yb::util
