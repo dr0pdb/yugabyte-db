@@ -114,14 +114,14 @@ Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
 
       auto nid = EC_curve_nist2nid(curve_name.c_str());
       if (nid == NID_undef) {
-        // P-256K aka secp256k1 is not included in the openssl’s list of nist2nid lookup table via
+        // P-256K aka secp256k1 is not included in the openssl list of nist2nid lookup table via
         // EC_curve_nist2nid.
         //
         // It is present in the lookup table used in ossl_ec_curve_name2nid function but that is not
         // exposed publicly.
         //
         // So we set a hardcoded value as a hack. This is fine because the NIDs are public values
-        // i.e. they shouldn’t change between stable releases of openssl.
+        // i.e. they should not change between stable releases of openssl.
         if (curve_name == "P-256K" || curve_name == "secp256k1") {
           nid = NID_secp256k1;
         } else {
