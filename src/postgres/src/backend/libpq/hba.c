@@ -23,7 +23,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 #include "access/htup_details.h"
@@ -44,6 +43,8 @@
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+
+#include <sys/stat.h>
 
 #include "pg_yb_utils.h"
 
