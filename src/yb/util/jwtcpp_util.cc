@@ -65,8 +65,7 @@ Result<std::string> GetClaimFromJwkAsString(jwk<kazuho_picojson> jwk, const std:
   try {
     return jwk.get_jwk_claim(name).as_string();
   } catch (const std::exception& e) {
-    return STATUS_FORMAT(
-        InvalidArgument, "Fetching claim $0 from JWK failed - $1", name, e.what());
+    return STATUS_FORMAT(InvalidArgument, "Fetching claim $0 from JWK failed - $1", name, e.what());
   } catch (...) {
     return STATUS_FORMAT(InvalidArgument, "Fetching claim $0 from JWK failed", name);
   }
@@ -76,8 +75,7 @@ Result<std::string> ConvertX5cDerToPem(const std::string& x5c) {
   try {
     return jwt::helper::convert_base64_der_to_pem(x5c);
   } catch (const std::exception& e) {
-    return STATUS_FORMAT(
-        InvalidArgument, "Converting JWT x5c to PEM format failed - $0", e.what());
+    return STATUS_FORMAT(InvalidArgument, "Converting JWT x5c to PEM format failed - $0", e.what());
   } catch (...) {
     return STATUS(InvalidArgument, "Converting JWT x5c to PEM format failed");
   }
@@ -109,7 +107,7 @@ Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
       }
 
       RSA* rsa_key = RSA_new();
-      if(RSA_set0_key(rsa_key, bnModulus, bnExponent, NULL) != OPENSSL_SUCCESS) {
+      if (RSA_set0_key(rsa_key, bnModulus, bnExponent, NULL) != OPENSSL_SUCCESS) {
         return STATUS(InvalidArgument, "Failed to set modulus and exponent to RSA key");
       }
 
@@ -246,8 +244,7 @@ Result<std::set<std::string>> GetAudiences(const decoded_jwt<kazuho_picojson> de
   try {
     return decoded_jwt.get_audience();
   } catch (const std::exception& e) {
-    return STATUS_FORMAT(
-        InvalidArgument, "Fetching audience from the JWT failed - $0", e.what());
+    return STATUS_FORMAT(InvalidArgument, "Fetching audience from the JWT failed - $0", e.what());
   } catch (...) {
     return STATUS(InvalidArgument, "Fetching audience from the JWT failed");
   }
