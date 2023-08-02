@@ -33,6 +33,8 @@ namespace yb::util {
 
 namespace {
 
+#define OPENSSL_SUCCESS 1
+
 bool DoesValueExist(
     const std::string& value, char* const* values, int length, const std::string& field_name) {
   for (auto idx = 0; idx < length; ++idx) {
@@ -50,6 +52,133 @@ bool DoesValueExist(
 }
 
 }  // namespace
+
+Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
+  try {
+    auto base64urlDecode = [](const std::string& base64url_encoded) {
+      return jwt::base::decode<jwt::alphabet::base64url>(
+          jwt::base::pad<jwt::alphabet::base64url>(base64url_encoded));
+    };
+
+    std::string key_type = jwk.get_key_type();
+    if (key_type == "RSA") {
+      auto n = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "n"));
+      auto e = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "e"));
+
+      auto modulus = base64urlDecode(n);
+      auto exponent = base64urlDecode(e);
+
+      BIGNUM* bnModulus = BN_bin2bn(
+          pointer_cast<const unsigned char*>(modulus.data()), narrow_cast<int>(modulus.size()),
+          nullptr /* ret */);
+      BIGNUM* bnExponent = BN_bin2bn(
+          pointer_cast<const unsigned char*>(exponent.data()), narrow_cast<int>(exponent.size()),
+          nullptr /* ret */);
+      if (bnModulus == nullptr || bnExponent == nullptr) {
+        return STATUS(InvalidArgument, "Could not get modulus or exponent of RSA key.");
+      }
+
+      RSA* rsa_key = RSA_new();
+      if (RSA_set0_key(rsa_key, bnModulus, bnExponent, NULL) != OPENSSL_SUCCESS) {
+        return STATUS(InvalidArgument, "Failed to set modulus and exponent to RSA key");
+      }
+
+      EVP_PKEY* pkey = EVP_PKEY_new();
+      auto res = EVP_PKEY_assign_RSA(pkey, rsa_key);
+      if (res != OPENSSL_SUCCESS) {
+        return STATUS(InvalidArgument, "Failed to assign private key");
+      }
+
+      BIO* pem_bio = BIO_new(BIO_s_mem());
+      if (pem_bio == nullptr) {
+        return STATUS(InternalError, "Could not create pem_bio");
+      }
+      if (PEM_write_bio_RSA_PUBKEY(pem_bio, rsa_key) != OPENSSL_SUCCESS) {
+        return STATUS(InternalError, "Could not write RSA key into the pem_bio");
+      }
+
+      char* pem_data = nullptr;
+      size_t pem_size = BIO_get_mem_data(pem_bio, &pem_data);
+      std::string pem(pem_data, pem_size);
+
+      BIO_free(pem_bio);
+      EVP_PKEY_free(pkey);
+      return pem;
+    } else if (key_type == "EC") {
+      auto x_claim = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "x"));
+      auto y_claim = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "y"));
+      auto curve_name = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "crv"));
+
+      auto x_coordinate = base64urlDecode(x_claim);
+      auto y_coordinate = base64urlDecode(y_claim);
+
+      auto nid = EC_curve_nist2nid(curve_name.c_str());
+      if (nid == NID_undef) {
+        // P-256K aka secp256k1 is not included in the openssl’s list of nist2nid lookup table via
+        // EC_curve_nist2nid.
+        //
+        // It is present in the lookup table used in ossl_ec_curve_name2nid function but that is not
+        // exposed publicly.
+        //
+        // So we set a hardcoded value as a hack. This is fine because the NIDs are public values
+        // i.e. they shouldn’t change between stable releases of openssl.
+        if (curve_name == "P-256K" || curve_name == "secp256k1") {
+          nid = NID_secp256k1;
+        } else {
+          return STATUS_FORMAT(
+              InvalidArgument, "Could not determine the NID for curve name: $0", curve_name);
+        }
+      }
+
+      EC_KEY* ec_key = EC_KEY_new_by_curve_name(nid);
+      if (ec_key == nullptr) {
+        return STATUS_FORMAT(
+            InvalidArgument, "Could not create EC_KEY with curve name $0 and nid $1.", curve_name,
+            nid);
+      }
+
+      BIGNUM* x = BN_bin2bn(
+          reinterpret_cast<const unsigned char*>(x_coordinate.data()),
+          narrow_cast<int>(x_coordinate.size()), nullptr);
+      BIGNUM* y = BN_bin2bn(
+          reinterpret_cast<const unsigned char*>(y_coordinate.data()),
+          narrow_cast<int>(y_coordinate.size()), nullptr);
+      if (x == nullptr || y == nullptr) {
+        return STATUS(InvalidArgument, "Could not get x or y coordinates of EC key.");
+      }
+
+      if (EC_KEY_set_public_key_affine_coordinates(ec_key, x, y) != OPENSSL_SUCCESS) {
+        return STATUS(InvalidArgument, "Could not set public key affine coordinates.");
+      }
+      EC_KEY_set_asn1_flag(ec_key, OPENSSL_EC_NAMED_CURVE);
+
+      BIO* pem_bio = BIO_new(BIO_s_mem());
+      if (pem_bio == nullptr) {
+        return STATUS(InternalError, "Could not create pem_bio.");
+      }
+      if (PEM_write_bio_EC_PUBKEY(pem_bio, ec_key) != OPENSSL_SUCCESS) {
+        return STATUS(InternalError, "Could not write EC key into the pem_bio.");
+      }
+
+      char* pem_data = nullptr;
+      size_t pem_size = BIO_get_mem_data(pem_bio, &pem_data);
+      std::string pem(pem_data, pem_size);
+
+      BIO_free(pem_bio);
+      EC_KEY_free(ec_key);
+      BN_free(x);
+      BN_free(y);
+      return pem;
+    }
+
+    return STATUS(NotSupported, "Unsupported kty. Only RSA and EC are supported.");
+  } catch (const std::exception& e) {
+    return STATUS_FORMAT(
+        InvalidArgument, "Converting JWK to PEM format failed with error $0", e.what());
+  } catch (...) {
+    return STATUS(InvalidArgument, "Converting JWK to PEM format failed");
+  }
+}
 
 Status ValidateDecodedJWT(
     const decoded_jwt<kazuho_picojson> decoded_jwt, const jwk<kazuho_picojson> jwk) {
@@ -129,6 +258,10 @@ Status ValidateJWT(
 
   VLOG(1) << "JWT validation successful";
   return Status::OK();
+}
+
+Result<std::string> Test_GetKeyAsPEM(const jwt::jwk<jwt::traits::kazuho_picojson> jwk) {
+  return GetKeyAsPEM(jwk);
 }
 
 }  // namespace yb::util

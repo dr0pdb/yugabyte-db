@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <jwt-cpp/jwt.h>
+
 #include <set>
 #include <string>
 
@@ -25,5 +27,7 @@ namespace yb::util {
 Status ValidateJWT(
     const std::string& token, const YBCPgJwtAuthOptions* options,
     std::vector<std::string>* identity_claims);
+
+Result<std::string> Test_GetKeyAsPEM(const jwt::jwk<jwt::traits::kazuho_picojson> jwk);
 
 }  // namespace yb::util
