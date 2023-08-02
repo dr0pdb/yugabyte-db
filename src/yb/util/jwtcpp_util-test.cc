@@ -481,14 +481,15 @@ const std::string CUSTOM_KEY = "customkey";
 
 Result<jwt::builder<jwt::traits::kazuho_picojson>> GenerateBuilder(std::string alg_prefix) {
   try {
-    auto builder = jwt::create()
-                     .set_issuer(ISSUER)
-                     .set_audience(AUDIENCE)
-                     .set_type("JWT")
-                     .set_key_id(Format("$0_keyid", alg_prefix))
-                     .set_issued_at(std::chrono::system_clock::now())
-                     .set_expires_at(std::chrono::system_clock::now() + std::chrono::seconds{36000})
-                     .set_subject(SUBJECT);
+    auto builder =
+        jwt::create()
+            .set_issuer(ISSUER)
+            .set_audience(AUDIENCE)
+            .set_type("JWT")
+            .set_key_id(Format("$0_keyid", alg_prefix))
+            .set_issued_at(std::chrono::system_clock::now())
+            .set_expires_at(std::chrono::system_clock::now() + std::chrono::seconds{36000})
+            .set_subject(SUBJECT);
     return builder;
   } catch (...) {
     return STATUS(InvalidArgument, "Could not create builder");
@@ -497,27 +498,23 @@ Result<jwt::builder<jwt::traits::kazuho_picojson>> GenerateBuilder(std::string a
 
 #define JWT_ALGORITHM(alg, private_key) jwt::algorithm::alg("", private_key)
 
-TEST(JwtCppUtilTest, ParseJwksSuccess) {
-    ASSERT_RESULT(ParseJwks(JWKS));
-}
+TEST(JwtCppUtilTest, ParseJwksSuccess) { ASSERT_RESULT(ParseJwks(JWKS)); }
 
-TEST(JwtCppUtilTest, ParseJwksInvalid) {
-    ASSERT_NOT_OK(ParseJwks("illformatted_json"));
-}
+TEST(JwtCppUtilTest, ParseJwksInvalid) { ASSERT_NOT_OK(ParseJwks("illformatted_json")); }
 
 TEST(JwtCppUtilTest, GetJwkFromJwksSuccess) {
-    auto jwks = ASSERT_RESULT(ParseJwks(JWKS));
-    auto jwk = ASSERT_RESULT(GetJwkFromJwks(jwks, "ps512_keyid"));
-    ASSERT_EQ(jwk.get_key_id(), "ps512_keyid");
+  auto jwks = ASSERT_RESULT(ParseJwks(JWKS));
+  auto jwk = ASSERT_RESULT(GetJwkFromJwks(jwks, "ps512_keyid"));
+  ASSERT_EQ(jwk.get_key_id(), "ps512_keyid");
 }
 
 TEST(JwtCppUtilTest, GetJwkFromJwksInvalid) {
-    auto jwks = ASSERT_RESULT(ParseJwks(JWKS));
-    ASSERT_NOT_OK(GetJwkFromJwks(jwks, "missing_keyid"));
+  auto jwks = ASSERT_RESULT(ParseJwks(JWKS));
+  ASSERT_NOT_OK(GetJwkFromJwks(jwks, "missing_keyid"));
 }
 
 TEST(JwtCppUtilTest, GetX5cKeyValueFromJWKSuccess) {
-    auto jwks_with_x5c = R"(
+  auto jwks_with_x5c = R"(
         {
             "keys": [
                 {
@@ -535,13 +532,13 @@ TEST(JwtCppUtilTest, GetX5cKeyValueFromJWKSuccess) {
             ]
         }
     )";
-    auto jwks = ASSERT_RESULT(ParseJwks(jwks_with_x5c));
-    auto jwk = ASSERT_RESULT(GetJwkFromJwks(jwks, "ps512_keyid"));
-    ASSERT_EQ(ASSERT_RESULT(GetX5cKeyValueFromJWK(jwk)), "some x5c value");
+  auto jwks = ASSERT_RESULT(ParseJwks(jwks_with_x5c));
+  auto jwk = ASSERT_RESULT(GetJwkFromJwks(jwks, "ps512_keyid"));
+  ASSERT_EQ(ASSERT_RESULT(GetX5cKeyValueFromJWK(jwk)), "some x5c value");
 }
 
 TEST(JwtCppUtilTest, GetX5cKeyValueFromJWKInvalid) {
-    auto jwks_without_x5c = R"(
+  auto jwks_without_x5c = R"(
         {
             "keys": [
                 {
@@ -557,19 +554,19 @@ TEST(JwtCppUtilTest, GetX5cKeyValueFromJWKInvalid) {
             ]
         }
     )";
-    auto jwks = ASSERT_RESULT(ParseJwks(jwks_without_x5c));
-    auto jwk = ASSERT_RESULT(GetJwkFromJwks(jwks, "ps512_keyid"));
-    ASSERT_NOT_OK(GetX5cKeyValueFromJWK(jwk));
+  auto jwks = ASSERT_RESULT(ParseJwks(jwks_without_x5c));
+  auto jwk = ASSERT_RESULT(GetJwkFromJwks(jwks, "ps512_keyid"));
+  ASSERT_NOT_OK(GetX5cKeyValueFromJWK(jwk));
 }
 
 TEST(JwtCppUtilTest, GetClaimFromJwkAsStringSuccess) {
-    auto jwks = ASSERT_RESULT(ParseJwks(JWKS));
-    auto jwk = ASSERT_RESULT(GetJwkFromJwks(jwks, "ps512_keyid"));
-    ASSERT_EQ(ASSERT_RESULT(GetClaimFromJwkAsString(jwk, "kid")), "ps512_keyid");
+  auto jwks = ASSERT_RESULT(ParseJwks(JWKS));
+  auto jwk = ASSERT_RESULT(GetJwkFromJwks(jwks, "ps512_keyid"));
+  ASSERT_EQ(ASSERT_RESULT(GetClaimFromJwkAsString(jwk, "kid")), "ps512_keyid");
 }
 
 TEST(JwtCppUtilTest, GetClaimFromJwkAsStringInvalid) {
-    auto jwks_with_bool_field = R"(
+  auto jwks_with_bool_field = R"(
         {
             "keys": [
                 {
@@ -585,9 +582,9 @@ TEST(JwtCppUtilTest, GetClaimFromJwkAsStringInvalid) {
             ]
         }
     )";
-    auto jwks = ASSERT_RESULT(ParseJwks(jwks_with_bool_field));
-    auto jwk = ASSERT_RESULT(GetJwkFromJwks(jwks, "ps512_keyid"));
-    ASSERT_NOT_OK(GetClaimFromJwkAsString(jwk, "bool_field"));
+  auto jwks = ASSERT_RESULT(ParseJwks(jwks_with_bool_field));
+  auto jwk = ASSERT_RESULT(GetJwkFromJwks(jwks, "ps512_keyid"));
+  ASSERT_NOT_OK(GetClaimFromJwkAsString(jwk, "bool_field"));
 }
 
 TEST(JwtCppUtilTest, ConvertX5cDerToPemSuccess) {
@@ -628,19 +625,19 @@ hisMqNhhp5U3fT7VPsl94rilJ8gKXP/KBbpldrfmOAdVDgUC+MHw3sSXSt+VnorB
 YcjgUQmwmAWD
 -----END CERTIFICATE-----
 )";
-    ASSERT_EQ(ASSERT_RESULT(ConvertX5cDerToPem(der_encoded_x5c)), expected_pem);
+  ASSERT_EQ(ASSERT_RESULT(ConvertX5cDerToPem(der_encoded_x5c)), expected_pem);
 }
 
 TEST(JwtCppUtilTest, ConvertX5cDerToPemInvalid) {
-    ASSERT_NOT_OK(ConvertX5cDerToPem("an invalid x5c"));
+  ASSERT_NOT_OK(ConvertX5cDerToPem("an invalid x5c"));
 }
 
 #define TEST_JWK_TO_PEM_CONVERSION(algorithm, jwk_json, expected_pem) \
-    TEST(JwtCppUtilTest, JWKToPEMConversion##algorithm) { \
-        auto jwk = jwt::parse_jwk(jwk_json); \
-        auto actual_pem = ASSERT_RESULT(GetKeyAsPEM(jwk)); \
-        ASSERT_EQ(actual_pem, expected_pem); \
-    }
+  TEST(JwtCppUtilTest, JWKToPEMConversion##algorithm) { \
+    auto jwk = jwt::parse_jwk(jwk_json); \
+    auto actual_pem = ASSERT_RESULT(GetKeyAsPEM(jwk)); \
+    ASSERT_EQ(actual_pem, expected_pem); \
+  }
 
 TEST_JWK_TO_PEM_CONVERSION(RS256, JWK_RS256, PEM_RS256_PUBLIC)
 TEST_JWK_TO_PEM_CONVERSION(RS384, JWK_RS384, PEM_RS384_PUBLIC)
@@ -654,189 +651,188 @@ TEST_JWK_TO_PEM_CONVERSION(ES512, JWK_ES512, PEM_ES512_PUBLIC)
 TEST_JWK_TO_PEM_CONVERSION(ES256K, JWK_ES256K, PEM_ES256K_PUBLIC)
 
 TEST(JwtCppUtilTest, DecodeJwtSuccess) {
-    auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
-    auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
-    
-    auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
+  auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
+  auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
 
-    ASSERT_EQ(decoded_jwt.get_key_id(), "rs256_keyid");
-    ASSERT_EQ(decoded_jwt.get_subject(), SUBJECT);
+  auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
+
+  ASSERT_EQ(decoded_jwt.get_key_id(), "rs256_keyid");
+  ASSERT_EQ(decoded_jwt.get_subject(), SUBJECT);
 }
 
-TEST(JwtCppUtilTest, DecodeJwtInvalid) {
-    ASSERT_NOT_OK(DecodeJwt("an_invalid_jwt"));
-}
+TEST(JwtCppUtilTest, DecodeJwtInvalid) { ASSERT_NOT_OK(DecodeJwt("an_invalid_jwt")); }
 
 TEST(JwtCppUtilTest, GetKeyIdSuccess) {
-    auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
-    auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
-    
-    auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
-    auto key_id = ASSERT_RESULT(GetKeyId(decoded_jwt));
+  auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
+  auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
 
-    ASSERT_EQ(key_id, "rs256_keyid");
+  auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
+  auto key_id = ASSERT_RESULT(GetKeyId(decoded_jwt));
+
+  ASSERT_EQ(key_id, "rs256_keyid");
 }
 
 TEST(JwtCppUtilTest, GetKeyIdInvalid) {
-    // It is not possible to generate a JWT without key id via the library, so this is hardcoded
-    // after generating online.
-    auto jwt_without_key_id =
-        "eyJhbGciOiJSUzI1NiIsImN0eSI6IkpXVCJ9.eyJzdWIiOiI"
-        "xMjM0NTY3ODkwIiwiaWF0IjoxNjAzMzc2MDExfQ.EzWU2fTxcQbOvkK-SkRyEJTFjRboB0"
-        "gIdhXjisfrTxd76UewpsNz81wMNeweBKZ1pkUFM1hFsvupO5TOf_yS7NjaMH649uQxG-i2"
-        "EZR4H_sbXZ-b7afYPMbmjJg80sxH4C4HLavCi-3PEVajuEHAPFAS1jiRPtMqHMDPtOIymJ"
-        "enhdZfReSTsyCPQAqPn-Y4uC-7cbHeT619bb1dvbooOb24VuH7sk1SwZR_ITmQJzx-95Qr"
-        "YOA4AnctmdlJ3Ez_-5Ti3WWfIKjOm5QpsbOlILquAJ-q-11scFTwcSbopcz8MkhmX76tJa"
-        "wgIPp2_oVjwSSDTUH1WvFPfuN17gSZVw";
-    auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt_without_key_id));
-    
-    ASSERT_NOT_OK(GetKeyId(decoded_jwt));
+  // It is not possible to generate a JWT without key id via the library, so this is hardcoded
+  // after generating online.
+  auto jwt_without_key_id =
+      "eyJhbGciOiJSUzI1NiIsImN0eSI6IkpXVCJ9.eyJzdWIiOiI"
+      "xMjM0NTY3ODkwIiwiaWF0IjoxNjAzMzc2MDExfQ.EzWU2fTxcQbOvkK-SkRyEJTFjRboB0"
+      "gIdhXjisfrTxd76UewpsNz81wMNeweBKZ1pkUFM1hFsvupO5TOf_yS7NjaMH649uQxG-i2"
+      "EZR4H_sbXZ-b7afYPMbmjJg80sxH4C4HLavCi-3PEVajuEHAPFAS1jiRPtMqHMDPtOIymJ"
+      "enhdZfReSTsyCPQAqPn-Y4uC-7cbHeT619bb1dvbooOb24VuH7sk1SwZR_ITmQJzx-95Qr"
+      "YOA4AnctmdlJ3Ez_-5Ti3WWfIKjOm5QpsbOlILquAJ-q-11scFTwcSbopcz8MkhmX76tJa"
+      "wgIPp2_oVjwSSDTUH1WvFPfuN17gSZVw";
+  auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt_without_key_id));
+
+  ASSERT_NOT_OK(GetKeyId(decoded_jwt));
 }
 
 TEST(JwtCppUtilTest, GetIssuerSuccess) {
-    auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
-    auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
-    
-    auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
-    auto issuer = ASSERT_RESULT(GetIssuer(decoded_jwt));
+  auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
+  auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
 
-    ASSERT_EQ(issuer, ISSUER);
+  auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
+  auto issuer = ASSERT_RESULT(GetIssuer(decoded_jwt));
+
+  ASSERT_EQ(issuer, ISSUER);
 }
 
 TEST(JwtCppUtilTest, GetIssuerInvalid) {
-    auto builder_without_issuer =
-        jwt::create()
-            .set_audience(AUDIENCE)
-            .set_type("JWT")
-            .set_key_id(Format("rs256_keyid"))
-            .set_issued_at(std::chrono::system_clock::now())
-            .set_expires_at(std::chrono::system_clock::now() + std::chrono::seconds{36000})
-            .set_subject(SUBJECT);
-    auto jwt = builder_without_issuer.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
-    auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
+  auto builder_without_issuer =
+      jwt::create()
+          .set_audience(AUDIENCE)
+          .set_type("JWT")
+          .set_key_id(Format("rs256_keyid"))
+          .set_issued_at(std::chrono::system_clock::now())
+          .set_expires_at(std::chrono::system_clock::now() + std::chrono::seconds{36000})
+          .set_subject(SUBJECT);
+  auto jwt = builder_without_issuer.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
+  auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
 
-    auto issuer_result = GetIssuer(decoded_jwt);
-    ASSERT_NOT_OK(issuer_result);
-    ASSERT_NE(
-        issuer_result.status().message().ToBuffer().find("Fetching issuer from the JWT failed"),
-        std::string::npos)
-        << issuer_result.status();
+  auto issuer_result = GetIssuer(decoded_jwt);
+  ASSERT_NOT_OK(issuer_result);
+  ASSERT_NE(
+      issuer_result.status().message().ToBuffer().find("Fetching issuer from the JWT failed"),
+      std::string::npos)
+      << issuer_result.status();
 }
 
 TEST(JwtCppUtilTest, GetClaimAsStringsArraySuccess) {
-    auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
-    builder.set_payload_claim(CUSTOM_KEY, jwt::claim(picojson::value("abc")));
-    auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
+  auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
+  builder.set_payload_claim(CUSTOM_KEY, jwt::claim(picojson::value("abc")));
+  auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
 
-    auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
+  auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
 
-    auto claim_value = ASSERT_RESULT(GetClaimAsStringsArray(decoded_jwt, CUSTOM_KEY));
-    auto expected_value = std::vector<std::string>{"abc"};
-    ASSERT_EQ(claim_value, expected_value);
+  auto claim_value = ASSERT_RESULT(GetClaimAsStringsArray(decoded_jwt, CUSTOM_KEY));
+  auto expected_value = std::vector<std::string>{"abc"};
+  ASSERT_EQ(claim_value, expected_value);
 }
 
 void TestGetClaimAsStringsArrayInvalid(const std::string& jwt) {
-    auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
+  auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
 
-    auto get_claim_result = GetClaimAsStringsArray(decoded_jwt, CUSTOM_KEY);
-    ASSERT_NOK(get_claim_result);
-    ASSERT_NE(
-        get_claim_result.status().message().ToBuffer().find(
-            "Claim value with name customkey was not a string or array of string."),
-        std::string::npos)
-        << get_claim_result.status();
+  auto get_claim_result = GetClaimAsStringsArray(decoded_jwt, CUSTOM_KEY);
+  ASSERT_NOK(get_claim_result);
+  ASSERT_NE(
+      get_claim_result.status().message().ToBuffer().find(
+          "Claim value with name customkey was not a string or array of string."),
+      std::string::npos)
+      << get_claim_result.status();
 }
 
 TEST(JwtCppUtilTest, GetClaimAsStringsArrayPrimitiveInvalid) {
-    auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
-    builder.set_payload_claim(CUSTOM_KEY, jwt::claim(picojson::value(int64_t{12345})));
-    auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
+  auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
+  builder.set_payload_claim(CUSTOM_KEY, jwt::claim(picojson::value(int64_t{12345})));
+  auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
 
-    TestGetClaimAsStringsArrayInvalid(jwt);
+  TestGetClaimAsStringsArrayInvalid(jwt);
 }
 
 TEST(JwtCppUtilTest, GetClaimAsStringsArrayListInvalid) {
-    auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
-    std::vector<picojson::value> claim_value = {
-        picojson::value(int64_t{1}), picojson::value(int64_t{2})};
-    builder.set_payload_claim(CUSTOM_KEY, jwt::claim(picojson::value(claim_value)));
-    auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
+  auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
+  std::vector<picojson::value> claim_value = {
+      picojson::value(int64_t{1}), picojson::value(int64_t{2})};
+  builder.set_payload_claim(CUSTOM_KEY, jwt::claim(picojson::value(claim_value)));
+  auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
 
-    TestGetClaimAsStringsArrayInvalid(jwt);
+  TestGetClaimAsStringsArrayInvalid(jwt);
 }
 
 TEST(JwtCppUtilTest, GetAudiencesSingletonSuccess) {
-    auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
-    auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
+  auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
+  auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
 
-    auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
-    auto audiences = ASSERT_RESULT(GetAudiences(decoded_jwt));
+  auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
+  auto audiences = ASSERT_RESULT(GetAudiences(decoded_jwt));
 
-    ASSERT_EQ(audiences, std::set<std::string>{AUDIENCE});
+  ASSERT_EQ(audiences, std::set<std::string>{AUDIENCE});
 }
 
 TEST(JwtCppUtilTest, GetAudiencesMultipleSuccess) {
-    auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
-    builder.set_audience(std::vector<picojson::value>{picojson::value(AUDIENCE), picojson::value("ANOTHER_AUDIENCE")});
-    auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
+  auto builder = ASSERT_RESULT(GenerateBuilder("rs256"));
+  builder.set_audience(
+      std::vector<picojson::value>{picojson::value(AUDIENCE), picojson::value("ANOTHER_AUDIENCE")});
+  auto jwt = builder.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
 
-    auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
-    auto audiences = ASSERT_RESULT(GetAudiences(decoded_jwt));
+  auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
+  auto audiences = ASSERT_RESULT(GetAudiences(decoded_jwt));
 
-    auto expected_audience_set = std::set<std::string>{AUDIENCE, "ANOTHER_AUDIENCE"};
-    ASSERT_EQ(audiences, expected_audience_set);
+  auto expected_audience_set = std::set<std::string>{AUDIENCE, "ANOTHER_AUDIENCE"};
+  ASSERT_EQ(audiences, expected_audience_set);
 }
 
 TEST(JwtCppUtilTest, GetAudiencesInvalid) {
-    auto builder_without_audiences =
-        jwt::create()
-            .set_issuer(ISSUER)
-            .set_type("JWT")
-            .set_key_id(Format("rs256_keyid"))
-            .set_issued_at(std::chrono::system_clock::now())
-            .set_expires_at(std::chrono::system_clock::now() + std::chrono::seconds{36000})
-            .set_subject(SUBJECT);
-    auto jwt = builder_without_audiences.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
-    auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
+  auto builder_without_audiences =
+      jwt::create()
+          .set_issuer(ISSUER)
+          .set_type("JWT")
+          .set_key_id(Format("rs256_keyid"))
+          .set_issued_at(std::chrono::system_clock::now())
+          .set_expires_at(std::chrono::system_clock::now() + std::chrono::seconds{36000})
+          .set_subject(SUBJECT);
+  auto jwt = builder_without_audiences.sign(JWT_ALGORITHM(rs256, PEM_RS256_PRIVATE));
+  auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
 
-    auto audiences_result = GetAudiences(decoded_jwt);
-    ASSERT_NOT_OK(audiences_result);
-    ASSERT_NE(
-        audiences_result.status().message().ToBuffer().find("Fetching audience from the JWT failed"),
-        std::string::npos)
-        << audiences_result.status();
+  auto audiences_result = GetAudiences(decoded_jwt);
+  ASSERT_NOT_OK(audiences_result);
+  ASSERT_NE(
+      audiences_result.status().message().ToBuffer().find("Fetching audience from the JWT failed"),
+      std::string::npos)
+      << audiences_result.status();
 }
 
 TEST(JwtCppUtilTest, GetVerifierSuccess) {
-    ASSERT_RESULT(GetVerifier(PEM_RS256_PUBLIC, "RS256"));
-    ASSERT_RESULT(GetVerifier(PEM_RS384_PUBLIC, "RS384"));
-    ASSERT_RESULT(GetVerifier(PEM_RS512_PUBLIC, "RS512"));
-    ASSERT_RESULT(GetVerifier(PEM_PS256_PUBLIC, "PS256"));
-    ASSERT_RESULT(GetVerifier(PEM_PS384_PUBLIC, "PS384"));
-    ASSERT_RESULT(GetVerifier(PEM_PS512_PUBLIC, "PS512"));
-    ASSERT_RESULT(GetVerifier(PEM_ES256_PUBLIC, "ES256"));
-    ASSERT_RESULT(GetVerifier(PEM_ES384_PUBLIC, "ES384"));
-    ASSERT_RESULT(GetVerifier(PEM_ES512_PUBLIC, "ES512"));
-    ASSERT_RESULT(GetVerifier(PEM_ES256K_PUBLIC, "ES256K"));
+  ASSERT_RESULT(GetVerifier(PEM_RS256_PUBLIC, "RS256"));
+  ASSERT_RESULT(GetVerifier(PEM_RS384_PUBLIC, "RS384"));
+  ASSERT_RESULT(GetVerifier(PEM_RS512_PUBLIC, "RS512"));
+  ASSERT_RESULT(GetVerifier(PEM_PS256_PUBLIC, "PS256"));
+  ASSERT_RESULT(GetVerifier(PEM_PS384_PUBLIC, "PS384"));
+  ASSERT_RESULT(GetVerifier(PEM_PS512_PUBLIC, "PS512"));
+  ASSERT_RESULT(GetVerifier(PEM_ES256_PUBLIC, "ES256"));
+  ASSERT_RESULT(GetVerifier(PEM_ES384_PUBLIC, "ES384"));
+  ASSERT_RESULT(GetVerifier(PEM_ES512_PUBLIC, "ES512"));
+  ASSERT_RESULT(GetVerifier(PEM_ES256K_PUBLIC, "ES256K"));
 }
 
 TEST(JwtCppUtilTest, GetVerifierUnsupported) {
-    auto hs256_verifier = GetVerifier("does not matter", "HS256");
-    ASSERT_NOT_OK(hs256_verifier);
-    ASSERT_NE(
-        hs256_verifier.status().message().ToBuffer().find("Unsupported JWT algorithm: HS256"),
-        std::string::npos)
-        << hs256_verifier.status();
+  auto hs256_verifier = GetVerifier("does not matter", "HS256");
+  ASSERT_NOT_OK(hs256_verifier);
+  ASSERT_NE(
+      hs256_verifier.status().message().ToBuffer().find("Unsupported JWT algorithm: HS256"),
+      std::string::npos)
+      << hs256_verifier.status();
 }
 
 TEST(JwtCppUtilTest, GetVerifierInvalidPublicPEM) {
-    auto invalid_verifier = GetVerifier("invalidpem", "RS256");
-    ASSERT_NOT_OK(invalid_verifier);
-    ASSERT_NE(
-        invalid_verifier.status().message().ToBuffer().find(
-            "Constructing JWT verifier for public key: invalidpem and algo: RS256 failed"),
-        std::string::npos)
-        << invalid_verifier.status();
+  auto invalid_verifier = GetVerifier("invalidpem", "RS256");
+  ASSERT_NOT_OK(invalid_verifier);
+  ASSERT_NE(
+      invalid_verifier.status().message().ToBuffer().find(
+          "Constructing JWT verifier for public key: invalidpem and algo: RS256 failed"),
+      std::string::npos)
+      << invalid_verifier.status();
 }
 
 // 1. Generate a JWT
@@ -844,13 +840,13 @@ TEST(JwtCppUtilTest, GetVerifierInvalidPublicPEM) {
 // 3. Get the verifier for the key and algorithm
 // 4. Assert that verification is successful
 #define TEST_VERIFY_JWT_USING_VERIFIER(algorithm, lowercase_algorithm) \
-    TEST(JwtCppUtilTest, VerifyJwtUsingVerifierSuccess##algorithm) { \
-        auto builder = ASSERT_RESULT(GenerateBuilder(#lowercase_algorithm)); \
-        auto token = builder.sign(JWT_ALGORITHM(lowercase_algorithm, PEM_##algorithm##_PRIVATE)); \
-        auto verifier = ASSERT_RESULT(GetVerifier(PEM_##algorithm##_PUBLIC, #algorithm)); \
-        auto decoded_jwt = ASSERT_RESULT(DecodeJwt(token)); \
-        ASSERT_OK(VerifyJwtUsingVerifier(verifier, decoded_jwt)); \
-    }
+  TEST(JwtCppUtilTest, VerifyJwtUsingVerifierSuccess##algorithm) { \
+    auto builder = ASSERT_RESULT(GenerateBuilder(#lowercase_algorithm)); \
+    auto token = builder.sign(JWT_ALGORITHM(lowercase_algorithm, PEM_##algorithm##_PRIVATE)); \
+    auto verifier = ASSERT_RESULT(GetVerifier(PEM_##algorithm##_PUBLIC, #algorithm)); \
+    auto decoded_jwt = ASSERT_RESULT(DecodeJwt(token)); \
+    ASSERT_OK(VerifyJwtUsingVerifier(verifier, decoded_jwt)); \
+  }
 
 TEST_VERIFY_JWT_USING_VERIFIER(RS256, rs256);
 TEST_VERIFY_JWT_USING_VERIFIER(RS384, rs384);
