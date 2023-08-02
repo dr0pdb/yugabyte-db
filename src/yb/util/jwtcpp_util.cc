@@ -226,7 +226,7 @@ Result<std::string> GetKeyId(const jwt::decoded_jwt<jwt::traits::kazuho_picojson
   try {
     return decoded_jwt.get_key_id();
   } catch (const std::exception& e) {
-    return STATUS_FORMAT(InvalidArgument, "Invalid JWT key id (kid): $0", e.what());
+    return STATUS_FORMAT(InvalidArgument, "Invalid JWT key id (kid) - $0", e.what());
   } catch (...) {
     return STATUS(InvalidArgument, "Invalid JWT key id (kid)");
   }
