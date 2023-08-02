@@ -12,10 +12,10 @@
 
 #pragma once
 
+#include <jwt-cpp/jwt.h>
+
 #include <set>
 #include <string>
-
-#include <jwt-cpp/jwt.h>
 
 #include "yb/util/result.h"
 #include "yb/util/status.h"
