@@ -28,6 +28,6 @@ Status ValidateJWT(
     const std::string& token, const YBCPgJwtAuthOptions* options,
     std::vector<std::string>* identity_claims);
 
-Result<std::string> Test_GetKeyAsPEM(const jwt::jwk<jwt::traits::kazuho_picojson> jwk);
+Result<std::string> Test_GetKeyAsPEM(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk);
 
 }  // namespace yb::util

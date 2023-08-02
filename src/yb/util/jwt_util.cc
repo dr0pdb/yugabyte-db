@@ -53,13 +53,13 @@ bool DoesValueExist(
 
 }  // namespace
 
-Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson> jwk) {
+Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson>& jwk) {
   auto base64urlDecode = [](const std::string& base64url_encoded) {
     return jwt::base::decode<jwt::alphabet::base64url>(
         jwt::base::pad<jwt::alphabet::base64url>(base64url_encoded));
   };
 
-  std::string key_type = jwk.get_key_type();
+  std::string key_type = VERIFY_RESULT(GetKeyType(jwk));
   if (key_type == "RSA") {
     auto n = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "n"));
     auto e = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "e"));
@@ -253,7 +253,7 @@ Status ValidateJWT(
   return Status::OK();
 }
 
-Result<std::string> Test_GetKeyAsPEM(const jwt::jwk<jwt::traits::kazuho_picojson> jwk) {
+Result<std::string> Test_GetKeyAsPEM(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk) {
   return GetKeyAsPEM(jwk);
 }
 
