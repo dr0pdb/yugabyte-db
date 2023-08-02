@@ -44,10 +44,6 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 
-#include <sys/stat.h>
-
-#include "pg_yb_utils.h"
-
 #ifdef USE_LDAP
 #ifdef WIN32
 #include <winldap.h>
@@ -56,6 +52,9 @@
 #endif
 #endif
 
+#include <sys/stat.h>
+
+#include "pg_yb_utils.h"
 
 #define MAX_TOKEN	256
 #define MAX_LINE	8192
