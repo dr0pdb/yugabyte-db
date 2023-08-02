@@ -70,7 +70,8 @@ Result<std::string> GetKeyType(const jwk<kazuho_picojson>& jwk) {
   }
 }
 
-Result<std::string> GetClaimFromJwkAsString(const jwk<kazuho_picojson>& jwk, const std::string& name) {
+Result<std::string> GetClaimFromJwkAsString(
+    const jwk<kazuho_picojson>& jwk, const std::string& name) {
   try {
     return jwk.get_jwk_claim(name).as_string();
   } catch (const std::exception& e) {
@@ -183,7 +184,8 @@ Result<std::vector<std::string>> GetClaimAsStringsArray(
   }
 }
 
-Result<std::string> GetAlgorithm(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt) {
+Result<std::string> GetAlgorithm(
+    const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt) {
   try {
     return decoded_jwt.get_algorithm();
   } catch (const std::exception& e) {
