@@ -37,12 +37,14 @@ namespace yb::util {
 Result<jwt::jwks<jwt::traits::kazuho_picojson>> ParseJwks(const std::string& key_set);
 
 Result<jwt::jwk<jwt::traits::kazuho_picojson>> GetJwkFromJwks(
-    jwt::jwks<jwt::traits::kazuho_picojson> jwks, const std::string& key_id);
+    const jwt::jwks<jwt::traits::kazuho_picojson>& jwks, const std::string& key_id);
 
-Result<std::string> GetX5cKeyValueFromJWK(jwt::jwk<jwt::traits::kazuho_picojson> jwk);
+Result<std::string> GetX5cKeyValueFromJWK(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk);
+
+Result<std::string> GetKeyType(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk);
 
 Result<std::string> GetClaimFromJwkAsString(
-    jwt::jwk<jwt::traits::kazuho_picojson> jwk, const std::string& key);
+    const jwt::jwk<jwt::traits::kazuho_picojson>& jwk, const std::string& key);
 
 Result<std::string> ConvertX5cDerToPem(const std::string& x5c);
 
@@ -51,23 +53,23 @@ Result<std::string> ConvertX5cDerToPem(const std::string& x5c);
 
 Result<jwt::decoded_jwt<jwt::traits::kazuho_picojson>> DecodeJwt(const std::string& token);
 
-Result<std::string> GetKeyId(const jwt::decoded_jwt<jwt::traits::kazuho_picojson> decoded_jwt);
+Result<std::string> GetKeyId(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
 
-Result<std::string> GetIssuer(const jwt::decoded_jwt<jwt::traits::kazuho_picojson> decoded_jwt);
+Result<std::string> GetIssuer(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
 
 Result<std::set<std::string>> GetAudiences(
-    const jwt::decoded_jwt<jwt::traits::kazuho_picojson> decoded_jwt);
+    const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
 
 Result<std::vector<std::string>> GetClaimAsStringsArray(
-    const jwt::decoded_jwt<jwt::traits::kazuho_picojson> decoded_jwt, const std::string& name);
+    const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt, const std::string& name);
 
-Result<std::string> GetAlgorithm(const jwt::decoded_jwt<jwt::traits::kazuho_picojson> decoded_jwt);
+Result<std::string> GetAlgorithm(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
 
 Result<jwt::verifier<jwt::default_clock, jwt::traits::kazuho_picojson>> GetVerifier(
     const std::string& key_pem, const std::string& algo);
 
 Status VerifyJwtUsingVerifier(
     const jwt::verifier<jwt::default_clock, jwt::traits::kazuho_picojson>& verifier,
-    const jwt::decoded_jwt<jwt::traits::kazuho_picojson> decoded_jwt);
+    const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
 
 }  // namespace yb::util

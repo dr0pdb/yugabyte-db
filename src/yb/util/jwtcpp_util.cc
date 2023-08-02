@@ -59,6 +59,16 @@ Result<std::string> GetX5cKeyValueFromJWK(jwk<kazuho_picojson> jwk) {
   }
 }
 
+Result<std::string> GetKeyType(jwk<kazuho_picojson> jwk) {
+  try {
+    return jwk.get_key_type();
+  } catch (const std::exception& e) {
+    return STATUS_FORMAT(InvalidArgument, "Fetching key type from JWK failed - $0", e.what());
+  } catch (...) {
+    return STATUS(InvalidArgument, "Fetching key type from JWK failed");
+  }
+}
+
 Result<std::string> GetClaimFromJwkAsString(jwk<kazuho_picojson> jwk, const std::string& name) {
   try {
     return jwk.get_jwk_claim(name).as_string();
