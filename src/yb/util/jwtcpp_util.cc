@@ -303,6 +303,16 @@ Result<std::vector<std::string>> GetClaimAsStringsArray(
   }
 }
 
+Result<std::string> GetAlgorithm(const jwt::decoded_jwt<jwt::traits::kazuho_picojson> decoded_jwt) {
+  try {
+    return decoded_jwt.get_algorithm();
+  } catch (const std::exception& e) {
+    return STATUS_FORMAT(InvalidArgument, "Fetching algorithm from the JWT failed - $0", e.what());
+  } catch (...) {
+    return STATUS(InvalidArgument, "Fetching algorithm from the JWT failed");
+  }
+}
+
 Result<verifier<jwt::default_clock, kazuho_picojson>> GetVerifier(
     const std::string& key_pem, const std::string& algo) {
   try {

@@ -63,6 +63,8 @@ Result<std::set<std::string>> GetAudiences(
 Result<std::vector<std::string>> GetClaimAsStringsArray(
     const jwt::decoded_jwt<jwt::traits::kazuho_picojson> decoded_jwt, const std::string& name);
 
+Result<std::string> GetAlgorithm(const jwt::decoded_jwt<jwt::traits::kazuho_picojson> decoded_jwt);
+
 Result<jwt::verifier<jwt::default_clock, jwt::traits::kazuho_picojson>> GetVerifier(
     const std::string& key_pem, const std::string& algo);
 
