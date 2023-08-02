@@ -46,8 +46,6 @@ Result<std::string> GetClaimFromJwkAsString(
 
 Result<std::string> ConvertX5cDerToPem(const std::string& x5c);
 
-Result<std::string> GetKeyAsPEM(const jwt::jwk<jwt::traits::kazuho_picojson> jwk);
-
 //--------------------------------------------------------------------------------------------------
 // JWT.
 
