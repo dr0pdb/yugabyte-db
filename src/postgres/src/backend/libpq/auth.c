@@ -3562,6 +3562,7 @@ YbCheckJWTAuth(Port *port)
 	pfree(jwt_auth_options.allowed_audiences);
 	pfree(jwt_auth_options.allowed_issuers);
 
+	pfree(jwks);
 	pfree(jwt);
 	return auth_result;
 }

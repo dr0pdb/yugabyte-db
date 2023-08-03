@@ -184,7 +184,7 @@ Status ValidateDecodedJWT(
   // claim whenever it is available. So try to get it from the x5c field, else calculate using
   // other JWK fields using openssl.
   std::string key_pem;
-  if (jwk.has_x5c()) {
+  if (GetJwkHasX5c(jwk)) {
     auto x5c = VERIFY_RESULT(GetX5cKeyValueFromJwk(jwk));
     key_pem = VERIFY_RESULT(ConvertX5cDerToPem(x5c));
   } else {
