@@ -26,116 +26,70 @@ using jwt::verifier;
 using jwt::json::type;
 using jwt::traits::kazuho_picojson;
 
-Result<jwks<kazuho_picojson>> ParseJwks(const std::string& key_set) {
-  try {
-    return jwt::parse_jwks(key_set);
-  } catch (const std::exception& e) {
-    VLOG(4) << Format("Invalid JWKS: $0, Error: $1", key_set, e.what());
-    return STATUS_FORMAT(InvalidArgument, "Invalid JWKS - $0", e.what());
-  } catch (...) {
-    VLOG(4) << Format("Invalid JWKS: $0", key_set);
-    return STATUS(InvalidArgument, "Invalid JWKS.");
+namespace {
+
+// TODO: Use PRETTY_FUNCTION when we have wrappers over JWT-CPP types.
+#define JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(retval) \
+  try { \
+    return (retval); \
+  } catch (const std::exception& e) { \
+    return STATUS_FORMAT(InvalidArgument, "$0 failed: $1", __func__, e.what()); \
+  } catch (...) { \
+    return STATUS_FORMAT(InvalidArgument, "$0 failed", __func__); \
   }
+
+}  // namespace
+
+Result<jwks<kazuho_picojson>> ParseJwks(const std::string& key_set) {
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(jwt::parse_jwks(key_set));
 }
 
 Result<jwk<kazuho_picojson>> GetJwkFromJwks(
     const jwks<kazuho_picojson>& jwks, const std::string& key_id) {
-  try {
-    return jwks.get_jwk(key_id);
-  } catch (const std::exception& e) {
-    return STATUS_FORMAT(
-        InvalidArgument, "Couldn't fetch key with id: $0 from JWKS - $1", key_id, e.what());
-  } catch (...) {
-    return STATUS_FORMAT(InvalidArgument, "Couldn't fetch key with id: $0 from JWKS", key_id);
-  }
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(jwks.get_jwk(key_id));
 }
 
-Result<std::string> GetX5cKeyValueFromJWK(const jwk<kazuho_picojson>& jwk) {
-  try {
-    return jwk.get_x5c_key_value();
-  } catch (const std::exception& e) {
-    return STATUS_FORMAT(InvalidArgument, "Fetching x5c from JWK failed - $0", e.what());
-  } catch (...) {
-    return STATUS(InvalidArgument, "Fetching x5c from JWK failed");
-  }
+Result<std::string> GetX5cKeyValueFromJwk(const jwk<kazuho_picojson>& jwk) {
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(jwk.get_x5c_key_value());
 }
 
-Result<std::string> GetKeyType(const jwk<kazuho_picojson>& jwk) {
-  try {
-    return jwk.get_key_type();
-  } catch (const std::exception& e) {
-    return STATUS_FORMAT(InvalidArgument, "Fetching key type from JWK failed - $0", e.what());
-  } catch (...) {
-    return STATUS(InvalidArgument, "Fetching key type from JWK failed");
-  }
+Result<std::string> GetJwkKeyType(const jwk<kazuho_picojson>& jwk) {
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(jwk.get_key_type());
 }
 
-Result<std::string> GetClaimFromJwkAsString(
-    const jwk<kazuho_picojson>& jwk, const std::string& name) {
-  try {
-    return jwk.get_jwk_claim(name).as_string();
-  } catch (const std::exception& e) {
-    return STATUS_FORMAT(InvalidArgument, "Fetching claim $0 from JWK failed - $1", name, e.what());
-  } catch (...) {
-    return STATUS_FORMAT(InvalidArgument, "Fetching claim $0 from JWK failed", name);
-  }
+Result<std::string> GetJwkKeyId(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk) {
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(jwk.get_key_id());
+}
+
+Result<std::string> GetJwkClaimAsString(const jwk<kazuho_picojson>& jwk, const std::string& name) {
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(jwk.get_jwk_claim(name).as_string());
 }
 
 Result<std::string> ConvertX5cDerToPem(const std::string& x5c) {
-  try {
-    return jwt::helper::convert_base64_der_to_pem(x5c);
-  } catch (const std::exception& e) {
-    return STATUS_FORMAT(InvalidArgument, "Converting JWT x5c to PEM format failed - $0", e.what());
-  } catch (...) {
-    return STATUS(InvalidArgument, "Converting JWT x5c to PEM format failed");
-  }
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(jwt::helper::convert_base64_der_to_pem(x5c));
 }
 
 Result<decoded_jwt<kazuho_picojson>> DecodeJwt(const std::string& token) {
-  try {
-    return jwt::decode(token);
-  } catch (const std::exception& e) {
-    return STATUS_FORMAT(InvalidArgument, "Parsing JWT failed - $0", e.what());
-  } catch (...) {
-    return STATUS(InvalidArgument, "Parsing JWT failed");
-  }
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(jwt::decode(token));
 }
 
-Result<std::string> GetKeyId(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt) {
-  try {
-    return decoded_jwt.get_key_id();
-  } catch (const std::exception& e) {
-    return STATUS_FORMAT(InvalidArgument, "Invalid JWT key id (kid) - $0", e.what());
-  } catch (...) {
-    return STATUS(InvalidArgument, "Invalid JWT key id (kid)");
-  }
+Result<std::string> GetJwtKeyId(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt) {
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(decoded_jwt.get_key_id());
 }
 
-Result<std::string> GetIssuer(const decoded_jwt<kazuho_picojson>& decoded_jwt) {
-  try {
-    return decoded_jwt.get_issuer();
-  } catch (const std::exception& e) {
-    return STATUS(InvalidArgument, "Fetching issuer from the JWT failed - $0", e.what());
-  } catch (...) {
-    return STATUS(InvalidArgument, "Fetching issuer from the JWT failed");
-  }
+Result<std::string> GetJwtIssuer(const decoded_jwt<kazuho_picojson>& decoded_jwt) {
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(decoded_jwt.get_issuer());
 }
 
-Result<std::set<std::string>> GetAudiences(const decoded_jwt<kazuho_picojson>& decoded_jwt) {
-  try {
-    return decoded_jwt.get_audience();
-  } catch (const std::exception& e) {
-    return STATUS_FORMAT(InvalidArgument, "Fetching audience from the JWT failed - $0", e.what());
-  } catch (...) {
-    return STATUS(InvalidArgument, "Fetching audience from the JWT failed");
-  }
+Result<std::set<std::string>> GetJwtAudiences(const decoded_jwt<kazuho_picojson>& decoded_jwt) {
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(decoded_jwt.get_audience());
 }
 
 // Returns the claim value with the given name from the decoded jwt.
 // Assumes that the claim value is either a string or an array of string. In both the cases, we
 // return a vector<string> to the caller.
 // In case the claim value isn't a string/array of string, an error is returned.
-Result<std::vector<std::string>> GetClaimAsStringsArray(
+Result<std::vector<std::string>> GetJwtClaimAsStringsList(
     const decoded_jwt<kazuho_picojson>& decoded_jwt, const std::string& name) {
   try {
     std::vector<std::string> result;
@@ -178,24 +132,18 @@ Result<std::vector<std::string>> GetClaimAsStringsArray(
     return result;
   } catch (const std::exception& e) {
     return STATUS_FORMAT(
-        InvalidArgument, "Getting claim with name $0 from the JWT failed - $1", name, e.what());
+        InvalidArgument, "Getting claim with name $0 from the JWT failed: $1", name, e.what());
   } catch (...) {
     return STATUS_FORMAT(InvalidArgument, "Getting claim with name $0 from the JWT failed", name);
   }
 }
 
-Result<std::string> GetAlgorithm(
+Result<std::string> GetJwtAlgorithm(
     const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt) {
-  try {
-    return decoded_jwt.get_algorithm();
-  } catch (const std::exception& e) {
-    return STATUS_FORMAT(InvalidArgument, "Fetching algorithm from the JWT failed - $0", e.what());
-  } catch (...) {
-    return STATUS(InvalidArgument, "Fetching algorithm from the JWT failed");
-  }
+  JWTCPP_CATCH_AND_CONVERT_EXCEPTION_TO_RESULT(decoded_jwt.get_algorithm());
 }
 
-Result<verifier<jwt::default_clock, kazuho_picojson>> GetVerifier(
+Result<verifier<jwt::default_clock, kazuho_picojson>> GetJwtVerifier(
     const std::string& key_pem, const std::string& algo) {
   try {
     auto verifier = jwt::verify();
@@ -212,6 +160,7 @@ Result<verifier<jwt::default_clock, kazuho_picojson>> GetVerifier(
     // because almost all major IDPs use asymmetric keys for signing JWTs with RS256 being the most
     // widely used.
     // For e.g: Azure AD always uses asymmetric keys.
+    // TODO: A wrapper enum could be created over algo for compile time guarantees.
     if (algo == "RS256") {
       verifier.allow_algorithm(jwt::algorithm::rs256(key_pem));
     } else if (algo == "RS384") {
@@ -239,7 +188,7 @@ Result<verifier<jwt::default_clock, kazuho_picojson>> GetVerifier(
     return verifier;
   } catch (const std::exception& e) {
     return STATUS_FORMAT(
-        InvalidArgument, "Constructing JWT verifier for public key: $0 and algo: $1 failed - $2",
+        InvalidArgument, "Constructing JWT verifier for public key: $0 and algo: $1 failed: $2",
         key_pem, algo, e.what());
   } catch (...) {
     return STATUS_FORMAT(
@@ -255,7 +204,7 @@ Status VerifyJwtUsingVerifier(
     verifier.verify(decoded_jwt);
     return Status::OK();
   } catch (const std::exception& e) {
-    return STATUS_FORMAT(InvalidArgument, "Invalid JWT - $0", e.what());
+    return STATUS_FORMAT(InvalidArgument, "Invalid JWT: $0", e.what());
   } catch (...) {
     return STATUS_FORMAT(InvalidArgument, "Invalid JWT");
   }

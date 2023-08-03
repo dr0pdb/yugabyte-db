@@ -21,13 +21,19 @@
 #include "yb/util/status.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
 
-// This file contains utility wrappers & extensions over the JWT-CPP library.
+// This file contains utility wrappers & extensions functions over the JWT-CPP library.
 //
 // The library throws exceptions, hence each function that we need in our codebase has a wrapper
 // which catches the exception and return a Result.
 //
 // Additionally, we also have functions which combine a few related functionalities into one for
 // ease of use of the callers. For e.g. GetClaimAsStringsArray, GetVerifier etc.
+
+// TODO:
+// 1. Add wrapper types over all the JWT-CPP types we use so that we never have to include the
+//    JWT-CPP header outside of this wrapper. This will help avoid cases where we accidently call a
+//    function on the type which throws exception.
+// 2. Add a lint rule validating that we don't use JWT-CPP header outside of this wrapper.
 
 namespace yb::util {
 
@@ -39,11 +45,13 @@ Result<jwt::jwks<jwt::traits::kazuho_picojson>> ParseJwks(const std::string& key
 Result<jwt::jwk<jwt::traits::kazuho_picojson>> GetJwkFromJwks(
     const jwt::jwks<jwt::traits::kazuho_picojson>& jwks, const std::string& key_id);
 
-Result<std::string> GetX5cKeyValueFromJWK(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk);
+Result<std::string> GetX5cKeyValueFromJwk(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk);
 
-Result<std::string> GetKeyType(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk);
+Result<std::string> GetJwkKeyType(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk);
 
-Result<std::string> GetClaimFromJwkAsString(
+Result<std::string> GetJwkKeyId(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk);
+
+Result<std::string> GetJwkClaimAsString(
     const jwt::jwk<jwt::traits::kazuho_picojson>& jwk, const std::string& key);
 
 Result<std::string> ConvertX5cDerToPem(const std::string& x5c);
@@ -53,19 +61,20 @@ Result<std::string> ConvertX5cDerToPem(const std::string& x5c);
 
 Result<jwt::decoded_jwt<jwt::traits::kazuho_picojson>> DecodeJwt(const std::string& token);
 
-Result<std::string> GetKeyId(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
+Result<std::string> GetJwtKeyId(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
 
-Result<std::string> GetIssuer(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
+Result<std::string> GetJwtIssuer(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
 
-Result<std::set<std::string>> GetAudiences(
+Result<std::set<std::string>> GetJwtAudiences(
     const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
 
-Result<std::vector<std::string>> GetClaimAsStringsArray(
+Result<std::vector<std::string>> GetJwtClaimAsStringsList(
     const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt, const std::string& name);
 
-Result<std::string> GetAlgorithm(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
+Result<std::string> GetJwtAlgorithm(
+    const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt);
 
-Result<jwt::verifier<jwt::default_clock, jwt::traits::kazuho_picojson>> GetVerifier(
+Result<jwt::verifier<jwt::default_clock, jwt::traits::kazuho_picojson>> GetJwtVerifier(
     const std::string& key_pem, const std::string& algo);
 
 Status VerifyJwtUsingVerifier(
