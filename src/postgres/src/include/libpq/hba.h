@@ -103,8 +103,7 @@ typedef struct HbaLine
 	List	   *radiusports;
 	char	   *radiusports_s;
 
-	char	   *yb_jwt_jwks;
-	char	   *yb_jwt_jwks_path_s;
+	char	   *yb_jwt_jwks_path;
 	List	   *yb_jwt_audiences;
 	char	   *yb_jwt_audiences_s;
 	List	   *yb_jwt_issuers;

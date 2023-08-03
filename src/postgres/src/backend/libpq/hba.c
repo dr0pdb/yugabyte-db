@@ -52,10 +52,6 @@
 #endif
 #endif
 
-#include <sys/stat.h>
-
-#include "pg_yb_utils.h"
-
 #define MAX_TOKEN	256
 #define MAX_LINE	8192
 
@@ -169,8 +165,6 @@ static ArrayType *gethba_options(HbaLine *hba);
 static void fill_hba_line(Tuplestorestate *tuple_store, TupleDesc tupdesc,
 			  int lineno, HbaLine *hba, const char *err_msg);
 static void fill_hba_view(Tuplestorestate *tuple_store, TupleDesc tupdesc);
-
-static char *YbReadFile(const char *filename, const char *ref_filename, int elevel);
 
 /*
  * isblank() exists in the ISO C99 spec, but it's not very portable yet,
@@ -1705,11 +1699,8 @@ parse_hba_line(TokenizedLine *tok_line, int elevel)
 	}
 
 	if (parsedline->auth_method == uaYbJWT) {
-		/*
-		 * Validation of the json content is done during the authentication
-		 * process.
-		 */
-		MANDATORY_AUTH_ARG(parsedline->yb_jwt_jwks, "jwt_jwks_path", "jwt");
+		MANDATORY_AUTH_ARG(parsedline->yb_jwt_jwks_path, "jwt_jwks_path",
+						   "jwt");
 
 		if (list_length(parsedline->yb_jwt_audiences) < 1)
 		{
@@ -2182,20 +2173,7 @@ parse_hba_auth_opt(char *name, char *val, HbaLine *hbaline,
 	{
 		REQUIRE_AUTH_OPTION(uaYbJWT, "jwt_jwks_path", "jwt");
 
-		hbaline->yb_jwt_jwks_path_s = pstrdup(val);
-		hbaline->yb_jwt_jwks = YbReadFile(val, HbaFileName, elevel);
-		if (hbaline->yb_jwt_jwks == NULL)
-		{
-			ereport(elevel,
-					(errcode(ERRCODE_CONFIG_FILE_ERROR),
-					 errmsg("could not read jwks file at jwt_jwks_path \"%s\"",
-					 		val),
-					 errcontext("line %d of configuration file \"%s\"",
-								line_num, HbaFileName)));
-			*err_msg = psprintf(
-				"could not read jwks file at jwt_jwks_path: \"%s\"", val);
-			return false;
-		}
+		hbaline->yb_jwt_jwks_path = pstrdup(val);
 	}
 	else if (strcmp(name, "jwt_audiences") == 0)
 	{
@@ -2595,10 +2573,10 @@ gethba_options(HbaLine *hba)
 
 	if (hba->auth_method == uaYbJWT)
 	{
-		if (hba->yb_jwt_jwks_path_s)
+		if (hba->yb_jwt_jwks_path)
 			options[noptions++] =
 				CStringGetTextDatum(psprintf("jwt_jwks_path=%s",
-											 hba->yb_jwt_jwks_path_s));
+											 hba->yb_jwt_jwks_path));
 
 		if (hba->yb_jwt_audiences_s)
 			options[noptions++] =
@@ -3314,56 +3292,4 @@ void
 hba_getauthmethod(hbaPort *port)
 {
 	check_hba(port);
-}
-
-/*
- * Reads the contents of the given file path. If the file path is a relative
- * path, it is treated as relative to the directory of the provided
- * ref_filename.
- *
- * Errors are reported by logging messages at ereport level elevel and by
- * returning NULL if elevel < ERROR.
- */
-static char *
-YbReadFile(const char *filename, const char *ref_filename, int elevel)
-{
-	char *file_fullname;
-	char *file_contents;
-	int len;
-
-	if (is_absolute_path(filename))
-	{
-		/* absolute path is taken as-is */
-		file_fullname = pstrdup(filename);
-	}
-	else
-	{
-		/* relative path is relative to dir of file from which the path was
-		 * referenced. */
-		file_fullname =
-			(char *) palloc(strlen(ref_filename) + 1 + strlen(filename) + 1);
-		strcpy(file_fullname, ref_filename);
-		get_parent_directory(file_fullname);
-		join_path_components(file_fullname, file_fullname, filename);
-		canonicalize_path(file_fullname);
-	}
-
-	file_contents = YbReadWholeFile(file_fullname, &len, elevel);
-
-	/*
-	 * Make sure the contents are valid.
-	 *
-	 * We use noError as true because we want to have control over the ereport
-	 * elevel in case of invalid file contents.
-	 */
-	if (!pg_verifymbstr(file_contents, len, /* noError */ true))
-	{
-		ereport(elevel,
-				(errcode(ERRCODE_CHARACTER_NOT_IN_REPERTOIRE),
-				 errmsg("invalid encoding of file \"%s\"", filename)));
-		return NULL;
-	}
-
-	pfree(file_fullname);
-	return file_contents;
 }

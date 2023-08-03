@@ -47,7 +47,6 @@
 #include "utils/syscache.h"
 #include "yb/yql/pggate/ybc_pggate.h"
 
-
 /*----------------------------------------------------------------
  * Global authentication functions
  *----------------------------------------------------------------
@@ -3494,22 +3493,26 @@ PerformRadiusTransaction(const char *server, const char *secret, const char *por
  *----------------------------------------------------------------
  */
 
+static char *YbReadFile(const char *outer_filename, const char *inc_filename,
+						int elevel);
+
 static void
-ybGetJwtAuthOptionsFromPort(Port *port, YBCPgJwtAuthOptions *opt)
+ybGetJwtAuthOptionsFromPortAndJwks(Port *port, char *jwks,
+								   YBCPgJwtAuthOptions *opt)
 {
 	HbaLine	   *hba_line = port->hba;
 
-	opt->jwks = hba_line->yb_jwt_jwks;
+	opt->jwks = jwks;
 	opt->usermap = hba_line->usermap;
 	opt->username = port->user_name;
 
 	/* Use "sub" as the default matching claim key */
 	opt->matching_claim_key = hba_line->yb_jwt_matching_claim_key ?: "sub";
 
-	opt->allowed_issuers = YbShallowCopyStrListToArray(
+	opt->allowed_issuers = (char**) YbShallowCopyListToArray(
 		hba_line->yb_jwt_issuers, &opt->allowed_issuers_length);
 
-	opt->allowed_audiences = YbShallowCopyStrListToArray(
+	opt->allowed_audiences = (char**) YbShallowCopyListToArray(
 		hba_line->yb_jwt_audiences, &opt->allowed_audiences_length);
 }
 
@@ -3517,7 +3520,16 @@ static int
 YbCheckJWTAuth(Port *port)
 {
 	char	   *jwt;
+	char	   *jwks;
 	int			auth_result;
+
+	/*
+	 * Read the jwks file before the password prompt so that we fail fast if we
+	 * fail to read the jwks file or the content is invalid.
+	 */
+	jwks = YbReadFile(HbaFileName, port->hba->yb_jwt_jwks_path, LOG);
+	if (jwks == NULL)
+		return STATUS_ERROR;
 
 	/* Send regular password request to client, and get the response */
 	sendAuthRequest(port, AUTH_REQ_PASSWORD, NULL, 0);
@@ -3533,7 +3545,7 @@ YbCheckJWTAuth(Port *port)
 	 * C++ layer.
 	 */
 	YBCPgJwtAuthOptions jwt_auth_options;
-	ybGetJwtAuthOptionsFromPort(port, &jwt_auth_options);
+	ybGetJwtAuthOptionsFromPortAndJwks(port, jwks, &jwt_auth_options);
 
 	YBCStatus s = YBCValidateJWT(jwt, &jwt_auth_options);
 	auth_result = (s) ? STATUS_ERROR : STATUS_OK;
@@ -3551,4 +3563,63 @@ YbCheckJWTAuth(Port *port)
 
 	pfree(jwt);
 	return auth_result;
+}
+
+/*
+ * Reads the contents of the given file path. If the file path is a relative
+ * path, it is treated as relative to the directory of the provided
+ * outer_filename.
+ *
+ * An error is reported at elevel LOG if the file path is invalid,
+ * inaccessible or the contents are not in the database encoding.
+ *
+ * This function is derived from the tokenize_inc_file function from the
+ * src/postgres/src/backend/libpq/hba.c file. The tokenize_inc_file tokenizes
+ * the hba lines from an included file while this function just reads them.
+ */
+static char *
+YbReadFile(const char *outer_filename, const char *inc_filename, int elevel)
+{
+	char *file_fullname;
+	char *file_contents;
+	int len;
+
+	if (is_absolute_path(inc_filename))
+	{
+		/* absolute path is taken as-is */
+		file_fullname = pstrdup(inc_filename);
+	}
+	else
+	{
+		/* relative path is relative to dir of file from which the path was
+		 * referenced. */
+		file_fullname =
+			(char *) palloc(strlen(outer_filename) + 1 + strlen(inc_filename) + 1);
+		strcpy(file_fullname, outer_filename);
+		get_parent_directory(file_fullname);
+		join_path_components(file_fullname, file_fullname, inc_filename);
+		canonicalize_path(file_fullname);
+	}
+
+	file_contents = YbReadWholeFile(file_fullname, &len, elevel);
+	if (file_contents == NULL)
+		goto cleanup;
+
+	/*
+	 * Make sure the contents are valid.
+	 *
+	 * We use noError as true because we want to have control over the ereport
+	 * elevel in case of invalid file contents.
+	 */
+	if (!pg_verifymbstr(file_contents, len, /* noError */ true))
+	{
+		ereport(elevel,
+				(errcode(ERRCODE_CHARACTER_NOT_IN_REPERTOIRE),
+				 errmsg("invalid encoding of file \"%s\"", inc_filename)));
+		return NULL;
+	}
+
+cleanup:
+	pfree(file_fullname);
+	return file_contents;
 }

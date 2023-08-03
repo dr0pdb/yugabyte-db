@@ -3643,16 +3643,17 @@ bool YbIsStickyConnection(int *change)
 	return (yb_committed_sticky_object_count > 0);
 }
 
-char**
-YbShallowCopyStrListToArray(const List* str_list, int* length) {
-	char		**buf;
+void**
+YbShallowCopyListToArray(const List* str_list, size_t* length) {
+	void		**buf;
 	ListCell	*lc;
 
-	buf = (char **) palloc(sizeof(char *) * list_length(str_list));
+	/* Assumes that the pointer sizes are equal for every type */
+	buf = (void **) palloc(sizeof(void *) * list_length(str_list));
 	*length = 0;
 	foreach (lc, str_list)
 	{
-		buf[(*length)++] = (char *) lfirst(lc);
+		buf[(*length)++] = (void *) lfirst(lc);
 	}
 
 	return buf;

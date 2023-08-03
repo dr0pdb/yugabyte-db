@@ -926,9 +926,9 @@ extern bool YbIsStickyConnection(int *change);
 extern bool yb_is_client_ysqlconnmgr;
 
 /*
- * Creates a shallow copy of the string list.
+ * Creates a shallow copy of the list.
  */
-extern char** YbShallowCopyStrListToArray(const List* str_list, int* length);
+extern void** YbShallowCopyListToArray(const List* str_list, size_t* length);
 
 /*
  * Reads the contents of the given file assuming that the filename is an

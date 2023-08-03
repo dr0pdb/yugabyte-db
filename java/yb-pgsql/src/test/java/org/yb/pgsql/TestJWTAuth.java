@@ -685,6 +685,39 @@ public class TestJWTAuth extends BasePgSQLTest {
     assertFailedAuthentication(passRoleUserConnBldr, jwt);
   }
 
+  void testFailedAuthentication(JWKSet jwks) throws Exception {
+    try (Statement statement = connection.createStatement()) {
+      statement.execute("CREATE ROLE testuser1 LOGIN");
+    }
+
+    ConnectionBuilder passRoleUserConnBldr = getConnectionBuilder().withUser("testuser1");
+
+    // JWKS json is parsed and validated during authentication.
+    String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "testuser1",
+        "login.issuer1.secured.example.com/some_invalid_id/v2.0",
+        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, null);
+    assertFailedAuthentication(passRoleUserConnBldr, jwt);
+  }
+
+  @Test
+  public void invalidJWTJwksPath() throws Exception {
+    JWKSet jwks = createJwks();
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, "/some/invalid/path",
+        /* matchingClaimKey */ "", /* mapName */ "", /* identFileContents */ "");
+
+    testFailedAuthentication(jwks);
+  }
+
+  @Test
+  public void invalidJWKSJson() throws Exception {
+    JWKSet jwks = createJwks();
+    String jwksPath = populateJWKSFile("some_invalid_json");
+    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
+        /* matchingClaimKey */ "", /* mapName */ "", /* identFileContents */ "");
+
+    testFailedAuthentication(jwks);
+  }
+
   // Asserts that the cluster restart failed by expecting an exception. There doesn't seem to be a
   // more accurate way of checking that.
   private void assertClusterRestartFailure(List<String> allowedIssuers,
@@ -726,32 +759,5 @@ public class TestJWTAuth extends BasePgSQLTest {
     assertClusterRestartFailure(Arrays.asList(), ALLOWED_AUDIENCES, jwksPath,
         /* matchingClaimKey */ "",
         /* mapName */ "", /* identFileContents */ "");
-  }
-
-  @Test
-  public void invalidJWTJwksPath() throws Exception {
-    assertClusterRestartFailure(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, "/some/invalid/path",
-        /* matchingClaimKey */ "",
-        /* mapName */ "", /* identFileContents */ "");
-  }
-
-  @Test
-  public void invalidJWKSJson() throws Exception {
-    JWKSet jwks = createJwks();
-    String jwksPath = populateJWKSFile("some_invalid_json");
-    setJWTConfigAndRestartCluster(ALLOWED_ISSUERS, ALLOWED_AUDIENCES, jwksPath,
-        /* matchingClaimKey */ "", /* mapName */ "", /* identFileContents */ "");
-
-    try (Statement statement = connection.createStatement()) {
-      statement.execute("CREATE ROLE testuser1 LOGIN");
-    }
-
-    ConnectionBuilder passRoleUserConnBldr = getConnectionBuilder().withUser("testuser1");
-
-    // JWKS json is parsed and validated during authentication.
-    String jwt = createJWT(JWSAlgorithm.RS256, jwks, RS256_KEYID, "testuser1",
-        "login.issuer1.secured.example.com/some_invalid_id/v2.0",
-        "795c2b42-2156-11ee-be56-0242ac120002", ISSUED_AT_TIME, EXPIRATION_TIME, null);
-    assertFailedAuthentication(passRoleUserConnBldr, jwt);
   }
 }

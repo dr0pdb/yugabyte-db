@@ -36,8 +36,8 @@ namespace {
 #define OPENSSL_SUCCESS 1
 
 bool DoesValueExist(
-    const std::string& value, char* const* values, int length, const std::string& field_name) {
-  for (auto idx = 0; idx < length; ++idx) {
+    const std::string& value, char* const* values, size_t length, const std::string& field_name) {
+  for (size_t idx = 0; idx < length; ++idx) {
     LOG_IF(DFATAL, values[idx] == nullptr)
         << "JWT " << field_name << " unexpectedly NULL for idx " << idx;
 
@@ -51,18 +51,16 @@ bool DoesValueExist(
   return false;
 }
 
-}  // namespace
-
-Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson>& jwk) {
+Result<std::string> GetJwkAsPEM(const jwk<kazuho_picojson>& jwk) {
   auto base64urlDecode = [](const std::string& base64url_encoded) {
     return jwt::base::decode<jwt::alphabet::base64url>(
         jwt::base::pad<jwt::alphabet::base64url>(base64url_encoded));
   };
 
-  std::string key_type = VERIFY_RESULT(GetKeyType(jwk));
+  std::string key_type = VERIFY_RESULT(GetJwkKeyType(jwk));
   if (key_type == "RSA") {
-    auto n = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "n"));
-    auto e = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "e"));
+    auto n = VERIFY_RESULT(GetJwkClaimAsString(jwk, "n"));
+    auto e = VERIFY_RESULT(GetJwkClaimAsString(jwk, "e"));
 
     auto modulus = base64urlDecode(n);
     auto exponent = base64urlDecode(e);
@@ -104,9 +102,9 @@ Result<std::string> GetKeyAsPEM(const jwk<kazuho_picojson>& jwk) {
     EVP_PKEY_free(pkey);
     return pem;
   } else if (key_type == "EC") {
-    auto x_claim = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "x"));
-    auto y_claim = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "y"));
-    auto curve_name = VERIFY_RESULT(GetClaimFromJwkAsString(jwk, "crv"));
+    auto x_claim = VERIFY_RESULT(GetJwkClaimAsString(jwk, "x"));
+    auto y_claim = VERIFY_RESULT(GetJwkClaimAsString(jwk, "y"));
+    auto curve_name = VERIFY_RESULT(GetJwkClaimAsString(jwk, "crv"));
 
     auto x_coordinate = base64urlDecode(x_claim);
     auto y_coordinate = base64urlDecode(y_claim);
@@ -187,54 +185,54 @@ Status ValidateDecodedJWT(
   // other JWK fields using openssl.
   std::string key_pem;
   if (jwk.has_x5c()) {
-    auto x5c = VERIFY_RESULT(GetX5cKeyValueFromJWK(jwk));
+    auto x5c = VERIFY_RESULT(GetX5cKeyValueFromJwk(jwk));
     key_pem = VERIFY_RESULT(ConvertX5cDerToPem(x5c));
   } else {
-    key_pem = VERIFY_RESULT(GetKeyAsPEM(jwk));
+    key_pem = VERIFY_RESULT(GetJwkAsPEM(jwk));
   }
   VLOG(4) << "Serialized pem is:\n" << key_pem << "\n";
 
-  auto algo = VERIFY_RESULT(GetAlgorithm(decoded_jwt));
-  auto verifier = VERIFY_RESULT(GetVerifier(key_pem, algo));
+  auto algo = VERIFY_RESULT(GetJwtAlgorithm(decoded_jwt));
+  auto verifier = VERIFY_RESULT(GetJwtVerifier(key_pem, algo));
   return VerifyJwtUsingVerifier(verifier, decoded_jwt);
 }
 
-Status ValidateJWT(
-    const std::string& token, const YBCPgJwtAuthOptions* options,
-    std::vector<std::string>* identity_claims) {
-  LOG_IF(DFATAL, options == nullptr) << "JWT options unexpectedly NULL";
+}  // namespace
 
+Status ValidateJWT(
+    const std::string& token, const YBCPgJwtAuthOptions& options,
+    std::vector<std::string>* identity_claims) {
   VLOG(4) << Format(
       "Start with token = $0, jwks = $1, matching_claim_key = $2, allowed_issuers = $3, "
       "allowed_audiences = $4",
-      token, options->jwks, options->matching_claim_key,
-      CStringArrayToString(options->allowed_issuers, options->allowed_issuers_length),
-      CStringArrayToString(options->allowed_audiences, options->allowed_audiences_length));
+      token, options.jwks, options.matching_claim_key,
+      CStringArrayToString(options.allowed_issuers, options.allowed_issuers_length),
+      CStringArrayToString(options.allowed_audiences, options.allowed_audiences_length));
 
-  auto jwks = VERIFY_RESULT(ParseJwks(options->jwks));
+  auto jwks = VERIFY_RESULT(ParseJwks(options.jwks));
   auto decoded_jwt = VERIFY_RESULT(DecodeJwt(token));
 
-  auto key_id = VERIFY_RESULT(GetKeyId(decoded_jwt));
+  auto key_id = VERIFY_RESULT(GetJwtKeyId(decoded_jwt));
   auto jwk = VERIFY_RESULT(GetJwkFromJwks(jwks, key_id));
 
   // Validate for signature, expiry and issued_at.
   RETURN_NOT_OK(ValidateDecodedJWT(decoded_jwt, jwk));
 
   // Validate issuer.
-  auto jwt_issuer = VERIFY_RESULT(GetIssuer(decoded_jwt));
+  auto jwt_issuer = VERIFY_RESULT(GetJwtIssuer(decoded_jwt));
   bool valid_issuer = DoesValueExist(
-      jwt_issuer, options->allowed_issuers, options->allowed_issuers_length, "issuer");
+      jwt_issuer, options.allowed_issuers, options.allowed_issuers_length, "issuer");
   if (!valid_issuer) {
     return STATUS_FORMAT(InvalidArgument, "Invalid JWT issuer: $0", jwt_issuer);
   }
 
   // Validate audiences. A JWT can be issued for more than one audience and is valid as long as one
   // of the audience matches the allowed audiences in the JWT config.
-  auto jwt_audiences = VERIFY_RESULT(GetAudiences(decoded_jwt));
+  auto jwt_audiences = VERIFY_RESULT(GetJwtAudiences(decoded_jwt));
   bool valid_audience = false;
   for (const auto& audience : jwt_audiences) {
     valid_audience = DoesValueExist(
-        audience, options->allowed_audiences, options->allowed_audiences_length, "audience");
+        audience, options.allowed_audiences, options.allowed_audiences_length, "audience");
     if (valid_audience) {
       break;
     }
@@ -246,15 +244,15 @@ Status ValidateJWT(
   }
 
   // Get the matching claim key and return to the caller.
-  auto matching_claim_key = std::string(options->matching_claim_key);
-  *identity_claims = VERIFY_RESULT(GetClaimAsStringsArray(decoded_jwt, matching_claim_key));
+  auto matching_claim_key = std::string(options.matching_claim_key);
+  *identity_claims = VERIFY_RESULT(GetJwtClaimAsStringsList(decoded_jwt, matching_claim_key));
 
   VLOG(1) << "JWT validation successful";
   return Status::OK();
 }
 
-Result<std::string> Test_GetKeyAsPEM(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk) {
-  return GetKeyAsPEM(jwk);
+Result<std::string> TEST_GetJwkAsPEM(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk) {
+  return GetJwkAsPEM(jwk);
 }
 
 }  // namespace yb::util

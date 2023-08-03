@@ -25,9 +25,9 @@ namespace yb::util {
 // Validate the provided JWT based on the authentication options.
 // Populates the identity claims from the JWT into identity_claims.
 Status ValidateJWT(
-    const std::string& token, const YBCPgJwtAuthOptions* options,
+    const std::string& token, const YBCPgJwtAuthOptions& options,
     std::vector<std::string>* identity_claims);
 
-Result<std::string> Test_GetKeyAsPEM(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk);
+Result<std::string> TEST_GetJwkAsPEM(const jwt::jwk<jwt::traits::kazuho_picojson>& jwk);
 
 }  // namespace yb::util

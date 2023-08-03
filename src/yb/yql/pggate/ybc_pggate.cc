@@ -340,7 +340,7 @@ YBCStatus YBCValidateJWT(const char *token, const YBCPgJwtAuthOptions *options) 
   const std::string token_value(DCHECK_NOTNULL(token));
   std::vector<std::string> identity_claims;
 
-  auto status = util::ValidateJWT(token_value, options, &identity_claims);
+  auto status = util::ValidateJWT(token_value, *options, &identity_claims);
   if (!status.ok()) {
     return ToYBCStatus(status);
   }
