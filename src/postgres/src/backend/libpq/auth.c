@@ -47,6 +47,7 @@
 #include "utils/syscache.h"
 #include "yb/yql/pggate/ybc_pggate.h"
 
+
 /*----------------------------------------------------------------
  * Global authentication functions
  *----------------------------------------------------------------

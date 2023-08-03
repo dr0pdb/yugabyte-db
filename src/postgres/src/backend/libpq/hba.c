@@ -52,6 +52,7 @@
 #endif
 #endif
 
+
 #define MAX_TOKEN	256
 #define MAX_LINE	8192
 
@@ -165,6 +166,7 @@ static ArrayType *gethba_options(HbaLine *hba);
 static void fill_hba_line(Tuplestorestate *tuple_store, TupleDesc tupdesc,
 			  int lineno, HbaLine *hba, const char *err_msg);
 static void fill_hba_view(Tuplestorestate *tuple_store, TupleDesc tupdesc);
+
 
 /*
  * isblank() exists in the ISO C99 spec, but it's not very portable yet,
