@@ -10,6 +10,8 @@
 // or implied.  See the License for the specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include <string>
 
 namespace yb::util::testing {
@@ -59,11 +61,10 @@ const std::string JWK_RS256 =
     "\"e\":\"AQAB\","
     "\"kid\":\"rs256_keyid\","
     "\"alg\":\"RS256\","
-    "\"n\":\"3dkN0LTLvH9wl-vL-MYXtVsvyd4NS9oatGzPfJWTIUOii-N7SmMV383XHfysAm6M_D"
-        "TqW3HOxzDF0hLIMXzqUDjyQizGIZ37RkF4GqIcOSEYwkc2IWVnWl4WcSK-2KUlwMe3PpXd"
-        "xtVZBFGdOVkwbXrdsFiYU11kRhfTbz0pP3lmm84QEzCrP9Jueu1zqeyj_SBLUszNkgofp_"
-        "DpTVPKTVtkkqqNYBRF7HhPgR3G2F90NCfHMTjUQICFNP-HT-UO7XS35dmqBJNgAO7aIiok"
-        "rZhl3TrQUrknwlxBTF3gv1Zjru1YG6k_lTHVFcVN3pY-Lr2IiJUdppgpreklY7n8jw\"}";
+    "\"n\":\"3dkN0LTLvH9wl-vL-MYXtVsvyd4NS9oatGzPfJWTIUOii-N7SmMV383XHfysAm6M_DTqW3HOxzDF0hLIMXzqUD"
+        "jyQizGIZ37RkF4GqIcOSEYwkc2IWVnWl4WcSK-2KUlwMe3PpXdxtVZBFGdOVkwbXrdsFiYU11kRhfTbz0pP3lmm84Q"
+        "EzCrP9Jueu1zqeyj_SBLUszNkgofp_DpTVPKTVtkkqqNYBRF7HhPgR3G2F90NCfHMTjUQICFNP-HT-UO7XS35dmqBJ"
+        "NgAO7aIiokrZhl3TrQUrknwlxBTF3gv1Zjru1YG6k_lTHVFcVN3pY-Lr2IiJUdppgpreklY7n8jw\"}";
 
 // RS384
 const std::string PEM_RS384_PUBLIC = R"(-----BEGIN PUBLIC KEY-----
@@ -110,11 +111,10 @@ const std::string JWK_RS384 =
     "\"use\":\"sig\","
     "\"kid\":\"rs384_keyid\","
     "\"alg\":\"RS384\","
-    "\"n\":\"qtUV_qPEXN7a2jR_E4k9pdqy1wiRHKyQoiybOW7Nm-JMR7qa6fq6U95YyeuC6mpDEQ"
-        "UpnEyqLrEP8HxBZOgwHkln5PwUhyAS2kcsQTf0RDGG2YBeNNA-sCb4-oM5O0NwWt0pJIoF"
-        "PNIyOxRYdSZBA3h5MvwIgQPbj4-a-YSjQsborfEywcqozHUDQ4VFadoO9tIIVaPIRqANs5"
-        "4BokCfOyduP-dqlf2d3q1yukFQ2K7L27mrDtCXcWjS5CJW-oGf_CyOSj-yyaNug7sOlvU5"
-        "AwjG3l7EZ0GRFeROWl5pj6Hf054o4WI2m3xXY8S38hO6jb_NvlG0pg4ZHZEvvqCMdQ\"}";
+    "\"n\":\"qtUV_qPEXN7a2jR_E4k9pdqy1wiRHKyQoiybOW7Nm-JMR7qa6fq6U95YyeuC6mpDEQUpnEyqLrEP8HxBZOgwHk"
+        "ln5PwUhyAS2kcsQTf0RDGG2YBeNNA-sCb4-oM5O0NwWt0pJIoFPNIyOxRYdSZBA3h5MvwIgQPbj4-a-YSjQsborfEy"
+        "wcqozHUDQ4VFadoO9tIIVaPIRqANs54BokCfOyduP-dqlf2d3q1yukFQ2K7L27mrDtCXcWjS5CJW-oGf_CyOSj-yya"
+        "Nug7sOlvU5AwjG3l7EZ0GRFeROWl5pj6Hf054o4WI2m3xXY8S38hO6jb_NvlG0pg4ZHZEvvqCMdQ\"}";
 
 // RS512
 const std::string PEM_RS512_PUBLIC = R"(-----BEGIN PUBLIC KEY-----
@@ -161,11 +161,10 @@ const std::string JWK_RS512 =
     "\"use\":\"sig\","
     "\"kid\":\"rs512_keyid\","
     "\"alg\":\"RS512\","
-    "\"n\":\"oF6oCRUztdPc2_jCuuD0aKlv-baqMmymiYYwU1Gf-UZ4dNUI8gxDLHZW7tS0uYYTn8"
-        "5r8UJ3DeSskT41FdAZb1Bfi21fSqAhT169P-hB8RYIyVQNubyJsFXK1xfRp7H3tlO60C1l"
-        "rv9YLNNXXxQnhGdxAAXQeAsecEUQ_GQS1PdS22vl95cn42051pLf4_ssmReZZmRz3htlJD"
-        "IumVMMP6FJLbxvBgdODCdUappMwkI_com2Orz4sYFk8GYvsJC4o_hsE9AQU8OTm0z9Jxmy"
-        "WDu6FE_BOr9UryKwsqon_2K4ufAqU5ePvmiEv0goqInC9DU7fGFLc8shv4S3fY8wvw\"}";
+    "\"n\":\"oF6oCRUztdPc2_jCuuD0aKlv-baqMmymiYYwU1Gf-UZ4dNUI8gxDLHZW7tS0uYYTn85r8UJ3DeSskT41FdAZb1"
+        "Bfi21fSqAhT169P-hB8RYIyVQNubyJsFXK1xfRp7H3tlO60C1lrv9YLNNXXxQnhGdxAAXQeAsecEUQ_GQS1PdS22vl"
+        "95cn42051pLf4_ssmReZZmRz3htlJDIumVMMP6FJLbxvBgdODCdUappMwkI_com2Orz4sYFk8GYvsJC4o_hsE9AQU8"
+        "OTm0z9JxmyWDu6FE_BOr9UryKwsqon_2K4ufAqU5ePvmiEv0goqInC9DU7fGFLc8shv4S3fY8wvw\"}";
 
 // PS256
 const std::string PEM_PS256_PUBLIC = R"(-----BEGIN PUBLIC KEY-----
@@ -211,11 +210,10 @@ const std::string JWK_PS256 =
     "\"e\":\"AQAB\","
     "\"kid\":\"ps256_keyid\","
     "\"alg\":\"PS256\","
-    "\"n\":\"o2vAJwdvkyIICvLRvvGn0rEsoSkQHFyPIVoELqKXNxBke8Xkn-yxe1zWx62d71h6ew"
-        "IpPPHZ7K5lMZJbj-XqJIy-g2_7ZWujQhmE_v1JY3TNkAGNsKJupBWPqsyUzEou-ApERvj-"
-        "IHASQ-zinitDUxhFPb-1q32T1gRgzU2YWVDTa7StgPxu5cu-GuCeh5uc5FCmCYvtD2TOzW"
-        "Wbh8qiESmYTFR_4n6gQyt_v16iRJCDuR7_HUG0LlgDf78AJDQOZllPXG8Kcj1_Y1lOosUW"
-        "g0hjMIS6KqB2nQ-PiLoc9QqOklfHDy2JHrOFb5P1S6vmK75JL3kdd1EyxkgVOWAEiQ\"}";
+    "\"n\":\"o2vAJwdvkyIICvLRvvGn0rEsoSkQHFyPIVoELqKXNxBke8Xkn-yxe1zWx62d71h6ewIpPPHZ7K5lMZJbj-XqJI"
+        "y-g2_7ZWujQhmE_v1JY3TNkAGNsKJupBWPqsyUzEou-ApERvj-IHASQ-zinitDUxhFPb-1q32T1gRgzU2YWVDTa7St"
+        "gPxu5cu-GuCeh5uc5FCmCYvtD2TOzWWbh8qiESmYTFR_4n6gQyt_v16iRJCDuR7_HUG0LlgDf78AJDQOZllPXG8Kcj"
+        "1_Y1lOosUWg0hjMIS6KqB2nQ-PiLoc9QqOklfHDy2JHrOFb5P1S6vmK75JL3kdd1EyxkgVOWAEiQ\"}";
 
 // PS384
 const std::string PEM_PS384_PUBLIC = R"(-----BEGIN PUBLIC KEY-----

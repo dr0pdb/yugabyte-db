@@ -249,7 +249,7 @@ TEST(JwtCppUtilTest, GetJwtClaimAsStringsListSuccess) {
 
   auto decoded_jwt = ASSERT_RESULT(DecodeJwt(jwt));
 
-  auto claim_value = ASSERT_RESULT(GetJwtClaimAsStringsList(decoded_jwt,testing:: CUSTOM_KEY));
+  auto claim_value = ASSERT_RESULT(GetJwtClaimAsStringsList(decoded_jwt, testing::CUSTOM_KEY));
   auto expected_value = std::vector<std::string>{"abc"};
   ASSERT_EQ(claim_value, expected_value);
 }
