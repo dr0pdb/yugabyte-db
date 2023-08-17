@@ -636,6 +636,7 @@ Status CatalogManager::CreateCDCStream(
     }
   }
 
+  // TODO: Also needs to happen for list of tables case.
   if (id_type_option_value != cdc::kNamespaceId) {
     scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(req->table_id()));
 
@@ -667,11 +668,54 @@ Status CatalogManager::CreateCDCStream(
     }
   }
 
-  if (!req->has_db_stream_id()) {
-    RETURN_NOT_OK(CreateNewCDCStream(*req, id_type_option_value, resp, rpc, epoch));
+  // Batch stream creation for CDC.
+  // TODO: Implement rollback in case of partial success.
+  if (req->table_ids_size() > 0 || req->has_namespace_name()) {
+    // Do we need to check this? It might be OK to allow this and handle it.
+    if (req->has_db_stream_id()) {
+      return STATUS(
+          InvalidArgument, "db_stream_id unexpectedly set in the request", req->db_stream_id(),
+          MasterError(MasterErrorPB::INVALID_REQUEST));
+    }
+
+    if (req->has_namespace_name()) {
+      // TODO: Take db_type in request?
+      auto ns = VERIFY_RESULT(FindNamespaceByName(req->namespace_name(), YQL_DATABASE_PGSQL));
+
+      std::vector<TableInfoPtr> tables;
+      {
+        LockGuard lock(mutex_);
+        tables = FindAllTablesForCDC(ns->id());
+      }
+
+      // Create stream for the namespace.
+      RETURN_NOT_OK(CreateNewCDCStream(*req, id_type_option_value, ns->id(), resp, rpc, epoch));
+
+      for (const auto& table_info : tables) {
+        LOG_IF(DFATAL, !resp->has_stream_id()) << "stream_id not found unexpectedly";
+        RETURN_NOT_OK(AddTableIdToCDCStream(*req, table_info->id(), resp->stream_id()));
+      }
+
+      // TODO: Mark as active?
+    } else {
+      // bool first = true;
+      // for (const auto& table_id : req->table_ids()) {
+      //   if (first) {
+      //     RETURN_NOT_OK(CreateNewCDCStream(*req, id_type_option_value, table_id, resp, rpc, epoch));
+      //     first = false;
+      //   } else {
+      //     LOG_IF(DFATAL, !resp->has_stream_id()) << "stream_id not found unexpectedly";
+      //     RETURN_NOT_OK(AddTableIdToCDCStream(*req, table_id, resp->stream_id()));
+      //   }
+      // }
+    }
   } else {
-    // Update and add table_id.
-    RETURN_NOT_OK(AddTableIdToCDCStream(*req));
+    if (!req->has_db_stream_id()) {
+      RETURN_NOT_OK(CreateNewCDCStream(*req, id_type_option_value, resp, rpc, epoch));
+    } else {
+      // Update and add table_id.
+      RETURN_NOT_OK(AddTableIdToCDCStream(*req));
+    }
   }
 
   // Now that the stream is set up, mark the entire cluster as a cdc enabled.
@@ -683,6 +727,13 @@ Status CatalogManager::CreateCDCStream(
 Status CatalogManager::CreateNewCDCStream(
     const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
     CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch) {
+  return CreateNewCDCStream(req, id_type_option_value, req.table_id(), resp, rpc, epoch);
+}
+
+Status CatalogManager::CreateNewCDCStream(
+    const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
+    const std::string& table_or_namespace_id, CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc,
+    const LeaderEpoch& epoch) {
   scoped_refptr<CDCStreamInfo> stream;
   {
     TRACE("Acquired catalog manager lock");
@@ -696,9 +747,9 @@ Status CatalogManager::CreateNewCDCStream(
     auto* metadata = &stream->mutable_metadata()->mutable_dirty()->pb;
     bool create_namespace = id_type_option_value == cdc::kNamespaceId;
     if (create_namespace) {
-      metadata->set_namespace_id(req.table_id());
+      metadata->set_namespace_id(table_or_namespace_id);
     } else {
-      metadata->add_table_id(req.table_id());
+      metadata->add_table_id(table_or_namespace_id);
     }
 
     metadata->set_transactional(req.transactional());
@@ -710,7 +761,7 @@ Status CatalogManager::CreateNewCDCStream(
     // Add the stream to the in-memory map.
     cdc_stream_map_[stream->StreamId()] = stream;
     if (!create_namespace) {
-      xcluster_producer_tables_to_stream_map_[req.table_id()].insert(stream->StreamId());
+      xcluster_producer_tables_to_stream_map_[table_or_namespace_id].insert(stream->StreamId());
     }
     resp->set_stream_id(stream->id());
   }
@@ -742,7 +793,7 @@ Status CatalogManager::CreateNewCDCStream(
     return Status::OK();
   }
 
-  scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(req.table_id()));
+  scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(table_or_namespace_id));
   auto tablets = table->GetTablets();
   std::vector<cdc::CDCStateTableEntry> entries;
   entries.reserve(tablets.size());
@@ -759,11 +810,17 @@ Status CatalogManager::CreateNewCDCStream(
 }
 
 Status CatalogManager::AddTableIdToCDCStream(const CreateCDCStreamRequestPB& req) {
+  return AddTableIdToCDCStream(req, req.table_id(), req.db_stream_id());
+}
+
+Status CatalogManager::AddTableIdToCDCStream(
+    const CreateCDCStreamRequestPB& req, const std::string& table_id,
+    const std::string& db_stream_id) {
   scoped_refptr<CDCStreamInfo> stream;
   {
     SharedLock lock(mutex_);
     stream = FindPtrOrNull(
-        cdc_stream_map_, VERIFY_RESULT(xrepl::StreamId::FromString(req.db_stream_id())));
+        cdc_stream_map_, VERIFY_RESULT(xrepl::StreamId::FromString(db_stream_id)));
   }
 
   if (stream == nullptr) {
@@ -779,7 +836,7 @@ Status CatalogManager::AddTableIdToCDCStream(const CreateCDCStreamRequestPB& req
         NotFound, "CDC stream has been deleted", req.ShortDebugString(),
         MasterError(MasterErrorPB::OBJECT_NOT_FOUND));
   }
-  metadata->add_table_id(req.table_id());
+  metadata->add_table_id(table_id);
 
   // Transactional mode cannot be changed once set.
   DCHECK(!req.has_transactional());
@@ -795,7 +852,7 @@ Status CatalogManager::AddTableIdToCDCStream(const CreateCDCStreamRequestPB& req
   // Add the stream to the in-memory map.
   {
     LockGuard lock(mutex_);
-    cdcsdk_tables_to_stream_map_[req.table_id()].insert(stream->StreamId());
+    cdcsdk_tables_to_stream_map_[table_id].insert(stream->StreamId());
   }
 
   return Status::OK();
@@ -993,8 +1050,22 @@ void CatalogManager::FindAllTablesMissingInCDCSDKStream(
   }
 
   // Get all the tables associated with the namespace.
-  // If we find any table present only in the namespace, but not in the namespace, we add the table
+  // If we find any table present only in the namespace, but not in the stream, we add the table
   // id to 'cdcsdk_unprocessed_tables'.
+  for (const auto& table_info : FindAllTablesForCDC(ns_id)) {
+    if (!stream_table_ids.contains(table_info->id())) {
+      LOG(INFO) << "Found unprocessed table: " << table_info->id()
+                << ", for stream: " << stream_id;
+      LockGuard lock(cdcsdk_unprocessed_table_mutex_);
+      namespace_to_cdcsdk_unprocessed_table_map_[table_info->namespace_id()].insert(
+          table_info->id());
+    }
+  }
+}
+
+std::vector<TableInfoPtr> CatalogManager::FindAllTablesForCDC(const NamespaceId& ns_id) {
+  std::vector<TableInfoPtr> tables;
+
   for (const auto& table_info : tables_->GetAllTables()) {
     {
       auto ltm = table_info->LockForRead();
@@ -1027,14 +1098,10 @@ void CatalogManager::FindAllTablesMissingInCDCSDKStream(
       continue;
     }
 
-    if (!stream_table_ids.contains(table_info->id())) {
-      LOG(INFO) << "Found unprocessed table: " << table_info->id()
-                << ", for stream: " << stream_id;
-      LockGuard lock(cdcsdk_unprocessed_table_mutex_);
-      namespace_to_cdcsdk_unprocessed_table_map_[table_info->namespace_id()].insert(
-          table_info->id());
-    }
+    tables.push_back(table_info);
   }
+
+  return tables;
 }
 
 Status CatalogManager::AddTabletEntriesToCDCSDKStreamsForNewTables(

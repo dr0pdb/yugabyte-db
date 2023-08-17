@@ -99,3 +99,7 @@ extern void YbDropAndRecreateIndex(Oid indexOid, Oid relId, Relation oldRel, Att
 
 /*  System Validation -------------------------------------------------------------------------- */
 extern void YBCValidatePlacement(const char *placement_info);
+
+/*  Publication Functions ----------------------------------------------------------------------- */
+
+extern void YBCCreatePublication(CreatePublicationStmt *stmt, const char **stream_id);

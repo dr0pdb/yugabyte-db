@@ -1435,6 +1435,27 @@ void YBClient::CreateCDCStream(
   data_->CreateCDCStream(this, table_id, options, transactional, deadline, callback);
 }
 
+Result<xrepl::StreamId> YBClient::CreateCDCStreamForNamespace(
+    const std::string& namespace_name,
+    const std::unordered_map<std::string, std::string>& options) {
+  // We don't set initial_state in the request since it needs to be handled by master. If there are
+  // no tables within the namespace, the stream must start with ACTIVE, otherwise it should be
+  // created with INITIALIZED and set to ACTIVE once all tables have been added to the CDC state
+  // table.
+  CreateCDCStreamRequestPB req;
+  req.set_namespace_name(namespace_name);
+  req.mutable_options()->Reserve(narrow_cast<int>(options.size()));
+  for (const auto& option : options) {
+    auto new_option = req.add_options();
+    new_option->set_key(option.first);
+    new_option->set_value(option.second);
+  }
+
+  CreateCDCStreamResponsePB resp;
+  CALL_SYNC_LEADER_MASTER_RPC_EX(Replication, req, resp, CreateCDCStream);
+  return xrepl::StreamId::FromString(resp.stream_id());
+}
+
 Status YBClient::GetCDCStream(
     const xrepl::StreamId& stream_id,
     NamespaceId* ns_id,

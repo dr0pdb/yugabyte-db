@@ -926,6 +926,12 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   Result<scoped_refptr<NamespaceInfo>> FindNamespaceByIdUnlocked(
       const NamespaceId& id) const REQUIRES_SHARED(mutex_);
 
+  Result<scoped_refptr<NamespaceInfo>> FindNamespaceByName(
+      const std::string& name, YQLDatabase database_type) const override EXCLUDES(mutex_);
+
+  Result<scoped_refptr<NamespaceInfo>> FindNamespaceByNameUnlocked(
+      const std::string& name, YQLDatabase database_type) const REQUIRES_SHARED(mutex_);
+
   Result<scoped_refptr<TableInfo>> FindTableUnlocked(
       const TableIdentifierPB& table_identifier) const REQUIRES_SHARED(mutex_);
 
@@ -1213,7 +1219,14 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   Status CreateNewCDCStream(
       const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
       CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+  Status CreateNewCDCStream(
+      const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
+      const std::string& table_or_namespace_id, CreateCDCStreamResponsePB* resp,
+      rpc::RpcContext* rpc, const LeaderEpoch& epoch);
   Status AddTableIdToCDCStream(const CreateCDCStreamRequestPB& req) EXCLUDES(mutex_);
+  Status AddTableIdToCDCStream(
+      const CreateCDCStreamRequestPB& req, const std::string& table_id,
+      const std::string& db_stream_id) EXCLUDES(mutex_);
 
   // Get the Table schema from system catalog table.
   Status GetTableSchemaFromSysCatalog(
@@ -2651,6 +2664,9 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   // Find CDC streams for a table to clean its metadata.
   std::vector<scoped_refptr<CDCStreamInfo>> FindCDCStreamsForTableToDeleteMetadata(
       const TableId& table_id) const REQUIRES_SHARED(mutex_);
+
+  // This method returns all tables in the namespace suitable for CDC and returns them.
+  std::vector<TableInfoPtr> FindAllTablesForCDC(const NamespaceId& ns_id) REQUIRES(mutex_);
 
   Status FillHeartbeatResponseEncryption(
       const SysClusterConfigEntryPB& cluster_config,

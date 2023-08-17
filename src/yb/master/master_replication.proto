@@ -52,6 +52,9 @@ message CreateCDCStreamRequestPB {
   optional SysCDCStreamEntryPB.State initial_state = 4;
   optional string db_stream_id = 5;
   optional bool transactional = 6; // [default = false]
+  repeated string table_ids = 7;
+  optional string namespace_name = 8;
+  optional YQLDatabase db_type = 9 [default = YQL_DATABASE_PGSQL] ;
 }
 
 message CreateCDCStreamResponsePB {

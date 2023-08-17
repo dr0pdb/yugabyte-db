@@ -699,6 +699,16 @@ YBCStatus YBCIsObjectPartOfXRepl(YBCPgOid database_oid, YBCPgOid table_oid,
 
 YBCStatus YBCPgCancelTransaction(const unsigned char* transaction_id);
 
+//--------------------------------------------------------------------------------------------------
+// Publications.
+
+YBCStatus YBCPgNewCreatePublication(const char *database_name,
+                                    YBCPgOid* table_oids,
+                                    bool for_all_tables,
+                                    YBCPgStatement *handle);
+
+YBCStatus YBCPgExecCreatePublication(YBCPgStatement handle, const char** stream_id);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

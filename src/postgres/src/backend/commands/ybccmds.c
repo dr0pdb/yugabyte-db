@@ -1683,3 +1683,27 @@ YBCValidatePlacement(const char *placement_info)
 {
 	HandleYBStatus(YBCPgValidatePlacement(placement_info));
 }
+
+/* ------------------------------------------------------------------------- */
+/*  Publication Functions. */
+
+void
+YBCCreatePublication(CreatePublicationStmt *stmt, const char **stream_id)
+{
+	YBCPgStatement	handle = NULL;
+	Oid			   *table_oids;
+
+	if (stmt->tables) {
+		table_oids = palloc(sizeof(Oid) * list_length(stmt->tables));
+
+		// TODO: Populate the values.
+	}
+
+	char *db_name = get_database_name(MyDatabaseId);
+
+	HandleYBStatus(YBCPgNewCreatePublication(db_name,
+											 table_oids,
+											 stmt->for_all_tables,
+											 &handle));
+	HandleYBStatus(YBCPgExecCreatePublication(handle, stream_id));
+}
