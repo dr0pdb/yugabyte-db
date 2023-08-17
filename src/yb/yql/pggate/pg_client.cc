@@ -736,6 +736,17 @@ class PgClient::Impl {
     return resp;
   }
 
+  Result<tserver::PgCreatePublicationResponsePB> CreatePublication(
+      tserver::PgCreatePublicationRequestPB* req, CoarseTimePoint deadline) {
+    tserver::PgCreatePublicationResponsePB resp;
+    req->set_session_id(session_id_);
+    RETURN_NOT_OK(proxy_->CreatePublication(*req, &resp, PrepareController(deadline)));
+    if (resp.has_status()) {
+      return StatusFromPB(resp.status());
+    }
+    return resp;
+  }
+
   #define YB_PG_CLIENT_SIMPLE_METHOD_IMPL(r, data, method) \
   Status method( \
       tserver::BOOST_PP_CAT(BOOST_PP_CAT(Pg, method), RequestPB)* req, \
@@ -984,6 +995,11 @@ Result<bool> PgClient::IsObjectPartOfXRepl(const PgObjectId& table_id) {
 Result<tserver::PgGetTserverCatalogVersionInfoResponsePB> PgClient::GetTserverCatalogVersionInfo(
     bool size_only, uint32_t db_oid) {
   return impl_->GetTserverCatalogVersionInfo(size_only, db_oid);
+}
+
+Result<tserver::PgCreatePublicationResponsePB> PgClient::CreatePublication(
+    tserver::PgCreatePublicationRequestPB* req, CoarseTimePoint deadline) {
+  return impl_->CreatePublication(req, deadline);
 }
 
 Status PgClient::EnumerateActiveTransactions(

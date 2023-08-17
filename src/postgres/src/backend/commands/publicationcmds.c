@@ -48,6 +48,10 @@
 #include "utils/syscache.h"
 #include "utils/varlena.h"
 
+/* Yugabyte includes */
+#include "commands/ybccmds.h"
+#include "pg_yb_utils.h"
+
 /* Same as MAXNUMMESSAGES in sinvaladt.c */
 #define MAX_RELCACHE_INVAL_MSGS 4096
 
@@ -153,6 +157,8 @@ CreatePublication(CreatePublicationStmt *stmt)
 	bool		publish_truncate;
 	AclResult	aclresult;
 
+	const char	  *stream_id = NULL;
+
 	/* must have CREATE privilege on database */
 	aclresult = pg_database_aclcheck(MyDatabaseId, GetUserId(), ACL_CREATE);
 	if (aclresult != ACLCHECK_OK)
@@ -189,6 +195,14 @@ CreatePublication(CreatePublicationStmt *stmt)
 							  &publish_given, &publish_insert,
 							  &publish_update, &publish_delete,
 							  &publish_truncate);
+
+	if (IsYugaByteEnabled()) {
+		/*
+		 * Raise unsupported error if any of publish_{insert, update, delete,
+		 * truncate} is false. We do not support that level of granularity and
+		 * every command will be streamed.
+		 */
+	}
 
 	values[Anum_pg_publication_puballtables - 1] =
 		BoolGetDatum(stmt->for_all_tables);
@@ -228,6 +242,13 @@ CreatePublication(CreatePublicationStmt *stmt)
 	heap_close(rel, RowExclusiveLock);
 
 	InvokeObjectPostCreateHook(PublicationRelationId, puboid, 0);
+
+	if (IsYugaByteEnabled()) {
+		YBCCreatePublication(stmt, &stream_id);
+
+		/* Populate publication_oid - stream_id mapping. */
+		YBC_LOG_INFO("The stream id from master is %s", stream_id);
+	}
 
 	return myself;
 }

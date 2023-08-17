@@ -939,6 +939,7 @@ stmt :
 			| CreateOpClassStmt
 			| CreateOpFamilyStmt
 			| CreatePolicyStmt
+			| CreatePublicationStmt
 			| CreateRoleStmt
 			| CreateSchemaStmt
 			| CreateStatsStmt
@@ -1026,7 +1027,6 @@ stmt :
 			| CreateAmStmt { parser_ybc_not_support(@1, "This statement"); }
 			| CreateAssertStmt { parser_ybc_not_support(@1, "This statement"); }
 			| CreateConversionStmt { parser_ybc_not_support(@1, "This statement"); }
-			| CreatePublicationStmt { parser_ybc_not_support(@1, "This statement"); }
 			| CreateSubscriptionStmt { parser_ybc_not_support(@1, "This statement"); }
 			| CreateTransformStmt { parser_ybc_not_support(@1, "This statement"); }
 			| DropAssertStmt { parser_ybc_not_support(@1, "This statement"); }
@@ -10437,7 +10437,6 @@ AlterOwnerStmt: ALTER AGGREGATE aggregate_with_argtypes OWNER TO RoleSpec
 CreatePublicationStmt:
 			CREATE PUBLICATION name opt_publication_for_tables opt_definition
 				{
-					parser_ybc_not_support(@1, "CREATE PUBLICATION");
 					CreatePublicationStmt *n = makeNode(CreatePublicationStmt);
 					n->pubname = $3;
 					n->options = $5;

@@ -556,6 +556,10 @@ class YBClient {
       cdc::StreamModeTransactional transactional,
       CreateCDCStreamCallback callback);
 
+  Result<xrepl::StreamId> CreateCDCStreamForNamespace(
+      const std::string& namespace_name,
+      const std::unordered_map<std::string, std::string>& options);
+
   // Delete multiple CDC streams.
   Status DeleteCDCStream(
       const std::vector<xrepl::StreamId>& streams,

@@ -33,6 +33,7 @@ service PgClientService {
   rpc AlterTable(PgAlterTableRequestPB) returns (PgAlterTableResponsePB);
   rpc BackfillIndex(PgBackfillIndexRequestPB) returns (PgBackfillIndexResponsePB);
   rpc CreateDatabase(PgCreateDatabaseRequestPB) returns (PgCreateDatabaseResponsePB);
+  rpc CreatePublication(PgCreatePublicationRequestPB) returns (PgCreatePublicationResponsePB);
   rpc CreateSequencesDataTable(PgCreateSequencesDataTableRequestPB)
       returns (PgCreateSequencesDataTableResponsePB);
   rpc CreateTable(PgCreateTableRequestPB) returns (PgCreateTableResponsePB);
@@ -159,6 +160,26 @@ message PgCreateDatabaseRequestPB {
 
 message PgCreateDatabaseResponsePB {
   AppStatusPB status = 1;
+}
+
+// Declared as a wrapper since oneof does not allow repeated fields.
+message PgCreatePublicationTableIdsPB {
+  repeated string table_id = 1;
+}
+
+message PgCreatePublicationRequestPB {
+  uint64 session_id = 1;
+  bool use_transaction = 2;
+
+  oneof publication_target {
+    PgCreatePublicationTableIdsPB table_ids = 3;
+    string database_name = 4;
+  };
+}
+
+message PgCreatePublicationResponsePB {
+  AppStatusPB status = 1;
+  bytes stream_id = 2;
 }
 
 message PgCreateSequencesDataTableRequestPB {

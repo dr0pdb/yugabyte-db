@@ -688,6 +688,14 @@ class PgApiImpl {
   // Using this function instead of GetRootMemTracker allows us to avoid copying a shared_pointer
   int64_t GetRootMemTrackerConsumption() { return MemTracker::GetRootTrackerConsumption(); }
 
+  //------------------------------------------------------------------------------------------------
+  // Publication Functions.
+
+  // Create Publication.
+  Status NewCreatePublication(const char *database_name,
+                              PgStatement **handle);
+  Result<std::string> ExecCreatePublication(PgStatement *handle);
+
  private:
   class Interrupter;
 

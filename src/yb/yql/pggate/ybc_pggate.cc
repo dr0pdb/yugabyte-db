@@ -1705,6 +1705,26 @@ YBCStatus YBCPgCancelTransaction(const unsigned char* transaction_id) {
   return ToYBCStatus(pgapi->CancelTransaction(transaction_id));
 }
 
+//------------------------------------------------------------------------------------------------
+// Publication Functions.
+//------------------------------------------------------------------------------------------------
+
+YBCStatus YBCPgNewCreatePublication(const char *database_name,
+                                    YBCPgOid* table_oids,
+                                    bool for_all_tables,
+                                    YBCPgStatement *handle) {
+  return ToYBCStatus(pgapi->NewCreatePublication(database_name, handle));
+}
+
+YBCStatus YBCPgExecCreatePublication(YBCPgStatement handle, const char** stream_id) {
+  auto res = pgapi->ExecCreatePublication(handle);
+  if (res.ok()) {
+    *stream_id = YBCPAllocStdString(*res);
+    return YBCStatusOK();
+  }
+  return ToYBCStatus(res.status());
+}
+
 } // extern "C"
 
 } // namespace yb::pggate

@@ -2087,5 +2087,28 @@ Result<bool> PgApiImpl::IsObjectPartOfXRepl(const PgObjectId& table_id) {
   return pg_session_->IsObjectPartOfXRepl(table_id);
 }
 
+//--------------------------------------------------------------------------------------------------
+
+Status PgApiImpl::NewCreatePublication(const char *database_name,
+                                       PgStatement **handle) {
+  auto stmt = std::make_unique<PgCreatePublication>(pg_session_, database_name);
+  if (pg_txn_manager_->IsDdlMode()) {
+    stmt->UseTransaction();
+  }
+  RETURN_NOT_OK(AddToCurrentPgMemctx(std::move(stmt), handle));
+  return Status::OK();
+}
+
+Result<std::string> PgApiImpl::ExecCreatePublication(PgStatement *handle) {
+  if (!PgStatement::IsValidStmt(handle, StmtOp::STMT_CREATE_PUBLICATION)) {
+    // Invalid handle.
+    return STATUS(InvalidArgument, "Invalid statement handle");
+  }
+  pg_session_->SetDdlHasSyscatalogChanges();
+  PgCreatePublication *pg_stmt = down_cast<PgCreatePublication*>(handle);
+  auto resp = VERIFY_RESULT(pg_stmt->Exec());
+  return resp.stream_id();
+}
+
 } // namespace pggate
 } // namespace yb

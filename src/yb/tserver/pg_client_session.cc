@@ -18,6 +18,8 @@
 #include <mutex>
 #include <set>
 
+#include "yb/cdc/cdc_service.h"
+
 #include "yb/client/batcher.h"
 #include "yb/client/client.h"
 #include "yb/client/error.h"
@@ -549,6 +551,38 @@ PgClientSession::PgClientSession(
 
 uint64_t PgClientSession::id() const {
   return id_;
+}
+
+Status PgClientSession::CreatePublication(
+    const PgCreatePublicationRequestPB& req, PgCreatePublicationResponsePB* resp,
+    rpc::RpcContext* context) {
+  LOG(INFO) << __func__ << ": Started with request:\n"<< req.DebugString();
+
+  bool create_for_ns = !req.has_table_ids();
+
+  std::unordered_map<std::string, std::string> options;
+  if (create_for_ns) {
+    options.reserve(5);
+    options.emplace(cdc::kIdType, cdc::kNamespaceId);
+  } else {
+    options.reserve(4);
+  }
+  options.emplace(cdc::kRecordType, CDCRecordType_Name(cdc::CDCRecordType::CHANGE));
+  options.emplace(cdc::kRecordFormat, CDCRecordFormat_Name(cdc::CDCRecordFormat::PROTO));
+  options.emplace(cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
+  options.emplace(cdc::kCheckpointType, CDCCheckpointType_Name(cdc::CDCCheckpointType::EXPLICIT));
+
+  auto stream_result = (create_for_ns)
+                           ? client().CreateCDCStreamForNamespace(req.database_name(), options)
+                           : client().CreateCDCStreamForNamespace(req.database_name(), options);
+  if (stream_result.ok()) {
+    *resp->mutable_stream_id() = stream_result->ToString();
+    return Status::OK();
+  }
+
+  return STATUS_FORMAT(
+      InvalidArgument, "Invalid publication definition: $0",
+      stream_result.status().ToString(false /* include_file_and_line */, false /* include_code */));
 }
 
 Status PgClientSession::CreateTable(

@@ -405,5 +405,22 @@ Status PgAlterTable::Exec() {
 PgAlterTable::~PgAlterTable() {
 }
 
+//--------------------------------------------------------------------------------------------------
+// PgCreatePublication
+//--------------------------------------------------------------------------------------------------
+
+PgCreatePublication::PgCreatePublication(PgSession::ScopedRefPtr pg_session,
+                                         const char *database_name)
+    : PgDdl(pg_session) {
+  req_.set_database_name(database_name);
+}
+
+Result<tserver::PgCreatePublicationResponsePB> PgCreatePublication::Exec() {
+  return pg_session_->pg_client().CreatePublication(&req_, DdlDeadline());
+}
+
+PgCreatePublication::~PgCreatePublication() {
+}
+
 }  // namespace pggate
 }  // namespace yb

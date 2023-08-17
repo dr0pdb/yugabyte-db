@@ -274,5 +274,28 @@ class PgAlterTable : public PgDdl {
   tserver::PgAlterTableRequestPB req_;
 };
 
+//--------------------------------------------------------------------------------------------------
+// CREATE PUBLICATION
+//--------------------------------------------------------------------------------------------------
+
+class PgCreatePublication : public PgDdl {
+ public:
+  PgCreatePublication(PgSession::ScopedRefPtr pg_session,
+                      const char *database_name);
+
+  Result<tserver::PgCreatePublicationResponsePB> Exec();
+
+  virtual ~PgCreatePublication();
+
+  StmtOp stmt_op() const override { return StmtOp::STMT_CREATE_PUBLICATION; }
+
+  void UseTransaction() {
+    req_.set_use_transaction(true);
+  }
+
+ private:
+  tserver::PgCreatePublicationRequestPB req_;
+};
+
 }  // namespace pggate
 }  // namespace yb

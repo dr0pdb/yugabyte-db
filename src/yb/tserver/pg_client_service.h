@@ -41,6 +41,7 @@ class PgMutationCounter;
     (AlterTable) \
     (BackfillIndex) \
     (CreateDatabase) \
+    (CreatePublication) \
     (CreateSequencesDataTable) \
     (CreateTable) \
     (CreateTablegroup) \
