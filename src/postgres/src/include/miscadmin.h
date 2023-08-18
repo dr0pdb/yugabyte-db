@@ -195,6 +195,8 @@ extern PGDLLIMPORT bool YbTablegroupCatalogExists;
 
 extern PGDLLIMPORT bool YbLoginProfileCatalogsExist;
 
+// TODO: may be we need one for pg_yb_publication_meta
+
 /*
  * Date/Time Configuration
  *

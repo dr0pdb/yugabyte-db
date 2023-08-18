@@ -732,6 +732,7 @@ FormData_pg_user_mapping
 FormData_pg_yb_tablegroup
 FormData_pg_yb_profile
 FormData_pg_yb_role_profile
+FormData_pg_yb_publication_meta
 Form_pg_aggregate
 Form_pg_am
 Form_pg_amop
@@ -793,6 +794,7 @@ Form_pg_user_mapping
 Form_pg_yb_tablegroup
 Form_pg_yb_profile
 Form_pg_yb_role_profile
+Form_pg_yb_publication_meta
 FormatNode
 FreeBlockNumberArray
 FreeListData

@@ -377,4 +377,13 @@ DECLARE_UNIQUE_INDEX(pg_yb_role_profile_oid_index, 8055, on pg_yb_role_profile u
 DECLARE_UNIQUE_INDEX(pg_yb_profile_prfname_index, 8057, on pg_yb_profile using btree(prfname name_ops));
 #define YbProfileRolnameIndexId	8057
 
+DECLARE_UNIQUE_INDEX(pg_yb_publication_meta_oid_index, 8066, on pg_yb_publication_meta using btree(oid oid_ops));
+#define YbPublicationMetaObjectIndexId 8066
+
+DECLARE_UNIQUE_INDEX(pg_yb_publication_meta_prstrid_index, 8067, on pg_yb_publication_meta using btree(prstrid oid_ops));
+#define YbPublicationMetaPrstridIndexId 8067
+
+DECLARE_UNIQUE_INDEX(pg_yb_publication_meta_prpubid_index, 8068, on pg_yb_publication_meta using btree(prpubid oid_ops));
+#define YbPublicationMetaPrpubidIndexId 8068
+
 #endif							/* INDEXING_H */

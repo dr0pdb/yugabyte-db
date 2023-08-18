@@ -43,6 +43,9 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
+/* Yugabyte includes */
+#include "catalog/pg_yb_publication_meta_d.h"
+
 /*
  * Check if relation can be in given publication and throws appropriate
  * error if not.
@@ -212,6 +215,67 @@ publication_add_relation(Oid pubid, Relation targetrel,
 	return myself;
 }
 
+/*
+ * Insert new publication / stream mapping.
+ */
+ObjectAddress
+yb_publication_add_stream_id(Oid pubid, const char *stream_id)
+{
+	Relation	rel;
+	HeapTuple	tup;
+	Datum		values[Natts_pg_yb_publication_meta];
+	bool		nulls[Natts_pg_yb_publication_meta];
+	Oid			prrelid;
+	// Publication *pub = GetPublication(pubid);
+	ObjectAddress myself,
+				referenced;
+
+	rel = heap_open(YbPublicationMetaRelationId, RowExclusiveLock);
+
+	/*
+	 * Check for duplicates. Note that this does not really prevent
+	 * duplicates, it's here just to provide nicer error message in common
+	 * case. The real protection is the unique key on the catalog.
+	 */
+	// if (SearchSysCacheExists2(PUBLICATIONRELMAP, ObjectIdGetDatum(relid),
+	// 						  ObjectIdGetDatum(pubid)))
+	// {
+	// 	heap_close(rel, RowExclusiveLock);
+
+	// 	ereport(ERROR,
+	// 			(errcode(ERRCODE_DUPLICATE_OBJECT),
+	// 			 errmsg("relation \"%s\" is already member of publication \"%s\"",
+	// 					RelationGetRelationName(targetrel), pub->name)));
+	// }
+
+	/* Form a tuple. */
+	memset(values, 0, sizeof(values));
+	memset(nulls, false, sizeof(nulls));
+
+	values[Anum_pg_yb_publication_meta_prpubid - 1] =
+		ObjectIdGetDatum(pubid);
+	values[Anum_pg_yb_publication_meta_prstrid - 1] =
+		ObjectIdGetDatum(pubid);
+	// values[Anum_pg_yb_publication_meta_prstrid - 1] =
+	// 	CStringGetDatum(stream_id);
+
+	tup = heap_form_tuple(RelationGetDescr(rel), values, nulls);
+
+	/* Insert tuple into catalog. */
+	prrelid = CatalogTupleInsert(rel, tup);
+	heap_freetuple(tup);
+
+	ObjectAddressSet(myself, YbPublicationMetaRelationId, prrelid);
+
+	/* Add dependency on the publication */
+	ObjectAddressSet(referenced, PublicationRelationId, pubid);
+	recordDependencyOn(&myself, &referenced, DEPENDENCY_AUTO);
+
+	/* Close the table. */
+	heap_close(rel, RowExclusiveLock);
+
+	return myself;
+}
 
 /*
  * Gets list of publication oids for a relation oid.

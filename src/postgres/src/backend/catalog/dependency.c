@@ -84,6 +84,7 @@
 
 /* YB includes */
 #include "catalog/pg_yb_profile.h"
+#include "catalog/pg_yb_publication_meta.h"
 #include "catalog/pg_yb_role_profile.h"
 #include "catalog/pg_yb_tablegroup.h"
 #include "commands/ybccmds.h"
@@ -181,9 +182,10 @@ static const Oid object_classes[] = {
 	TransformRelationId,		/* OCLASS_TRANSFORM */
 
 	/* YB items */
-	YbProfileRelationId,		/* OCLASS_YBPROFILE */
-	YbRoleProfileRelationId,	/* OCLASS_YBROLE_PROFILE */
-	YbTablegroupRelationId,		/* OCLASS_TBLGROUP */
+	YbProfileRelationId,			/* OCLASS_YBPROFILE */
+	YbRoleProfileRelationId,		/* OCLASS_YBROLE_PROFILE */
+	YbTablegroupRelationId,			/* OCLASS_TBLGROUP */
+	YbPublicationMetaRelationId,	/* OCLASS_YBPUBLICATION_META */
 };
 
 
@@ -1336,6 +1338,7 @@ doDeletion(const ObjectAddress *object, int flags)
 		case OCLASS_SUBSCRIPTION:
 		case OCLASS_YBPROFILE:
 		case OCLASS_YBROLE_PROFILE:
+		case OCLASS_YBPUBLICATION_META:
 			elog(ERROR, "global objects cannot be deleted by doDeletion");
 			break;
 
@@ -2596,6 +2599,9 @@ getObjectClass(const ObjectAddress *object)
 
 		case YbTablegroupRelationId:
 			return OCLASS_TBLGROUP;
+
+		case YbPublicationMetaRelationId:
+			return OCLASS_YBPUBLICATION_META;
 	}
 
 	/* shouldn't get here */

@@ -86,6 +86,7 @@
 #include "utils/syscache.h"
 
 #include "pg_yb_utils.h"
+#include "catalog/pg_yb_publication_meta.h"
 
 /*---------------------------------------------------------------------------
 
@@ -999,6 +1000,17 @@ static const struct cachedesc cacheinfo[] = {
 			0,
 		},
 		4
+	},
+	{YbPublicationMetaRelationId,	/* YBPUBLICATIONMETA */
+		YbPublicationMetaObjectIndexId,
+		1,
+		{
+			ObjectIdAttributeNumber,
+			0,
+			0,
+			0
+		},
+		64
 	},
 };
 

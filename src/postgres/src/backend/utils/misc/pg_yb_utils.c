@@ -69,6 +69,7 @@
 #include "catalog/pg_type.h"
 #include "catalog/pg_yb_catalog_version.h"
 #include "catalog/pg_yb_profile.h"
+#include "catalog/pg_yb_publication_meta.h"
 #include "catalog/pg_yb_role_profile.h"
 #include "catalog/yb_catalog_version.h"
 #include "catalog/yb_type.h"
@@ -3323,6 +3324,7 @@ void YbCheckUnsupportedSystemColumns(Var *var, const char *colname, RangeTblEntr
 	}
 }
 
+// TODO: may be need to add something for yb_pg_publication_meta
 void YbRegisterSysTableForPrefetching(int sys_table_id) {
 	// sys_only_filter_attr stores attr which will be used to filter table rows
 	// related to system cache entries.
@@ -3354,9 +3356,11 @@ void YbRegisterSysTableForPrefetching(int sys_table_id) {
 
 		case DbRoleSettingRelationId:    switch_fallthrough(); // pg_db_role_setting
 		case TableSpaceRelationId:       switch_fallthrough(); // pg_tablespace
-		case YBCatalogVersionRelationId: switch_fallthrough(); // pg_yb_catalog_version
-		case YbProfileRelationId:        switch_fallthrough(); // pg_yb_profile
-		case YbRoleProfileRelationId:                          // pg_yb_role_profile
+
+		case YBCatalogVersionRelationId:  switch_fallthrough(); // pg_yb_catalog_version
+		case YbProfileRelationId:         switch_fallthrough(); // pg_yb_profile
+		case YbPublicationMetaRelationId: switch_fallthrough(); // pg_yb_publication_meta
+		case YbRoleProfileRelationId:                           // pg_yb_role_profile
 			db_id = TemplateDbOid;
 			sys_only_filter_attr = InvalidAttrNumber;
 			break;

@@ -81,6 +81,7 @@
 #include "pg_yb_utils.h"
 #include "catalog/pg_yb_catalog_version.h"
 #include "catalog/pg_yb_profile.h"
+#include "catalog/pg_yb_publication_meta.h"
 #include "catalog/pg_yb_role_profile.h"
 #include "catalog/pg_yb_tablegroup.h"
 #include "catalog/yb_catalog_version.h"
@@ -716,6 +717,8 @@ InitPostgresImpl(const char *in_dbname, Oid dboid, const char *username,
 			YbRegisterSysTableForPrefetching(
 				YbRoleProfileRelationId);	// pg_yb_role_profile
 		}
+		YbRegisterSysTableForPrefetching(
+			YbPublicationMetaRelationId); // pg_yb_publication_meta
 		YbTryRegisterCatalogVersionTableForPrefetching();
 
 		HandleYBStatus(YBCPrefetchRegisteredSysTables());

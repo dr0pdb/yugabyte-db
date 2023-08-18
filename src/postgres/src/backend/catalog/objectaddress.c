@@ -87,6 +87,7 @@
 
 /* YB includes. */
 #include "catalog/pg_yb_profile.h"
+#include "catalog/pg_yb_publication_meta.h"
 #include "catalog/pg_yb_role_profile.h"
 #include "catalog/pg_yb_tablegroup.h"
 #include "commands/tablegroup.h"
@@ -3684,6 +3685,28 @@ getObjectDescription(const ObjectAddress *object)
 								 yb_get_profile_name(rolprfform->rolprfprofile));
 				break;
 			}
+
+		case OCLASS_YBPUBLICATION_META:
+			{
+				HeapTuple					tup;
+				char						*pubname;
+				Form_pg_yb_publication_meta	prform;
+
+				tup = SearchSysCache1(YBPUBLICATIONMETA,
+									  ObjectIdGetDatum(object->objectId));
+				if (!HeapTupleIsValid(tup))
+					elog(ERROR, "cache lookup failed for publication table %u",
+						 object->objectId);
+
+				prform = (Form_pg_yb_publication_meta) GETSTRUCT(tup);
+				pubname = get_publication_name(prform->prpubid);
+
+				appendStringInfo(&buffer, _("association between publication \"%s\" and stream %d"),
+								 pubname,
+								 prform->prstrid);
+				ReleaseSysCache(tup);
+				break;
+			}
 			/*
 			 * There's intentionally no default: case here; we want the
 			 * compiler to warn if a new OCLASS hasn't been handled above.
@@ -4197,6 +4220,10 @@ getObjectTypeDescription(const ObjectAddress *object)
 
 		case OCLASS_YBROLE_PROFILE:
 			appendStringInfoString(&buffer, "role profile");
+			break;
+
+		case OCLASS_YBPUBLICATION_META:
+			appendStringInfoString(&buffer, "publication metadata");
 			break;
 			/*
 			 * There's intentionally no default: case here; we want the
@@ -5289,6 +5316,32 @@ getObjectIdentityParts(const ObjectAddress *object,
 				appendStringInfo(&buffer, _("association between role \"%s\" and profile %s"),
 								 GetUserNameFromId(rolprfform->rolprfrole, false),
 								 yb_get_profile_name(rolprfform->rolprfprofile));
+				break;
+			}
+
+		case OCLASS_YBPUBLICATION_META:
+			{
+				HeapTuple	tup;
+				char	   *pubname;
+				Form_pg_yb_publication_meta prform;
+
+				tup = SearchSysCache1(YBPUBLICATIONMETA,
+									  ObjectIdGetDatum(object->objectId));
+				if (!HeapTupleIsValid(tup))
+					elog(ERROR, "cache lookup failed for publication table %u",
+						 object->objectId);
+
+				prform = (Form_pg_yb_publication_meta) GETSTRUCT(tup);
+				pubname = get_publication_name(prform->prpubid);
+
+				appendStringInfo(&buffer, _("association between publication \"%s\" and stream %d"),
+								 pubname,
+								 prform->prstrid);
+
+				if (objargs)
+					*objargs = list_make1(pubname);
+
+				ReleaseSysCache(tup);
 				break;
 			}
 

@@ -248,6 +248,8 @@ CreatePublication(CreatePublicationStmt *stmt)
 
 		/* Populate publication_oid - stream_id mapping. */
 		YBC_LOG_INFO("The stream id from master is %s", stream_id);
+		yb_publication_add_stream_id(puboid, stream_id);
+		YBC_LOG_INFO("Successfully written stream id");
 	}
 
 	return myself;
