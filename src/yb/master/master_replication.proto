@@ -49,8 +49,8 @@ message ValidateReplicationInfoResponsePB {
 message CreateCDCStreamRequestPB {
   optional string table_id = 1;
   repeated CDCStreamOptionsPB options = 3;
-  optional SysCDCStreamEntryPB.State initial_state = 4;
-  optional string db_stream_id = 5;
+  optional SysCDCStreamEntryPB.State initial_state = 4;  // Ignored for batched creation.
+  optional string db_stream_id = 5;  // Must not be set for batched creation.
   optional bool transactional = 6; // [default = false]
   repeated string table_ids = 7;
   optional string namespace_name = 8;
