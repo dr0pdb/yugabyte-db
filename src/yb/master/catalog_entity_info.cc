@@ -1263,6 +1263,14 @@ const NamespaceId CDCStreamInfo::namespace_id() const {
   return LockForRead()->pb.namespace_id();
 }
 
+bool CDCStreamInfo::has_cdcsdk_add_future_tables_to_stream() const {
+  return LockForRead()->pb.has_cdcsdk_add_future_tables_to_stream();
+}
+
+bool CDCStreamInfo::cdcsdk_add_future_tables_to_stream() const {
+  return LockForRead()->pb.cdcsdk_add_future_tables_to_stream();
+}
+
 std::string CDCStreamInfo::ToString() const {
   auto l = LockForRead();
   if (l->pb.has_namespace_id()) {

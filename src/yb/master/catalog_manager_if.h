@@ -156,6 +156,9 @@ class CatalogManagerIf {
 
   virtual Result<scoped_refptr<NamespaceInfo>> FindNamespaceById(const NamespaceId& id) const = 0;
 
+  virtual Result<scoped_refptr<NamespaceInfo>> FindNamespaceByName(
+      const std::string& id, YQLDatabase database_type) const = 0;
+
   virtual Result<scoped_refptr<NamespaceInfo>> FindNamespace(
       const NamespaceIdentifierPB& ns_identifier) const = 0;
 

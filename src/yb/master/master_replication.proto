@@ -32,6 +32,8 @@ message CDCStreamInfoPB {
   repeated CDCStreamOptionsPB options = 3;
   optional bytes namespace_id = 4;
   optional bool transactional = 5; // [default = false]
+  optional uint32 pg_publication_oid = 6;
+  optional bool cdcsdk_add_future_tables_to_stream = 7; // [default = true]
 }
 
 message ValidateReplicationInfoRequestPB {
@@ -47,11 +49,22 @@ message ValidateReplicationInfoResponsePB {
 // ============================================================================
 
 message CreateCDCStreamRequestPB {
-  optional string table_id = 1;
+  optional string table_id = 1; // ignored if batched_stream_target is set.
   repeated CDCStreamOptionsPB options = 3;
   optional SysCDCStreamEntryPB.State initial_state = 4;
   optional string db_stream_id = 5;
   optional bool transactional = 6; // [default = false]
+
+  oneof batched_stream_target {
+    CreateCDCStreamTableIdsPB table_ids = 7;
+    string namespace_name = 8; // Only YSQL.
+  }
+
+  optional uint32 pg_publication_oid = 9;
+}
+
+message CreateCDCStreamTableIdsPB {
+  repeated string table_ids = 1;
 }
 
 message CreateCDCStreamResponsePB {

@@ -505,6 +505,12 @@ message SysCDCStreamEntryPB {
   optional State state = 3 [default = ACTIVE];
   optional string namespace_id = 4;
   optional bool transactional = 5; // [default = false]
+  optional uint32 pg_publication_oid = 6;
+  // Whether tables added to the namespace in the future should get added to
+  // this stream. Set as true for namespace level cdcsdk streams and false where
+  // a list of tables was explicitly specified. When missing, it is treated as
+  // true for backwards compatibility.
+  optional bool cdcsdk_add_future_tables_to_stream = 7; // [default = true]
 }
 
 // The on-disk entry in the sys.catalog table ("metadata" column) for snapshots entries.

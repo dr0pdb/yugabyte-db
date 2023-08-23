@@ -1243,6 +1243,9 @@ class CDCStreamInfo : public RefCountedThreadSafe<CDCStreamInfo>,
 
   const NamespaceId namespace_id() const;
 
+  bool has_cdcsdk_add_future_tables_to_stream() const;
+  bool cdcsdk_add_future_tables_to_stream() const;
+
   std::string ToString() const override;
 
  private:

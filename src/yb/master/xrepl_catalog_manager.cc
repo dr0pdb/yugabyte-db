@@ -247,9 +247,12 @@ class CDCStreamLoader : public Visitor<PersistentCDCStreamInfo> {
     l.Commit();
 
     // For CDCSDK Streams, we scan all the tables in the namespace, and compare it with all the
-    // tables associated with the stream.
+    // tables associated with the stream. Missing tables only need to be added if the stream was
+    // created at the namespace level (cdcsdk_add_future_tables_to_stream true or missing).
     if (metadata.state() == SysCDCStreamEntryPB::ACTIVE && ns &&
-        ns->state() == SysNamespaceEntryPB::RUNNING) {
+        ns->state() == SysNamespaceEntryPB::RUNNING &&
+        (!metadata.has_cdcsdk_add_future_tables_to_stream() ||
+         metadata.cdcsdk_add_future_tables_to_stream())) {
       catalog_manager_->FindAllTablesMissingInCDCSDKStream(
           stream_id, metadata.table_id(), metadata.namespace_id());
     }
@@ -586,7 +589,7 @@ std::vector<scoped_refptr<CDCStreamInfo>> CatalogManager::FindCDCStreamsForTable
         (std::find(ltm->table_id().begin(), ltm->table_id().end(), table_id) !=
          ltm->table_id().end()) &&
         !ltm->started_deleting()) {
-      if ((cdc_request_source == cdc::CDCSDK && !ltm->namespace_id().empty()) ||
+      if ((cdc_request_source == cdc::CDCSDK) ||
           (cdc_request_source == cdc::XCLUSTER && ltm->namespace_id().empty())) {
         streams.push_back(entry.second);
       }
@@ -699,6 +702,13 @@ Status CatalogManager::BackfillMetadataForCDC(
   }
 }
 
+namespace {
+#define MASTER_INVALID_REQUEST_STATUS(error_msg, req) \
+  STATUS( \
+      InvalidArgument, error_msg, req.ShortDebugString(), \
+      MasterError(MasterErrorPB::INVALID_REQUEST));
+}  // namespace
+
 Status CatalogManager::CreateCDCStream(
     const CreateCDCStreamRequestPB* req, CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc,
     const LeaderEpoch& epoch) {
@@ -711,42 +721,23 @@ Status CatalogManager::CreateCDCStream(
     }
   }
 
-  if (id_type_option_value != cdc::kNamespaceId) {
-    scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(req->table_id()));
-
-    {
-      auto l = table->LockForRead();
-      if (l->started_deleting()) {
-        return STATUS(
-            NotFound, "Table does not exist", req->table_id(),
-            MasterError(MasterErrorPB::OBJECT_NOT_FOUND));
+  switch (req->batched_stream_target_case()) {
+    case CreateCDCStreamRequestPB::kTableIds: FALLTHROUGH_INTENDED;
+    case CreateCDCStreamRequestPB::kNamespaceName:
+      RETURN_NOT_OK(CreateNewCDCStreamForBatch(*req, id_type_option_value, resp, rpc, epoch));
+      break;
+    case CreateCDCStreamRequestPB::BATCHED_STREAM_TARGET_NOT_SET:
+      if (id_type_option_value != cdc::kNamespaceId) {
+        RETURN_NOT_OK(SetWalRetentionForTable(req->table_id(), rpc, epoch));
       }
-    }
 
-    AlterTableRequestPB alter_table_req;
-    alter_table_req.mutable_table()->set_table_id(req->table_id());
-    alter_table_req.set_wal_retention_secs(FLAGS_cdc_wal_retention_time_secs);
-    AlterTableResponsePB alter_table_resp;
-    Status s = this->AlterTable(&alter_table_req, &alter_table_resp, rpc, epoch);
-    if (!s.ok()) {
-      return STATUS(
-          InternalError, "Unable to change the WAL retention time for table", req->table_id(),
-          MasterError(MasterErrorPB::INTERNAL_ERROR));
-    }
-
-    Status status = BackfillMetadataForCDC(table, epoch, rpc);
-    if (!status.ok()) {
-      return STATUS(
-          InternalError, "Unable to backfill pgschema_name and/or pg_type_oid", req->table_id(),
-          MasterError(MasterErrorPB::INTERNAL_ERROR));
-    }
-  }
-
-  if (!req->has_db_stream_id()) {
-    RETURN_NOT_OK(CreateNewCDCStream(*req, id_type_option_value, resp, rpc, epoch));
-  } else {
-    // Update and add table_id.
-    RETURN_NOT_OK(AddTableIdToCDCStream(*req));
+      if (!req->has_db_stream_id()) {
+        RETURN_NOT_OK(CreateNewCDCStream(*req, id_type_option_value, resp, rpc, epoch));
+      } else {
+        // Update and add table_id.
+        RETURN_NOT_OK(AddTableIdToCDCStream(*req));
+      }
+      break;
   }
 
   // Now that the stream is set up, mark the entire cluster as a cdc enabled.
@@ -758,6 +749,149 @@ Status CatalogManager::CreateCDCStream(
 Status CatalogManager::CreateNewCDCStream(
     const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
     CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch) {
+  if (id_type_option_value == cdc::kNamespaceId) {
+    // If the id_type is kNamespaceId, the table_id field contains the namespace_id. The caller is
+    // expected to make future calls with table id. It is used by cdc_service to create a namespace
+    // level CDCSDK stream. This should not be needed after we tackle
+    // https://github.com/yugabyte/yugabyte-db/issues/18890.
+    return CreateNewCDCStreamWithTableIds(
+        req, CreateNewCDCStreamMode::ONLY_NAMESPACE, /*table_ids=*/{},
+        /*namespace_id=*/req.table_id(), /*cdcsdk_add_future_tables_to_stream=*/boost::none, resp,
+        rpc, epoch);
+  } else {
+    return CreateNewCDCStreamWithTableIds(
+        req, CreateNewCDCStreamMode::ONLY_TABLE_ID,
+        /*table_ids=*/{req.table_id()}, /*namespace_id=*/boost::none,
+        /*cdcsdk_add_future_tables_to_stream=*/boost::none, resp, rpc, epoch);
+  }
+}
+
+Status CatalogManager::CreateNewCDCStreamForBatch(
+    const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
+    CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch) {
+  std::vector<TableInfoPtr> tables;
+  std::string namespace_id = "";
+  bool cdcsdk_add_future_tables_to_stream = false;
+
+  if (!req.has_pg_publication_oid()) {
+    return MASTER_INVALID_REQUEST_STATUS("pg_publication_oid is required", req);
+  }
+
+  for (auto option : req.options()) {
+    if (option.key() == cdc::kSourceType) {
+      if (option.value() != CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK)) {
+        return MASTER_INVALID_REQUEST_STATUS(
+            "Batched stream creation is only supported for CDCSDK", req);
+      }
+    }
+  }
+
+  if (id_type_option_value != cdc::kNamespaceId) {
+    return MASTER_INVALID_REQUEST_STATUS(
+        "Invalid id_type in options. Expected to be NAMESPACEID for all CDCSDK streams", req);
+  }
+
+  if (req.has_namespace_name()) {
+    // We assume that the namespace is a PGSQL namespace. This means that if a CQL namespace is
+    // passed, it'll return with a NAMESPACE_NOT_FOUND error code to the caller. We could handle
+    // that by also searching it in the CQL namespace map but it doesn't add much value.
+    auto ns = VERIFY_RESULT(FindNamespaceByName(req.namespace_name(), YQL_DATABASE_PGSQL));
+
+    {
+      LockGuard lock(mutex_);
+      tables = FindAllTablesForCDC(ns->id());
+    }
+
+    namespace_id = ns->id();
+    cdcsdk_add_future_tables_to_stream = true;
+  } else {
+    // We can create a namespace level CDCSDK stream with an empty list of tables since it could be
+    // that tables will be added to the namespace in the future. For the list of tables case, there
+    // is no auto provisioning, so we return an error.
+    if (req.table_ids().table_ids().size() <= 0) {
+      return MASTER_INVALID_REQUEST_STATUS(
+          "Cannot create CDC stream for zero tables. At least one table_id must be provided.", req);
+    }
+
+    for (const auto& table_id : req.table_ids().table_ids()) {
+      scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(table_id));
+      tables.push_back(table);
+    }
+
+    {
+      LockGuard lock(mutex_);
+      for (const auto& table_info : tables) {
+        if (!IsTableValidForCDC(table_info)) {
+          auto ltm = table_info->LockForRead();
+          return MASTER_INVALID_REQUEST_STATUS(
+              Format("table_id $0 is invalid for CDC.", table_info->id()), req);
+        }
+      }
+    }
+
+    for (const auto& table_info : tables) {
+      std::string table_id;
+      TableType table_type;
+      {
+        auto ltm = table_info->LockForRead();
+        table_id = table_info->id();
+        table_type = table_info->GetTableType();
+
+        // A CDCSDK stream cannot contain tables from different namespaces. The YSQL syntax will
+        // disallow that anyways but we validate it here defensively.
+        if (namespace_id == "") {
+          namespace_id = table_info->namespace_id();
+        } else if (table_info->namespace_id() != namespace_id) {
+          return MASTER_INVALID_REQUEST_STATUS(
+              Format(
+                  "Cannot create CDCSDK stream with tables from different namespaces. ns 1: $0, ns "
+                  "2: $1",
+                  namespace_id, table_info->namespace_id()),
+              req);
+        }
+      }
+
+      // Validate table type outside of IsTableValidForCDC since it is only a limitation of
+      // the publications syntax and not of CDC in general.
+      if (table_type != PGSQL_TABLE_TYPE) {
+        return MASTER_INVALID_REQUEST_STATUS(
+            Format(
+                "table_id $0 is not a PGSQL table. Only PGSQL tables are supported via "
+                "publication syntax.",
+                table_id),
+            req);
+      }
+    }
+  }
+
+  std::vector<std::string> table_ids;
+  table_ids.reserve(tables.size());
+  for (const auto& table_info : tables) {
+    auto ltm = table_info->LockForRead();
+    table_ids.push_back(table_info->id());
+  }
+
+  VLOG_WITH_FUNC(1) << Format("Creating CDC stream for tables: $0", yb::ToString(table_ids.size()));
+
+  for (const auto& table_id : table_ids) {
+    VLOG_WITH_FUNC(4) << "Setting WAL retention for table: " << table_id;
+    RETURN_NOT_OK(SetWalRetentionForTable(table_id, rpc, epoch));
+  }
+
+  return CreateNewCDCStreamWithTableIds(
+      req, CreateNewCDCStreamMode::NAMESPACE_AND_TABLE_IDS, table_ids, namespace_id,
+      cdcsdk_add_future_tables_to_stream, resp, rpc, epoch);
+}
+
+Status CatalogManager::CreateNewCDCStreamWithTableIds(
+    const CreateCDCStreamRequestPB& req, CreateNewCDCStreamMode mode,
+    const std::vector<std::string>& table_ids, const boost::optional<std::string>& namespace_id,
+    const boost::optional<bool> cdcsdk_add_future_tables_to_stream, CreateCDCStreamResponsePB* resp,
+    rpc::RpcContext* rpc, const LeaderEpoch& epoch) {
+  VLOG_WITH_FUNC(1) << "Mode: " << IntegralToString(mode)
+                    << ", table_ids: " << yb::ToString(table_ids)
+                    << ", namespace_id: " << yb::ToString(namespace_id);
+
   scoped_refptr<CDCStreamInfo> stream;
   {
     TRACE("Acquired catalog manager lock");
@@ -769,11 +903,14 @@ Status CatalogManager::CreateNewCDCStream(
     stream = make_scoped_refptr<CDCStreamInfo>(stream_id);
     stream->mutable_metadata()->StartMutation();
     auto* metadata = &stream->mutable_metadata()->mutable_dirty()->pb;
-    bool create_namespace = id_type_option_value == cdc::kNamespaceId;
-    if (create_namespace) {
-      metadata->set_namespace_id(req.table_id());
-    } else {
-      metadata->add_table_id(req.table_id());
+    if (mode != CreateNewCDCStreamMode::ONLY_TABLE_ID) {
+      LOG_IF(DFATAL, namespace_id == boost::none) << "namespace_id is unexpectedly none";
+      metadata->set_namespace_id(*namespace_id);
+    }
+    if (mode != CreateNewCDCStreamMode::ONLY_NAMESPACE) {
+      for (const auto& table_id : table_ids) {
+        metadata->add_table_id(table_id);
+      }
     }
 
     metadata->set_transactional(req.transactional());
@@ -782,10 +919,24 @@ Status CatalogManager::CreateNewCDCStream(
     metadata->set_state(
         req.has_initial_state() ? req.initial_state() : SysCDCStreamEntryPB::ACTIVE);
 
+    if (req.has_pg_publication_oid()) {
+      metadata->set_pg_publication_oid(req.pg_publication_oid());
+    }
+
+    if (cdcsdk_add_future_tables_to_stream != boost::none) {
+      metadata->set_cdcsdk_add_future_tables_to_stream(*cdcsdk_add_future_tables_to_stream);
+    }
+
     // Add the stream to the in-memory map.
     cdc_stream_map_[stream->StreamId()] = stream;
-    if (!create_namespace) {
-      xcluster_producer_tables_to_stream_map_[req.table_id()].insert(stream->StreamId());
+    if (mode != CreateNewCDCStreamMode::ONLY_NAMESPACE) {
+      for (const auto& table_id : table_ids) {
+        if (mode == CreateNewCDCStreamMode::ONLY_TABLE_ID) {
+          xcluster_producer_tables_to_stream_map_[table_id].insert(stream->StreamId());
+        } else {
+          cdcsdk_tables_to_stream_map_[table_id].insert(stream->StreamId());
+        }
+      }
     }
     resp->set_stream_id(stream->id());
   }
@@ -813,23 +964,59 @@ Status CatalogManager::CreateNewCDCStream(
   // populating entries in cdc_state.
   if (PREDICT_FALSE(FLAGS_TEST_disable_cdc_state_insert_on_setup) ||
       (req.has_initial_state() && req.initial_state() != master::SysCDCStreamEntryPB::ACTIVE) ||
-      (id_type_option_value == cdc::kNamespaceId)) {
+      (mode == CreateNewCDCStreamMode::ONLY_NAMESPACE)) {
     return Status::OK();
   }
 
-  scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(req.table_id()));
-  auto tablets = table->GetTablets();
   std::vector<cdc::CDCStateTableEntry> entries;
-  entries.reserve(tablets.size());
-  for (const auto& tablet : tablets) {
-    cdc::CDCStateTableEntry entry(tablet->id(), stream->StreamId());
-    entry.checkpoint = OpId().Min();
-    entry.last_replication_time = GetCurrentTimeMicros();
-    entries.push_back(std::move(entry));
+  for (const auto& table_id : table_ids) {
+    scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(table_id));
+    auto tablets = table->GetTablets();
+    for (const auto& tablet : tablets) {
+      cdc::CDCStateTableEntry entry(tablet->id(), stream->StreamId());
+      entry.checkpoint = OpId().Min();
+      entry.last_replication_time = GetCurrentTimeMicros();
+      entries.push_back(std::move(entry));
+    }
   }
 
   RETURN_NOT_OK(cdc_state_table_->InsertEntries(entries));
   TRACE("Created CDC state entries");
+  return Status::OK();
+}
+
+Status CatalogManager::SetWalRetentionForTable(
+    const std::string table_id, rpc::RpcContext* rpc, const LeaderEpoch& epoch) {
+  scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(table_id));
+
+  {
+    auto l = table->LockForRead();
+    if (l->started_deleting()) {
+      return STATUS(
+          NotFound, "Table does not exist", table_id,
+          MasterError(MasterErrorPB::OBJECT_NOT_FOUND));
+    }
+  }
+
+  AlterTableRequestPB alter_table_req;
+  alter_table_req.mutable_table()->set_table_id(table_id);
+  alter_table_req.set_wal_retention_secs(FLAGS_cdc_wal_retention_time_secs);
+  AlterTableResponsePB alter_table_resp;
+  Status s = this->AlterTable(&alter_table_req, &alter_table_resp, rpc, epoch);
+  if (!s.ok()) {
+    return STATUS(
+        InternalError, "Unable to change the WAL retention time for table", table_id,
+        MasterError(MasterErrorPB::INTERNAL_ERROR));
+  }
+
+  Status status = BackfillMetadataForCDC(table, epoch, rpc);
+  if (!status.ok()) {
+    LOG(INFO) << "Backfill failed with status: " << status;
+    return STATUS(
+        InternalError, "Unable to backfill pgschema_name and/or pg_type_oid", table_id,
+        MasterError(MasterErrorPB::INTERNAL_ERROR));
+  }
+
   return Status::OK();
 }
 
@@ -1000,7 +1187,10 @@ Status CatalogManager::FindCDCSDKStreamsForAddedTables(
 
   SharedLock lock(mutex_);
   for (const auto& [stream_id, stream_info] : cdc_stream_map_) {
-    if (stream_info->namespace_id().empty()) {
+    // Ignore xCluster or CDCSDK streams where we don't want to autopopulate newly added tables.
+    if (stream_info->namespace_id().empty() ||
+        (stream_info->has_cdcsdk_add_future_tables_to_stream() &&
+         !stream_info->cdcsdk_add_future_tables_to_stream())) {
       continue;
     }
 
@@ -1068,40 +1258,9 @@ void CatalogManager::FindAllTablesMissingInCDCSDKStream(
   }
 
   // Get all the tables associated with the namespace.
-  // If we find any table present only in the namespace, but not in the namespace, we add the table
+  // If we find any table present only in the namespace, but not in the stream, we add the table
   // id to 'cdcsdk_unprocessed_tables'.
-  for (const auto& table_info : tables_->GetAllTables()) {
-    {
-      auto ltm = table_info->LockForRead();
-      if (!ltm->visible_to_client()) {
-        continue;
-      }
-      if (ltm->namespace_id() != ns_id) {
-        continue;
-      }
-
-      bool has_pk = true;
-      for (const auto& col : ltm->schema().columns()) {
-        if (col.order() == static_cast<int32_t>(PgSystemAttrNum::kYBRowId)) {
-          // ybrowid column is added for tables that don't have user-specified primary key.
-          VLOG(1) << "Table: " << table_info->id()
-                  << ", will not be added to CDCSDK stream, since it does not have a primary key";
-          has_pk = false;
-          break;
-        }
-      }
-      if (!has_pk) {
-        continue;
-      }
-    }
-
-    if (IsMatviewTable(*table_info)) {
-      continue;
-    }
-    if (!IsUserTableUnlocked(*table_info)) {
-      continue;
-    }
-
+  for (const auto& table_info : FindAllTablesForCDC(ns_id)) {
     if (!stream_table_ids.contains(table_info->id())) {
       LOG(INFO) << "Found unprocessed table: " << table_info->id()
                 << ", for stream: " << stream_id;
@@ -1110,6 +1269,59 @@ void CatalogManager::FindAllTablesMissingInCDCSDKStream(
           table_info->id());
     }
   }
+}
+
+std::vector<TableInfoPtr> CatalogManager::FindAllTablesForCDC(const NamespaceId& ns_id) {
+  std::vector<TableInfoPtr> tables;
+
+  for (const auto& table_info : tables_->GetAllTables()) {
+    if (!IsTableValidForCDC(table_info)) {
+      continue;
+    }
+
+    {
+      auto ltm = table_info->LockForRead();
+      if (ltm->namespace_id() != ns_id) {
+        continue;
+      }
+    }
+
+    tables.push_back(table_info);
+  }
+
+  return tables;
+}
+
+bool CatalogManager::IsTableValidForCDC(const TableInfoPtr& table_info) {
+  {
+    auto ltm = table_info->LockForRead();
+    if (!ltm->visible_to_client()) {
+      return false;
+    }
+
+    bool has_pk = true;
+    for (const auto& col : ltm->schema().columns()) {
+      if (col.order() == static_cast<int32_t>(PgSystemAttrNum::kYBRowId)) {
+        // ybrowid column is added for tables that don't have user-specified primary key.
+        VLOG(1) << "Table: " << table_info->id()
+                << ", will not be added to CDCSDK stream, since it does not have a primary key";
+        has_pk = false;
+        break;
+      }
+    }
+    if (!has_pk) {
+      return false;
+    }
+  }
+
+  if (IsMatviewTable(*table_info)) {
+    return false;
+  }
+  if (!IsUserTableUnlocked(*table_info)) {
+    return false;
+  }
+
+  return true;
 }
 
 Status CatalogManager::AddTabletEntriesToCDCSDKStreamsForNewTables(
@@ -1541,6 +1753,15 @@ Status CatalogManager::GetCDCStream(
     state_option->set_value(SysCDCStreamEntryPB::State_Name(stream_lock->pb.state()));
   }
 
+  if (stream_lock->pb.has_pg_publication_oid()) {
+    stream_info->set_pg_publication_oid(stream_lock->pb.pg_publication_oid());
+  }
+
+  if (stream_lock->pb.has_cdcsdk_add_future_tables_to_stream()) {
+    stream_info->set_cdcsdk_add_future_tables_to_stream(
+        stream_lock->pb.cdcsdk_add_future_tables_to_stream());
+  }
+
   return Status::OK();
 }
 
@@ -1641,6 +1862,14 @@ Status CatalogManager::ListCDCStreams(
       auto state_option = stream->add_options();
       state_option->set_key(cdc::kStreamState);
       state_option->set_value(master::SysCDCStreamEntryPB::State_Name(ltm->pb.state()));
+    }
+
+    if (ltm->pb.has_pg_publication_oid()) {
+      stream->set_pg_publication_oid(ltm->pb.pg_publication_oid());
+    }
+
+    if (ltm->pb.has_cdcsdk_add_future_tables_to_stream()) {
+      stream->set_cdcsdk_add_future_tables_to_stream(ltm->pb.cdcsdk_add_future_tables_to_stream());
     }
   }
   return Status::OK();

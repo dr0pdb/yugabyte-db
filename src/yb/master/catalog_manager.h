@@ -928,6 +928,12 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   Result<scoped_refptr<NamespaceInfo>> FindNamespaceByIdUnlocked(
       const NamespaceId& id) const REQUIRES_SHARED(mutex_);
 
+  Result<scoped_refptr<NamespaceInfo>> FindNamespaceByName(
+      const std::string& name, YQLDatabase database_type) const override EXCLUDES(mutex_);
+
+  Result<scoped_refptr<NamespaceInfo>> FindNamespaceByNameUnlocked(
+      const std::string& name, YQLDatabase database_type) const REQUIRES_SHARED(mutex_);
+
   Result<scoped_refptr<TableInfo>> FindTableUnlocked(
       const TableIdentifierPB& table_identifier) const REQUIRES_SHARED(mutex_);
 
@@ -1218,11 +1224,6 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   Status CreateCDCStream(
       const CreateCDCStreamRequestPB* req, CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc,
       const LeaderEpoch& epoch);
-
-  Status CreateNewCDCStream(
-      const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
-      CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
-  Status AddTableIdToCDCStream(const CreateCDCStreamRequestPB& req) EXCLUDES(mutex_);
 
   // Get the Table schema from system catalog table.
   Status GetTableSchemaFromSysCatalog(
@@ -2642,6 +2643,34 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   static void SetTabletSnapshotsState(
       SysSnapshotEntryPB::State state, SysSnapshotEntryPB* snapshot_pb);
 
+  Status CreateNewCDCStream(
+      const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
+      CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+  Status CreateNewCDCStreamForBatch(
+      const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
+      CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+
+  enum class CreateNewCDCStreamMode {
+    // Only populate the namespace_id. The caller is expected to populate table_ids in subsequent
+    // requests. Used while creating a stream for CDCSDK from cdc_service. This should not be needed
+    // after we tackle https://github.com/yugabyte/yugabyte-db/issues/18890.
+    ONLY_NAMESPACE,
+    // Only populate the table_id. It is only used by xCluster.
+    ONLY_TABLE_ID,
+    // Populate the namespace_id and a list of table ids. It is only used by CDCSDK.
+    NAMESPACE_AND_TABLE_IDS
+  };
+  Status CreateNewCDCStreamWithTableIds(
+      const CreateCDCStreamRequestPB& req, CreateNewCDCStreamMode mode,
+      const std::vector<std::string>& table_ids, const boost::optional<std::string>& namespace_id,
+      const boost::optional<bool> cdcsdk_add_future_tables_to_stream,
+      CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+
+  Status SetWalRetentionForTable(
+      const std::string table_id, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+
+  Status AddTableIdToCDCStream(const CreateCDCStreamRequestPB& req) EXCLUDES(mutex_);
+
   // Create the cdc_state table if needed (i.e. if it does not exist already).
   //
   // This is called at the end of CreateCDCStream.
@@ -2665,6 +2694,11 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   // Find CDC streams for a table to clean its metadata.
   std::vector<scoped_refptr<CDCStreamInfo>> FindCDCStreamsForTableToDeleteMetadata(
       const TableId& table_id) const REQUIRES_SHARED(mutex_);
+
+  // This method returns all tables in the namespace suitable for CDC and returns them.
+  std::vector<TableInfoPtr> FindAllTablesForCDC(const NamespaceId& ns_id) REQUIRES(mutex_);
+
+  bool IsTableValidForCDC(const TableInfoPtr& table_info) REQUIRES(mutex_);
 
   Status FillHeartbeatResponseEncryption(
       const SysClusterConfigEntryPB& cluster_config,
