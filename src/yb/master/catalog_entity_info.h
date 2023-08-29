@@ -1243,6 +1243,8 @@ class CDCStreamInfo : public RefCountedThreadSafe<CDCStreamInfo>,
 
   const NamespaceId namespace_id() const;
 
+  const PublicationOid pg_publication_oid() const;
+
   bool has_cdcsdk_add_future_tables_to_stream() const;
   bool cdcsdk_add_future_tables_to_stream() const;
 

@@ -242,6 +242,10 @@ class CDCStreamLoader : public Visitor<PersistentCDCStreamInfo> {
       for (const auto& table_id : metadata.table_id()) {
         catalog_manager_->cdcsdk_tables_to_stream_map_[table_id].insert(stream->StreamId());
       }
+      if (metadata.has_pg_publication_oid()) {
+        catalog_manager_->cdcsdk_publications_to_stream_map_.insert_or_assign(
+            metadata.pg_publication_oid(), stream->StreamId());
+      }
     }
 
     l.Commit();
@@ -276,6 +280,7 @@ void CatalogManager::ClearXReplState() {
 
   // Clear CDCSDK stream map.
   cdcsdk_tables_to_stream_map_.clear();
+  cdcsdk_publications_to_stream_map_.clear();
 
   // Clear universe replication map.
   universe_replication_map_.clear();
@@ -589,7 +594,7 @@ std::vector<scoped_refptr<CDCStreamInfo>> CatalogManager::FindCDCStreamsForTable
         (std::find(ltm->table_id().begin(), ltm->table_id().end(), table_id) !=
          ltm->table_id().end()) &&
         !ltm->started_deleting()) {
-      if ((cdc_request_source == cdc::CDCSDK) ||
+      if ((cdc_request_source == cdc::CDCSDK && !ltm->namespace_id().empty()) ||
           (cdc_request_source == cdc::XCLUSTER && ltm->namespace_id().empty())) {
         streams.push_back(entry.second);
       }
@@ -935,6 +940,10 @@ Status CatalogManager::CreateNewCDCStreamWithTableIds(
           xcluster_producer_tables_to_stream_map_[table_id].insert(stream->StreamId());
         } else {
           cdcsdk_tables_to_stream_map_[table_id].insert(stream->StreamId());
+          if (req.has_pg_publication_oid()) {
+            cdcsdk_publications_to_stream_map_.insert_or_assign(
+                req.pg_publication_oid(), stream->StreamId());
+          }
         }
       }
     }
@@ -1691,6 +1700,7 @@ Status CatalogManager::CleanUpDeletedCDCStreams(
         xcluster_producer_tables_to_stream_map_[id].erase(stream->StreamId());
         cdcsdk_tables_to_stream_map_[id].erase(stream->StreamId());
       }
+      cdcsdk_publications_to_stream_map_.erase(stream->pg_publication_oid());
     }
   }
   LOG(INFO) << "Successfully deleted streams " << JoinStreamsCSVLine(streams_to_delete)
@@ -1706,17 +1716,28 @@ Status CatalogManager::GetCDCStream(
     const GetCDCStreamRequestPB* req, GetCDCStreamResponsePB* resp, rpc::RpcContext* rpc) {
   LOG(INFO) << "GetCDCStream from " << RequestorString(rpc) << ": " << req->DebugString();
 
-  if (!req->has_stream_id()) {
+  if (!req->has_stream_id() && !req->has_pg_publication_oid()) {
     return STATUS(
-        InvalidArgument, "CDC Stream ID must be provided", req->ShortDebugString(),
-        MasterError(MasterErrorPB::INVALID_REQUEST));
+        InvalidArgument, "Atleast one of CDC Stream ID or PG publication OID must be provided",
+        req->ShortDebugString(), MasterError(MasterErrorPB::INVALID_REQUEST));
   }
 
   scoped_refptr<CDCStreamInfo> stream;
   {
     SharedLock lock(mutex_);
-    stream = FindPtrOrNull(
-        cdc_stream_map_, VERIFY_RESULT(xrepl::StreamId::FromString(req->stream_id())));
+    if (req->has_stream_id()) {
+      stream = FindPtrOrNull(
+          cdc_stream_map_, VERIFY_RESULT(xrepl::StreamId::FromString(req->stream_id())));
+    } else {
+      auto stream_id = FindOrNull(cdcsdk_publications_to_stream_map_, req->pg_publication_oid());
+      if (stream_id == nullptr) {
+        return STATUS(
+            NotFound, "Could not find CDC stream", req->ShortDebugString(),
+            MasterError(MasterErrorPB::OBJECT_NOT_FOUND));
+      }
+
+      stream = FindPtrOrNull(cdc_stream_map_, *stream_id);
+    }
   }
 
   if (stream == nullptr || stream->LockForRead()->is_deleting()) {

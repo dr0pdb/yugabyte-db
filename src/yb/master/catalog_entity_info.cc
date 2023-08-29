@@ -1263,6 +1263,10 @@ const NamespaceId CDCStreamInfo::namespace_id() const {
   return LockForRead()->pb.namespace_id();
 }
 
+const PublicationOid CDCStreamInfo::pg_publication_oid() const {
+  return LockForRead()->pb.pg_publication_oid();
+}
+
 bool CDCStreamInfo::has_cdcsdk_add_future_tables_to_stream() const {
   return LockForRead()->pb.has_cdcsdk_add_future_tables_to_stream();
 }

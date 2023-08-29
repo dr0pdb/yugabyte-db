@@ -114,6 +114,7 @@ message IsObjectPartOfXReplResponsePB {
 
 message GetCDCStreamRequestPB {
   optional bytes stream_id = 1;
+  optional uint32 pg_publication_oid = 2;
 }
 
 message GetCDCStreamResponsePB {

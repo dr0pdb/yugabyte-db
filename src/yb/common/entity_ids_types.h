@@ -36,6 +36,7 @@ using TabletServerId = PeerId;
 using TabletId = std::string;
 using TablegroupId = std::string;
 using TablespaceId = std::string;
+using PublicationOid = uint32_t;
 
 YB_STRONGLY_TYPED_STRING(KvStoreId);
 

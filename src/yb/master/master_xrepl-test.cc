@@ -58,6 +58,7 @@ class MasterTestXRepl  : public MasterTestBase {
   Result<xrepl::StreamId> CreateCDCStreamForListOfTables(
       const std::vector<std::string>& table_ids, int pg_publication_oid);
   Result<GetCDCStreamResponsePB> GetCDCStream(const xrepl::StreamId& stream_id);
+  Result<GetCDCStreamResponsePB> GetCDCStream(uint32_t pg_publication_oid);
   Status DeleteCDCStream(const xrepl::StreamId& stream_id);
   Result<ListCDCStreamsResponsePB> ListCDCStreams();
   Result<bool> IsObjectPartOfXRepl(const TableId& table_id);
@@ -183,6 +184,15 @@ Result<GetCDCStreamResponsePB> MasterTestXRepl::GetCDCStream(
   GetCDCStreamRequestPB req;
   GetCDCStreamResponsePB resp;
   req.set_stream_id(stream_id.ToString());
+
+  RETURN_NOT_OK(proxy_replication_->GetCDCStream(req, &resp, ResetAndGetController()));
+  return resp;
+}
+
+Result<GetCDCStreamResponsePB> MasterTestXRepl::GetCDCStream(uint32_t pg_publication_oid) {
+  GetCDCStreamRequestPB req;
+  GetCDCStreamResponsePB resp;
+  req.set_pg_publication_oid(pg_publication_oid);
 
   RETURN_NOT_OK(proxy_replication_->GetCDCStream(req, &resp, ResetAndGetController()));
   return resp;
@@ -329,6 +339,10 @@ TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespace) {
   for (auto i = 0; i < num_tables; ++i) {
     ASSERT_EQ(receivedTableIds[i], kTableIds[i]);
   }
+
+  auto resp_via_pub_oid = ASSERT_RESULT(GetCDCStream(kPgPublicationId));
+  ASSERT_EQ(resp.stream().namespace_id(), ns_id);
+  ASSERT_EQ(resp.stream().stream_id(), stream_id.ToString());
 }
 
 TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceInvalidCql) {
@@ -421,6 +435,10 @@ TEST_F(MasterTestXRepl, TestCreateCDCStreamForListOfTables) {
   }
   std::sort(receivedTableIds.begin(), receivedTableIds.end());
   ASSERT_EQ(table_ids, receivedTableIds);
+
+  auto resp_via_pub_oid = ASSERT_RESULT(GetCDCStream(kPgPublicationId));
+  ASSERT_EQ(resp.stream().namespace_id(), ns_id);
+  ASSERT_EQ(resp.stream().stream_id(), stream_id.ToString());
 }
 
 TEST_F(MasterTestXRepl, TestCreateCDCStreamForListOfTablesInvalidIdTypeOption) {

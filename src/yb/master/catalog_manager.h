@@ -3119,6 +3119,8 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
 
   std::unordered_map<TableId, std::unordered_set<xrepl::StreamId>> cdcsdk_tables_to_stream_map_
       GUARDED_BY(mutex_);
+  std::unordered_map<PublicationOid, xrepl::StreamId> cdcsdk_publications_to_stream_map_
+      GUARDED_BY(mutex_);
 
   typedef std::unordered_map<cdc::ReplicationGroupId, scoped_refptr<UniverseReplicationInfo>>
       UniverseReplicationInfoMap;
