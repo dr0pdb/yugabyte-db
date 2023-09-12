@@ -932,6 +932,12 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   Result<scoped_refptr<NamespaceInfo>> FindNamespaceByIdUnlocked(
       const NamespaceId& id) const REQUIRES_SHARED(mutex_);
 
+  Result<scoped_refptr<NamespaceInfo>> FindNamespaceByName(
+      const std::string& name, YQLDatabase database_type) const override EXCLUDES(mutex_);
+
+  Result<scoped_refptr<NamespaceInfo>> FindNamespaceByNameUnlocked(
+      const std::string& name, YQLDatabase database_type) const REQUIRES_SHARED(mutex_);
+
   Result<scoped_refptr<TableInfo>> FindTableUnlocked(
       const TableIdentifierPB& table_identifier) const REQUIRES_SHARED(mutex_);
 
@@ -1220,11 +1226,6 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   Status CreateCDCStream(
       const CreateCDCStreamRequestPB* req, CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc,
       const LeaderEpoch& epoch);
-
-  Status CreateNewCDCStream(
-      const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
-      CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
-  Status AddTableIdToCDCStream(const CreateCDCStreamRequestPB& req) EXCLUDES(mutex_);
 
   // Get the Table schema from system catalog table.
   Status GetTableSchemaFromSysCatalog(
@@ -2653,6 +2654,32 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   static void SetTabletSnapshotsState(
       SysSnapshotEntryPB::State state, SysSnapshotEntryPB* snapshot_pb);
 
+  Status CreateNewCDCStream(
+      const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
+      CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+  Status CreateNewCDCStreamForNamespace(
+      const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
+      CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+  enum class CreateNewCDCStreamMode {
+    // Only populate the namespace_id. It is only used by CDCSDK while creating a stream from
+    // cdc_service. The caller is expected to populate table_ids in subsequent requests.
+    // This should not be needed after we tackle #18890.
+    NAMESPACE_ID,
+    // Only populate the table_id. It is only used by xCluster.
+    TABLE_ID,
+    // Populate the namespace_id and a list of table ids. It is only used by CDCSDK.
+    NAMESPACE_AND_TABLE_IDS
+  };
+  Status CreateNewCDCStreamWithTableIds(
+      const CreateCDCStreamRequestPB& req, CreateNewCDCStreamMode mode,
+      const std::vector<std::string>& table_ids, const boost::optional<std::string>& namespace_id,
+      CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+
+  Status AddTableIdToCDCStream(const CreateCDCStreamRequestPB& req) EXCLUDES(mutex_);
+
+  Status SetWalRetentionForTable(
+      const std::string table_id, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+
   // Create the cdc_state table if needed (i.e. if it does not exist already).
   //
   // This is called at the end of CreateCDCStream.
@@ -2667,6 +2694,9 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   // Mark specified CDC streams as DELETING/DELETING_METADATA so they can be removed later.
   Status MarkCDCStreamsForMetadataCleanup(
       const std::vector<CDCStreamInfoPtr>& streams, SysCDCStreamEntryPB::State state);
+
+  // This method returns all tables in the namespace suitable for CDCSDK.
+  std::vector<TableInfoPtr> FindAllTablesForCDCSDK(const NamespaceId& ns_id) REQUIRES(mutex_);
 
   // Find CDC streams for a table.
   std::vector<CDCStreamInfoPtr> FindCDCStreamsForTableUnlocked(
@@ -3087,6 +3117,11 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
       xcluster_consumer_table_stream_ids_map_ GUARDED_BY(mutex_);
 
   std::unordered_map<TableId, std::unordered_set<xrepl::StreamId>> cdcsdk_tables_to_stream_map_
+      GUARDED_BY(mutex_);
+
+  // Maps a ReplicationSlotName to the xrepl::StreamId of the stream it belongs to. Present for
+  // CDCSDK streams created from the YSQL syntax.
+  std::unordered_map<ReplicationSlotName, xrepl::StreamId> cdcsdk_replication_slots_to_stream_map_
       GUARDED_BY(mutex_);
 
   typedef std::unordered_map<cdc::ReplicationGroupId, scoped_refptr<UniverseReplicationInfo>>
