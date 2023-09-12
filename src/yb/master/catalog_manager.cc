@@ -5365,6 +5365,23 @@ Result<scoped_refptr<NamespaceInfo>> CatalogManager::FindNamespaceByIdUnlocked(
   return it->second;
 }
 
+Result<scoped_refptr<NamespaceInfo>> CatalogManager::FindNamespaceByName(
+    const std::string& name, YQLDatabase database_type) const {
+  SharedLock lock(mutex_);
+  return FindNamespaceByNameUnlocked(name, database_type);
+}
+
+Result<scoped_refptr<NamespaceInfo>> CatalogManager::FindNamespaceByNameUnlocked(
+    const std::string& name, YQLDatabase database_type) const {
+  auto it = namespace_names_mapper_[database_type].find(name);
+  if (it == namespace_names_mapper_[database_type].end()) {
+    VLOG_WITH_FUNC(4) << "Not found: " << name << "\n" << GetStackTrace();
+    return STATUS(NotFound, "Keyspace name not found", name,
+                  MasterError(MasterErrorPB::NAMESPACE_NOT_FOUND));
+  }
+  return it->second;
+}
+
 Result<scoped_refptr<NamespaceInfo>> CatalogManager::FindNamespaceUnlocked(
     const NamespaceIdentifierPB& ns_identifier) const {
   if (ns_identifier.has_id()) {
@@ -5372,13 +5389,7 @@ Result<scoped_refptr<NamespaceInfo>> CatalogManager::FindNamespaceUnlocked(
   }
 
   if (ns_identifier.has_name()) {
-    auto db = GetDatabaseType(ns_identifier);
-    auto it = namespace_names_mapper_[db].find(ns_identifier.name());
-    if (it == namespace_names_mapper_[db].end()) {
-      return STATUS(NotFound, "Keyspace name not found", ns_identifier.name(),
-                    MasterError(MasterErrorPB::NAMESPACE_NOT_FOUND));
-    }
-    return it->second;
+    return FindNamespaceByNameUnlocked(ns_identifier.name(), GetDatabaseType(ns_identifier));
   }
 
   LOG(DFATAL) << __func__ << ": " << ns_identifier.ShortDebugString() << ", \n" << GetStackTrace();

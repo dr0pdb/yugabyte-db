@@ -16,6 +16,7 @@
 #include "yb/cdc/cdc_service.h"
 
 #include "yb/cdc/cdc_state_table.h"
+#include "yb/common/pg_system_attr.h"
 #include "yb/common/schema.h"
 #include "yb/common/wire_protocol.h"
 
@@ -35,7 +36,15 @@ DECLARE_bool(disable_truncate_table);
 
 namespace yb {
 namespace master {
+constexpr const char* kNamespaceName = "cdc_namespace";
+constexpr const char* kPgsqlNamespaceId = "00004000000030008000000000000000";
 constexpr const char* kTableName = "cdc_table";
+constexpr int num_tables = 3;
+// Keep in sorted order for easier comparison.
+constexpr const char* kTableIds[num_tables] = {
+    "00004000000030008000000000004001", "00004000000030008000000000004010",
+    "00004000000030008000000000004020"};
+constexpr const char* kPgReplicationSlotName = "cdc_replication_slot";
 static const Schema kTableSchema({
     ColumnSchema("key", DataType::INT32, ColumnKind::RANGE_ASC_NULL_FIRST),
     ColumnSchema("v1", DataType::UINT64),
@@ -44,7 +53,10 @@ static const Schema kTableSchema({
 class MasterTestXRepl  : public MasterTestBase {
  protected:
   Result<xrepl::StreamId> CreateCDCStream(const TableId& table_id);
+  Result<xrepl::StreamId> CreateCDCStreamForNamespace(
+      const std::string& namespace_name, const std::string& cdcsdk_pg_replication_slot_name);
   Result<GetCDCStreamResponsePB> GetCDCStream(const xrepl::StreamId& stream_id);
+  Result<GetCDCStreamResponsePB> GetCDCStream(const std::string& cdcsdk_pg_replication_slot_name);
   Status DeleteCDCStream(const xrepl::StreamId& stream_id);
   Result<ListCDCStreamsResponsePB> ListCDCStreams();
   Result<bool> IsObjectPartOfXRepl(const TableId& table_id);
@@ -84,11 +96,64 @@ Result<xrepl::StreamId> MasterTestXRepl::CreateCDCStream(const TableId& table_id
   return xrepl::StreamId::FromString(resp.stream_id());
 }
 
+void AddKeyValueToCreateCDCStreamRequestOption(
+    CreateCDCStreamRequestPB* req, const std::string& key, const std::string& value) {
+  auto new_option = req->add_options();
+  new_option->set_key(key);
+  new_option->set_value(value);
+}
+
+Result<xrepl::StreamId> MasterTestXRepl::CreateCDCStreamForNamespace(
+    const std::string& namespace_name, const std::string& cdcsdk_pg_replication_slot_name) {
+  CreateCDCStreamRequestPB req;
+  CreateCDCStreamResponsePB resp;
+
+  req.set_namespace_name(namespace_name);
+  req.set_cdcsdk_pg_replication_slot_name(cdcsdk_pg_replication_slot_name);
+  AddKeyValueToCreateCDCStreamRequestOption(&req, cdc::kIdType, cdc::kNamespaceId);
+  AddKeyValueToCreateCDCStreamRequestOption(
+      &req, cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
+
+  RETURN_NOT_OK(proxy_replication_->CreateCDCStream(req, &resp, ResetAndGetController()));
+  if (resp.has_error()) {
+    RETURN_NOT_OK(StatusFromPB(resp.error().status()));
+  }
+
+  RETURN_NOT_OK(WaitFor(
+      [&]() {
+        IsCreateTableDoneRequestPB is_create_req;
+        IsCreateTableDoneResponsePB is_create_resp;
+
+        is_create_req.mutable_table()->set_table_name(cdc::kCdcStateTableName);
+        is_create_req.mutable_table()->mutable_namespace_()->set_name(master::kSystemNamespaceName);
+
+        auto s =
+            proxy_ddl_->IsCreateTableDone(is_create_req, &is_create_resp, ResetAndGetController());
+        if (!s.ok()) {
+          return false;
+        }
+        return true;
+      },
+      MonoDelta::FromSeconds(30), "Wait for cdc_state table creation to finish"));
+
+  return xrepl::StreamId::FromString(resp.stream_id());
+}
+
 Result<GetCDCStreamResponsePB> MasterTestXRepl::GetCDCStream(
     const xrepl::StreamId& stream_id) {
   GetCDCStreamRequestPB req;
   GetCDCStreamResponsePB resp;
   req.set_stream_id(stream_id.ToString());
+
+  RETURN_NOT_OK(proxy_replication_->GetCDCStream(req, &resp, ResetAndGetController()));
+  return resp;
+}
+
+Result<GetCDCStreamResponsePB> MasterTestXRepl::GetCDCStream(
+    const std::string& cdcsdk_pg_replication_slot_name) {
+  GetCDCStreamRequestPB req;
+  GetCDCStreamResponsePB resp;
+  req.set_cdcsdk_pg_replication_slot_name(cdcsdk_pg_replication_slot_name);
 
   RETURN_NOT_OK(proxy_replication_->GetCDCStream(req, &resp, ResetAndGetController()));
   return resp;
@@ -202,6 +267,127 @@ TEST_F(MasterTestXRepl, TestCreateCDCStream) {
 
   auto resp = ASSERT_RESULT(GetCDCStream(stream_id));
   ASSERT_EQ(resp.stream().table_id().Get(0), table_id);
+}
+
+TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespace) {
+  CreateNamespaceResponsePB create_namespace_resp;
+  ASSERT_OK(CreatePgsqlNamespace(kNamespaceName, kPgsqlNamespaceId, &create_namespace_resp));
+  auto ns_id = create_namespace_resp.id();
+
+  for (auto i = 0; i < num_tables; ++i) {
+    ASSERT_OK(CreatePgsqlTable(ns_id, Format("cdc_table_$0", i), kTableIds[i], kTableSchema));
+  }
+
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
+  auto stream_id =
+      ASSERT_RESULT(CreateCDCStreamForNamespace(kNamespaceName, kPgReplicationSlotName));
+
+  auto resp = ASSERT_RESULT(GetCDCStream(stream_id));
+  ASSERT_EQ(resp.stream().namespace_id(), ns_id);
+  ASSERT_EQ(resp.stream().cdcsdk_pg_replication_slot_name(), kPgReplicationSlotName);
+  ASSERT_EQ(resp.stream().table_id().size(), num_tables);
+  for (auto option : resp.stream().options()) {
+    if (option.key() == cdc::kStreamState) {
+      ASSERT_EQ(option.value(), SysCDCStreamEntryPB_State_Name(SysCDCStreamEntryPB::ACTIVE));
+    }
+  }
+
+  std::vector<std::string> receivedTableIds;
+  for (auto i = 0; i < num_tables; ++i) {
+    receivedTableIds.push_back(resp.stream().table_id().Get(i));
+  }
+  std::sort(receivedTableIds.begin(), receivedTableIds.end());
+  for (auto i = 0; i < num_tables; ++i) {
+    ASSERT_EQ(receivedTableIds[i], kTableIds[i]);
+  }
+
+  auto resp_via_pub_oid = ASSERT_RESULT(GetCDCStream(kPgReplicationSlotName));
+  ASSERT_EQ(resp.stream().namespace_id(), ns_id);
+  ASSERT_EQ(resp.stream().stream_id(), stream_id.ToString());
+}
+
+TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceInvalidCql) {
+  CreateNamespaceResponsePB create_namespace_resp;
+  CreateCDCStreamRequestPB req;
+  CreateCDCStreamResponsePB resp;
+
+  ASSERT_OK(CreateNamespace(kNamespaceName, YQLDatabase::YQL_DATABASE_CQL, &create_namespace_resp));
+  auto ns_id = create_namespace_resp.id();
+
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
+
+  req.set_namespace_name(kNamespaceName);
+  req.set_cdcsdk_pg_replication_slot_name(kPgReplicationSlotName);
+  AddKeyValueToCreateCDCStreamRequestOption(&req, cdc::kIdType, cdc::kNamespaceId);
+  AddKeyValueToCreateCDCStreamRequestOption(
+      &req, cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
+
+  ASSERT_OK(proxy_replication_->CreateCDCStream(req, &resp, ResetAndGetController()));
+  SCOPED_TRACE(resp.DebugString());
+  ASSERT_TRUE(resp.has_error());
+  ASSERT_EQ(MasterErrorPB::NAMESPACE_NOT_FOUND, resp.error().code());
+
+  auto list_resp = ASSERT_RESULT(ListCDCStreams());
+  ASSERT_EQ(0, list_resp.streams_size());
+}
+
+TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceInvalidIdTypeOption) {
+  CreateNamespaceResponsePB create_namespace_resp;
+  CreateCDCStreamRequestPB req;
+  CreateCDCStreamResponsePB resp;
+
+  ASSERT_OK(CreatePgsqlNamespace(kNamespaceName, kPgsqlNamespaceId, &create_namespace_resp));
+  auto ns_id = create_namespace_resp.id();
+
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
+
+  // Not setting kIdType option, treated as kTableId by default.
+  req.set_namespace_name(kNamespaceName);
+  req.set_cdcsdk_pg_replication_slot_name(kPgReplicationSlotName);
+  AddKeyValueToCreateCDCStreamRequestOption(
+      &req, cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
+
+  ASSERT_OK(proxy_replication_->CreateCDCStream(req, &resp, ResetAndGetController()));
+  SCOPED_TRACE(resp.DebugString());
+  ASSERT_TRUE(resp.has_error());
+  ASSERT_EQ(MasterErrorPB::INVALID_REQUEST, resp.error().code());
+  ASSERT_NE(
+      resp.error().status().message().find(
+          "Invalid id_type in options. Expected to be NAMESPACEID"),
+      std::string::npos)
+      << resp.error().status().message();
+
+  auto list_resp = ASSERT_RESULT(ListCDCStreams());
+  ASSERT_EQ(0, list_resp.streams_size());
+}
+
+TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceMissingReplicationSlotName) {
+  CreateNamespaceResponsePB create_namespace_resp;
+  CreateCDCStreamRequestPB req;
+  CreateCDCStreamResponsePB resp;
+
+  ASSERT_OK(CreatePgsqlNamespace(kNamespaceName, kPgsqlNamespaceId, &create_namespace_resp));
+  auto ns_id = create_namespace_resp.id();
+
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
+
+  // Not populating cdcsdk_pg_replication_slot_name.
+  req.set_namespace_name(kNamespaceName);
+  AddKeyValueToCreateCDCStreamRequestOption(&req, cdc::kIdType, cdc::kNamespaceId);
+  AddKeyValueToCreateCDCStreamRequestOption(
+      &req, cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
+
+  ASSERT_OK(proxy_replication_->CreateCDCStream(req, &resp, ResetAndGetController()));
+  SCOPED_TRACE(resp.DebugString());
+  ASSERT_TRUE(resp.has_error());
+  ASSERT_EQ(MasterErrorPB::INVALID_REQUEST, resp.error().code());
+  ASSERT_NE(
+      resp.error().status().message().find("cdcsdk_pg_replication_slot_name is required"),
+      std::string::npos)
+      << resp.error().status().message();
+
+  auto list_resp = ASSERT_RESULT(ListCDCStreams());
+  ASSERT_EQ(0, list_resp.streams_size());
 }
 
 TEST_F(MasterTestXRepl, TestDeleteCDCStream) {

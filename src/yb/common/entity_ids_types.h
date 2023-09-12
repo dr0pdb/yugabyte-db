@@ -24,6 +24,7 @@ using NamespaceName = std::string;
 using TableName = std::string;
 using UDTypeName = std::string;
 using RoleName = std::string;
+using ReplicationSlotName = std::string;
 
 using NamespaceId = std::string;
 using ObjectId = std::string;
