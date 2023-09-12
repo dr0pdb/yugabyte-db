@@ -85,6 +85,7 @@ Result<jwt::verifier<jwt::default_clock, jwt::traits::kazuho_picojson>> GetJwtVe
 
 Status VerifyJwtUsingVerifier(
     const jwt::verifier<jwt::default_clock, jwt::traits::kazuho_picojson>& verifier,
-    const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt) noexcept;
+    const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt,
+    std::string* user_error_message) noexcept;
 
 }  // namespace yb::util

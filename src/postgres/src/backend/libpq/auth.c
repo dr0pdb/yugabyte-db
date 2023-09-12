@@ -225,7 +225,7 @@ static int	PerformRadiusTransaction(const char *server, const char *secret, cons
  * JWT Authentication
  *----------------------------------------------------------------
  */
-static int	YbCheckJwtAuth(Port *port);
+static int	YbCheckJwtAuth(Port *port, char **logdetail);
 
 /*
  * Maximum accepted size of GSS and SSPI authentication tokens.
@@ -671,7 +671,7 @@ ClientAuthentication(Port *port)
 			break;
 
 		case uaYbJWT:
-			status = YbCheckJwtAuth(port);
+			status = YbCheckJwtAuth(port, &logdetail);
 			break;
 	}
 
@@ -3528,10 +3528,11 @@ ybGetJwtAuthOptionsFromPortAndJwks(Port *port, char *jwks,
 }
 
 static int
-YbCheckJwtAuth(Port *port)
+YbCheckJwtAuth(Port *port, char **logdetail)
 {
 	char	   *jwt;
 	char	   *jwks;
+	const char *user_error_message = NULL;
 	int			auth_result;
 
 	/*
@@ -3558,13 +3559,14 @@ YbCheckJwtAuth(Port *port)
 	YBCPgJwtAuthOptions jwt_auth_options;
 	ybGetJwtAuthOptionsFromPortAndJwks(port, jwks, &jwt_auth_options);
 
-	YBCStatus s = YBCValidateJWT(jwt, &jwt_auth_options);
+	YBCStatus s = YBCValidateJWT(jwt, &jwt_auth_options, &user_error_message);
 	auth_result = (s) ? STATUS_ERROR : STATUS_OK;
 	if (s) /* !ok */
 	{
 		ereport(LOG,
 				(errmsg("JWT login failed with error: %s",
 						YBCStatusMessageBegin(s))));
+		*logdetail = psprintf(_("\"%s\""), user_error_message);
 		YBCFreeStatus(s);
 	}
 

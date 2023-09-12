@@ -343,12 +343,17 @@ const YBCPgCallbacks *YBCGetPgCallbacks() {
   return pgapi->pg_callbacks();
 }
 
-YBCStatus YBCValidateJWT(const char *token, const YBCPgJwtAuthOptions *options) {
+YBCStatus YBCValidateJWT(
+    const char *token, const YBCPgJwtAuthOptions *options, const char **user_error_message) {
   const std::string token_value(DCHECK_NOTNULL(token));
   std::vector<std::string> identity_claims;
+  std::string user_error_details;
 
-  auto status = util::ValidateJWT(token_value, *options, &identity_claims);
+  auto status = util::ValidateJWT(token_value, *options, &identity_claims, &user_error_details);
   if (!status.ok()) {
+    if (!user_error_details.empty()) {
+      *user_error_message = YBCPAllocStdString(user_error_details);
+    }
     return ToYBCStatus(status);
   }
 

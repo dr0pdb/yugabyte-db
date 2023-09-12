@@ -208,10 +208,14 @@ Result<verifier<jwt::default_clock, kazuho_picojson>> GetJwtVerifier(
 
 Status VerifyJwtUsingVerifier(
     const verifier<jwt::default_clock, kazuho_picojson>& verifier,
-    const decoded_jwt<kazuho_picojson>& decoded_jwt) noexcept {
+    const decoded_jwt<kazuho_picojson>& decoded_jwt,
+    std::string* user_error_message) noexcept {
   try {
     verifier.verify(decoded_jwt);
     return Status::OK();
+  } catch (const jwt::token_verification_exception& e) {
+    *user_error_message = e.what();
+    return STATUS_FORMAT(InvalidArgument, "Invalid JWT: $0", e.what());
   } catch (const std::exception& e) {
     return STATUS_FORMAT(InvalidArgument, "Invalid JWT: $0", e.what());
   } catch (...) {

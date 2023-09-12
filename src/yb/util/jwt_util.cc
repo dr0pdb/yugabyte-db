@@ -172,7 +172,8 @@ Result<std::string> GetJwkAsPEM(const jwk<kazuho_picojson>& jwk) {
 }
 
 Status ValidateDecodedJWT(
-    const decoded_jwt<kazuho_picojson> decoded_jwt, const jwk<kazuho_picojson> jwk) {
+    const decoded_jwt<kazuho_picojson> decoded_jwt, const jwk<kazuho_picojson> jwk,
+    std::string* user_error_message) {
   // To verify the JWT, the library expects the key to be provided in the PEM format (see
   // GetVerifier). Ref: https://github.com/Thalhammer/jwt-cpp/issues/271.
   //
@@ -194,14 +195,14 @@ Status ValidateDecodedJWT(
 
   auto algo = VERIFY_RESULT(GetJwtAlgorithm(decoded_jwt));
   auto verifier = VERIFY_RESULT(GetJwtVerifier(key_pem, algo));
-  return VerifyJwtUsingVerifier(verifier, decoded_jwt);
+  return VerifyJwtUsingVerifier(verifier, decoded_jwt, user_error_message);
 }
 
 }  // namespace
 
 Status ValidateJWT(
     const std::string& token, const YBCPgJwtAuthOptions& options,
-    std::vector<std::string>* identity_claims) {
+    std::vector<std::string>* identity_claims, std::string* user_error_message) {
   VLOG(4) << Format(
       "Start with token = $0, jwks = $1, matching_claim_key = $2, allowed_issuers = $3, "
       "allowed_audiences = $4",
@@ -216,13 +217,14 @@ Status ValidateJWT(
   auto jwk = VERIFY_RESULT(GetJwkFromJwks(jwks, key_id));
 
   // Validate for signature, expiry and issued_at.
-  RETURN_NOT_OK(ValidateDecodedJWT(decoded_jwt, jwk));
+  RETURN_NOT_OK(ValidateDecodedJWT(decoded_jwt, jwk, user_error_message));
 
   // Validate issuer.
   auto jwt_issuer = VERIFY_RESULT(GetJwtIssuer(decoded_jwt));
   bool valid_issuer = DoesValueExist(
       jwt_issuer, options.allowed_issuers, options.allowed_issuers_length, "issuer");
   if (!valid_issuer) {
+    *user_error_message = "Invalid JWT issuer";
     return STATUS_FORMAT(InvalidArgument, "Invalid JWT issuer: $0", jwt_issuer);
   }
 
@@ -238,6 +240,7 @@ Status ValidateJWT(
     }
   }
   if (!valid_audience) {
+    *user_error_message = "Invalid JWT audience(s)";
     // We don't add audiences in the error message since there can be many. Also, it is very easy to
     // look up the audiences present in a JWT online.
     return STATUS(InvalidArgument, "Invalid JWT audience(s)");

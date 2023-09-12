@@ -371,7 +371,9 @@ TEST(JwtCppUtilTest, GetJwtVerifierInvalidPublicPEM) {
         builder.sign(JWT_ALGORITHM(lowercase_algorithm, testing::PEM_##algorithm##_PRIVATE)); \
     auto verifier = ASSERT_RESULT(GetJwtVerifier(testing::PEM_##algorithm##_PUBLIC, #algorithm)); \
     auto decoded_jwt = ASSERT_RESULT(DecodeJwt(token)); \
-    ASSERT_OK(VerifyJwtUsingVerifier(verifier, decoded_jwt)); \
+    std::string user_error_message; \
+    ASSERT_OK(VerifyJwtUsingVerifier(verifier, decoded_jwt, &user_error_message)); \
+    ASSERT_TRUE(user_error_message.empty()); \
   }
 
 TEST_VERIFY_JWT_USING_VERIFIER(RS256, rs256);
