@@ -874,10 +874,10 @@ Status CatalogManager::CreateNewCDCStreamWithTableIds(
           xcluster_producer_tables_to_stream_map_[table_id].insert(stream->StreamId());
         } else {
           cdcsdk_tables_to_stream_map_[table_id].insert(stream->StreamId());
-          // if (req.has_cdcsdk_pg_publication_oid()) {
-          //   cdcsdk_publications_to_stream_map_.insert_or_assign(
-          //       req.cdcsdk_pg_publication_oid(), stream->StreamId());
-          // }
+          if (req.has_cdcsdk_pg_replication_slot_name()) {
+            cdcsdk_replication_slots_to_stream_map_.insert_or_assign(
+                req.cdcsdk_pg_replication_slot_name(), stream->StreamId());
+          }
         }
       }
     }
@@ -911,8 +911,6 @@ Status CatalogManager::CreateNewCDCStreamWithTableIds(
     return Status::OK();
   }
 
-  scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(req.table_id()));
-  auto tablets = table->GetTablets();
   std::vector<cdc::CDCStateTableEntry> entries;
   for (const auto& table_id : table_ids) {
     scoped_refptr<TableInfo> table = VERIFY_RESULT(FindTableById(table_id));
