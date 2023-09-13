@@ -104,11 +104,11 @@ void AddKeyValueToCreateCDCStreamRequestOption(
 }
 
 Result<xrepl::StreamId> MasterTestXRepl::CreateCDCStreamForNamespace(
-    const std::string& namespace_name, const std::string& cdcsdk_pg_replication_slot_name) {
+    const std::string& namespace_id, const std::string& cdcsdk_pg_replication_slot_name) {
   CreateCDCStreamRequestPB req;
   CreateCDCStreamResponsePB resp;
 
-  req.set_namespace_name(namespace_name);
+  req.set_namespace_id(namespace_id);
   req.set_cdcsdk_pg_replication_slot_name(cdcsdk_pg_replication_slot_name);
   AddKeyValueToCreateCDCStreamRequestOption(&req, cdc::kIdType, cdc::kNamespaceId);
   AddKeyValueToCreateCDCStreamRequestOption(
@@ -316,7 +316,7 @@ TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceInvalidCql) {
 
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
 
-  req.set_namespace_name(kNamespaceName);
+  req.set_namespace_id(ns_id);
   req.set_cdcsdk_pg_replication_slot_name(kPgReplicationSlotName);
   AddKeyValueToCreateCDCStreamRequestOption(&req, cdc::kIdType, cdc::kNamespaceId);
   AddKeyValueToCreateCDCStreamRequestOption(
@@ -325,7 +325,12 @@ TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceInvalidCql) {
   ASSERT_OK(proxy_replication_->CreateCDCStream(req, &resp, ResetAndGetController()));
   SCOPED_TRACE(resp.DebugString());
   ASSERT_TRUE(resp.has_error());
-  ASSERT_EQ(MasterErrorPB::NAMESPACE_NOT_FOUND, resp.error().code());
+  ASSERT_EQ(MasterErrorPB::INVALID_REQUEST, resp.error().code());
+  ASSERT_NE(
+      resp.error().status().message().find(
+          "Expected a PGSQL namespace id"),
+      std::string::npos)
+      << resp.error().status().message();
 
   auto list_resp = ASSERT_RESULT(ListCDCStreams());
   ASSERT_EQ(0, list_resp.streams_size());
@@ -342,7 +347,7 @@ TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceInvalidIdTypeOption) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
 
   // Not setting kIdType option, treated as kTableId by default.
-  req.set_namespace_name(kNamespaceName);
+  req.set_namespace_id(ns_id);
   req.set_cdcsdk_pg_replication_slot_name(kPgReplicationSlotName);
   AddKeyValueToCreateCDCStreamRequestOption(
       &req, cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
@@ -372,7 +377,7 @@ TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceMissingReplicationSlotNam
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
 
   // Not populating cdcsdk_pg_replication_slot_name.
-  req.set_namespace_name(kNamespaceName);
+  req.set_namespace_id(ns_id);
   AddKeyValueToCreateCDCStreamRequestOption(&req, cdc::kIdType, cdc::kNamespaceId);
   AddKeyValueToCreateCDCStreamRequestOption(
       &req, cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));

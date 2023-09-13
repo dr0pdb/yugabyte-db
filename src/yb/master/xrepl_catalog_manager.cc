@@ -725,9 +725,9 @@ Status CatalogManager::CreateCDCStream(
     const LeaderEpoch& epoch) {
   LOG(INFO) << "CreateCDCStream from " << RequestorString(rpc) << ": " << req->ShortDebugString();
 
-  if (!req->has_table_id() && !req->has_namespace_name()) {
+  if (!req->has_table_id() && !req->has_namespace_id()) {
     return STATUS(
-        InvalidArgument, "One of table_id or namespace_name must be provided",
+        InvalidArgument, "One of table_id or namespace_id must be provided",
         req->ShortDebugString(), MasterError(MasterErrorPB::INVALID_REQUEST));
   }
 
@@ -798,10 +798,10 @@ Status CatalogManager::CreateNewCDCStreamForNamespace(
         "Invalid id_type in options. Expected to be NAMESPACEID for all CDCSDK streams", req);
   }
 
-  // We assume that the namespace is a PGSQL namespace. This means that if a CQL namespace is
-  // passed, it'll return with a NAMESPACE_NOT_FOUND error code to the caller. We could handle
-  // that by also searching it in the CQL namespace map but it doesn't add much value.
-  auto ns = VERIFY_RESULT(FindNamespaceByName(req.namespace_name(), YQL_DATABASE_PGSQL));
+  auto ns = VERIFY_RESULT(FindNamespaceById(req.namespace_id()));
+  if (ns->database_type() != YQL_DATABASE_PGSQL) {
+    return GetMasterInvalidRequestStatus("Expected a PGSQL namespace id", req);
+  }
 
   std::vector<TableInfoPtr> tables;
   {

@@ -53,7 +53,7 @@ message CreateCDCStreamRequestPB {
   optional SysCDCStreamEntryPB.State initial_state = 4;
   optional string db_stream_id = 5;
   optional bool transactional = 6; // [default = false]
-  optional string namespace_name = 7; // Only YSQL namespaces till we resolve #18890.
+  optional string namespace_id = 7; // Only YSQL namespaces till we resolve #18890.
   optional string cdcsdk_pg_replication_slot_name = 8;
 }
 
