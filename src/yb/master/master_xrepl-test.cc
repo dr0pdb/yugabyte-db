@@ -37,7 +37,9 @@ DECLARE_bool(disable_truncate_table);
 namespace yb {
 namespace master {
 constexpr const char* kNamespaceName = "cdc_namespace";
+constexpr const char* kNamespaceName2 = "cdc_namespace2";
 constexpr const char* kPgsqlNamespaceId = "00004000000030008000000000000000";
+constexpr const char* kPgsqlNamespaceId2 = "00004000000030008000000000000010";
 constexpr const char* kTableName = "cdc_table";
 constexpr int num_tables = 3;
 // Keep in sorted order for easier comparison.
@@ -59,6 +61,7 @@ class MasterTestXRepl  : public MasterTestBase {
   Result<GetCDCStreamResponsePB> GetCDCStream(const std::string& cdcsdk_pg_replication_slot_name);
   Status DeleteCDCStream(const xrepl::StreamId& stream_id);
   Result<ListCDCStreamsResponsePB> ListCDCStreams();
+  Result<ListCDCStreamsResponsePB> ListCDCSDKStreams();
   Result<bool> IsObjectPartOfXRepl(const TableId& table_id);
 
   Status SetupUniverseReplication(
@@ -179,6 +182,16 @@ Result<ListCDCStreamsResponsePB> MasterTestXRepl::ListCDCStreams() {
   return resp;
 }
 
+Result<ListCDCStreamsResponsePB> MasterTestXRepl::ListCDCSDKStreams() {
+  ListCDCStreamsRequestPB req;
+  ListCDCStreamsResponsePB resp;
+
+  req.set_id_type(IdTypePB::NAMESPACE_ID);
+
+  RETURN_NOT_OK(proxy_replication_->ListCDCStreams(req, &resp, ResetAndGetController()));
+  return resp;
+}
+
 Result<bool> MasterTestXRepl::IsObjectPartOfXRepl(const TableId& table_id) {
   IsObjectPartOfXReplRequestPB req;
   IsObjectPartOfXReplResponsePB resp;
@@ -280,7 +293,7 @@ TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespace) {
 
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
   auto stream_id =
-      ASSERT_RESULT(CreateCDCStreamForNamespace(kNamespaceName, kPgReplicationSlotName));
+      ASSERT_RESULT(CreateCDCStreamForNamespace(ns_id, kPgReplicationSlotName));
 
   auto resp = ASSERT_RESULT(GetCDCStream(stream_id));
   ASSERT_EQ(resp.stream().namespace_id(), ns_id);
@@ -477,6 +490,40 @@ TEST_F(MasterTestXRepl, TestListCDCStreams) {
   auto resp = ASSERT_RESULT(ListCDCStreams());
   ASSERT_EQ(1, resp.streams_size());
   ASSERT_EQ(stream_id.ToString(), resp.streams(0).stream_id());
+}
+
+TEST_F(MasterTestXRepl, TestListCDCStreamsCDCSDKWithReplicationSlot) {
+  CreateNamespaceResponsePB create_namespace_resp;
+  ASSERT_OK(CreatePgsqlNamespace(kNamespaceName, kPgsqlNamespaceId, &create_namespace_resp));
+  auto ns_id = create_namespace_resp.id();
+
+  ASSERT_OK(CreatePgsqlNamespace(kNamespaceName2, kPgsqlNamespaceId2, &create_namespace_resp));
+  auto ns_id2 = create_namespace_resp.id();
+
+  // 2 tables in cdc_namespace and 1 table in cdc_namespace2
+  ASSERT_OK(CreatePgsqlTable(ns_id, "cdc_table_1", kTableIds[0], kTableSchema));
+  ASSERT_OK(CreatePgsqlTable(ns_id, "cdc_table_2", kTableIds[1], kTableSchema));
+  ASSERT_OK(CreatePgsqlTable(ns_id2, "cdc_table_3", kTableIds[2], kTableSchema));
+
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
+  auto stream_id = ASSERT_RESULT(CreateCDCStreamForNamespace(ns_id, kPgReplicationSlotName));
+  auto stream_id2 = ASSERT_RESULT(CreateCDCStreamForNamespace(ns_id2, "cdc_replication_slot2"));
+
+  auto resp = ASSERT_RESULT(ListCDCSDKStreams());
+  ASSERT_EQ(2, resp.streams_size());
+
+  std::set<std::string> expected_stream_ids = {stream_id.ToString(), stream_id2.ToString()};
+  std::set<std::string> expected_replication_slot_names = {
+      kPgReplicationSlotName, "cdc_replication_slot2"};
+
+  std::set<std::string> resp_stream_ids;
+  std::set<std::string> resp_replication_slot_names;
+  for (const auto& stream : resp.streams()) {
+    resp_stream_ids.insert(stream.stream_id());
+    resp_replication_slot_names.insert(stream.cdcsdk_pg_replication_slot_name());
+  }
+  ASSERT_EQ(expected_stream_ids, resp_stream_ids);
+  ASSERT_EQ(expected_replication_slot_names, resp_replication_slot_names);
 }
 
 TEST_F(MasterTestXRepl, TestIsObjectPartOfXRepl) {

@@ -1826,6 +1826,10 @@ Status CatalogManager::ListCDCStreams(
       state_option->set_key(cdc::kStreamState);
       state_option->set_value(master::SysCDCStreamEntryPB::State_Name(ltm->pb.state()));
     }
+
+    if (ltm->pb.has_cdcsdk_pg_replication_slot_name()) {
+      stream->set_cdcsdk_pg_replication_slot_name(ltm->pb.cdcsdk_pg_replication_slot_name());
+    }
   }
   return Status::OK();
 }
