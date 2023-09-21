@@ -932,12 +932,6 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   Result<scoped_refptr<NamespaceInfo>> FindNamespaceByIdUnlocked(
       const NamespaceId& id) const REQUIRES_SHARED(mutex_);
 
-  Result<scoped_refptr<NamespaceInfo>> FindNamespaceByName(
-      const std::string& name, YQLDatabase database_type) const override EXCLUDES(mutex_);
-
-  Result<scoped_refptr<NamespaceInfo>> FindNamespaceByNameUnlocked(
-      const std::string& name, YQLDatabase database_type) const REQUIRES_SHARED(mutex_);
-
   Result<scoped_refptr<TableInfo>> FindTableUnlocked(
       const TableIdentifierPB& table_identifier) const REQUIRES_SHARED(mutex_);
 

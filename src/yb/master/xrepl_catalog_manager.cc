@@ -726,9 +726,7 @@ Status CatalogManager::CreateCDCStream(
   LOG(INFO) << "CreateCDCStream from " << RequestorString(rpc) << ": " << req->ShortDebugString();
 
   if (!req->has_table_id() && !req->has_namespace_id()) {
-    return STATUS(
-        InvalidArgument, "One of table_id or namespace_id must be provided",
-        req->ShortDebugString(), MasterError(MasterErrorPB::INVALID_REQUEST));
+    return GetMasterInvalidRequestStatus("One of table_id or namespace_id must be provided", *req);
   }
 
   std::string id_type_option_value(cdc::kTableId);
@@ -1645,7 +1643,10 @@ Status CatalogManager::CleanUpDeletedCDCStreams(const std::vector<CDCStreamInfoP
         xcluster_producer_tables_to_stream_map_[id].erase(stream->StreamId());
         cdcsdk_tables_to_stream_map_[id].erase(stream->StreamId());
       }
-      cdcsdk_replication_slots_to_stream_map_.erase(stream->cdcsdk_pg_replication_slot_name());
+      auto cdcsdk_pg_replication_slot_name = stream->cdcsdk_pg_replication_slot_name();
+      if (cdcsdk_pg_replication_slot_name != boost::none) {
+        cdcsdk_replication_slots_to_stream_map_.erase(*cdcsdk_pg_replication_slot_name);
+      }
     }
   }
   LOG(INFO) << "Successfully deleted streams " << JoinStreamsCSVLine(streams_to_delete)

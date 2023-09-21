@@ -1252,7 +1252,7 @@ class CDCStreamInfo : public RefCountedThreadSafe<CDCStreamInfo>,
 
   const NamespaceId namespace_id() const;
 
-  ReplicationSlotName cdcsdk_pg_replication_slot_name() const;
+  const boost::optional<ReplicationSlotName> cdcsdk_pg_replication_slot_name() const;
 
   std::string ToString() const override;
 

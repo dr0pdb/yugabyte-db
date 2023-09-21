@@ -1264,6 +1264,12 @@ const NamespaceId CDCStreamInfo::namespace_id() const {
   return LockForRead()->pb.namespace_id();
 }
 
+const boost::optional<ReplicationSlotName> CDCStreamInfo::cdcsdk_pg_replication_slot_name() const {
+  auto l = LockForRead();
+  if (!l->pb.has_cdcsdk_pg_replication_slot_name()) return boost::none;
+  return l->pb.cdcsdk_pg_replication_slot_name();
+}
+
 std::string CDCStreamInfo::ToString() const {
   auto l = LockForRead();
   if (l->pb.has_namespace_id()) {
