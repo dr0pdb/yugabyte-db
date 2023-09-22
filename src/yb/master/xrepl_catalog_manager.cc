@@ -778,10 +778,6 @@ Status CatalogManager::CreateNewCDCStream(
 Status CatalogManager::CreateNewCDCStreamForNamespace(
     const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
     CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch) {
-  if (!req.has_cdcsdk_pg_replication_slot_name()) {
-    return GetMasterInvalidRequestStatus("cdcsdk_pg_replication_slot_name is required", req);
-  }
-
   for (auto option : req.options()) {
     if (option.key() == cdc::kSourceType) {
       if (option.value() != CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK)) {
@@ -797,8 +793,9 @@ Status CatalogManager::CreateNewCDCStreamForNamespace(
   }
 
   auto ns = VERIFY_RESULT(FindNamespaceById(req.namespace_id()));
-  if (ns->database_type() != YQL_DATABASE_PGSQL) {
-    return GetMasterInvalidRequestStatus("Expected a PGSQL namespace id", req);
+  if (ns->database_type() == YQL_DATABASE_PGSQL && !req.has_cdcsdk_pg_replication_slot_name()) {
+    return GetMasterInvalidRequestStatus(
+        "cdcsdk_pg_replication_slot_name is required for PGSQL namespace", req);
   }
 
   std::vector<TableInfoPtr> tables;
@@ -837,6 +834,14 @@ Status CatalogManager::CreateNewCDCStreamWithTableIds(
   {
     TRACE("Acquired catalog manager lock");
     LockGuard lock(mutex_);
+
+    if (req.has_cdcsdk_pg_replication_slot_name() &&
+        cdcsdk_replication_slots_to_stream_map_.contains(req.cdcsdk_pg_replication_slot_name())) {
+      return STATUS(
+          InvalidArgument, "CDC stream with the given replication slot name already exists",
+          req.ShortDebugString(), MasterError(MasterErrorPB::OBJECT_ALREADY_PRESENT));
+    }
+
     // Construct the CDC stream if the producer wasn't bootstrapped.
     auto stream_id =
         VERIFY_RESULT(xrepl::StreamId::FromString(GenerateIdUnlocked(SysRowEntryType::CDC_STREAM)));

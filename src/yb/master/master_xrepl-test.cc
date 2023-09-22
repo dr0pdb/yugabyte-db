@@ -319,7 +319,7 @@ TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespace) {
   ASSERT_EQ(resp.stream().stream_id(), stream_id.ToString());
 }
 
-TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceInvalidCql) {
+TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceCql) {
   CreateNamespaceResponsePB create_namespace_resp;
   CreateCDCStreamRequestPB req;
   CreateCDCStreamResponsePB resp;
@@ -330,7 +330,42 @@ TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceInvalidCql) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
 
   req.set_namespace_id(ns_id);
-  req.set_cdcsdk_pg_replication_slot_name(kPgReplicationSlotName);
+  AddKeyValueToCreateCDCStreamRequestOption(&req, cdc::kIdType, cdc::kNamespaceId);
+  AddKeyValueToCreateCDCStreamRequestOption(
+      &req, cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
+
+  ASSERT_OK(proxy_replication_->CreateCDCStream(req, &resp, ResetAndGetController()));
+
+  auto stream_id = ASSERT_RESULT(xrepl::StreamId::FromString(resp.stream_id()));
+  auto get_stream_resp = ASSERT_RESULT(GetCDCStream(stream_id));
+  ASSERT_EQ(get_stream_resp.stream().namespace_id(), ns_id);
+  ASSERT_EQ(get_stream_resp.stream().table_id().size(), 0);
+  for (auto option : get_stream_resp.stream().options()) {
+    if (option.key() == cdc::kStreamState) {
+      ASSERT_EQ(option.value(), SysCDCStreamEntryPB_State_Name(SysCDCStreamEntryPB::ACTIVE));
+    }
+  }
+
+  auto list_resp = ASSERT_RESULT(ListCDCStreams());
+  ASSERT_EQ(1, list_resp.streams_size());
+}
+
+TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceInvalidDuplicationSlotName) {
+  CreateNamespaceResponsePB create_namespace_resp;
+  ASSERT_OK(CreatePgsqlNamespace(kNamespaceName, kPgsqlNamespaceId, &create_namespace_resp));
+  auto ns_id = create_namespace_resp.id();
+
+  for (auto i = 0; i < num_tables; ++i) {
+    ASSERT_OK(CreatePgsqlTable(ns_id, Format("cdc_table_$0", i), kTableIds[i], kTableSchema));
+  }
+
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
+  ASSERT_RESULT(CreateCDCStreamForNamespace(ns_id, kPgReplicationSlotName));
+
+  CreateCDCStreamRequestPB req;
+  CreateCDCStreamResponsePB resp;
+  req.set_namespace_id(ns_id);
+  req.set_cdcsdk_pg_replication_slot_name(kPgReplicationSlotName);  // Use the same name again.
   AddKeyValueToCreateCDCStreamRequestOption(&req, cdc::kIdType, cdc::kNamespaceId);
   AddKeyValueToCreateCDCStreamRequestOption(
       &req, cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
@@ -338,15 +373,15 @@ TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceInvalidCql) {
   ASSERT_OK(proxy_replication_->CreateCDCStream(req, &resp, ResetAndGetController()));
   SCOPED_TRACE(resp.DebugString());
   ASSERT_TRUE(resp.has_error());
-  ASSERT_EQ(MasterErrorPB::INVALID_REQUEST, resp.error().code());
+  ASSERT_EQ(MasterErrorPB::OBJECT_ALREADY_PRESENT, resp.error().code());
   ASSERT_NE(
       resp.error().status().message().find(
-          "Expected a PGSQL namespace id"),
+          "CDC stream with the given replication slot name already exists"),
       std::string::npos)
       << resp.error().status().message();
 
   auto list_resp = ASSERT_RESULT(ListCDCStreams());
-  ASSERT_EQ(0, list_resp.streams_size());
+  ASSERT_EQ(1, list_resp.streams_size());
 }
 
 TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceInvalidIdTypeOption) {
@@ -400,7 +435,8 @@ TEST_F(MasterTestXRepl, TestCreateCDCStreamForNamespaceMissingReplicationSlotNam
   ASSERT_TRUE(resp.has_error());
   ASSERT_EQ(MasterErrorPB::INVALID_REQUEST, resp.error().code());
   ASSERT_NE(
-      resp.error().status().message().find("cdcsdk_pg_replication_slot_name is required"),
+      resp.error().status().message().find(
+          "cdcsdk_pg_replication_slot_name is required for PGSQL namespace"),
       std::string::npos)
       << resp.error().status().message();
 

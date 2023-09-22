@@ -2654,6 +2654,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   Status CreateNewCDCStreamForNamespace(
       const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
       CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+
   enum class CreateNewCDCStreamMode {
     // Only populate the namespace_id. It is only used by CDCSDK while creating a stream from
     // cdc_service. The caller is expected to populate table_ids in subsequent requests.
@@ -2664,6 +2665,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
     // Populate the namespace_id and a list of table ids. It is only used by CDCSDK.
     NAMESPACE_AND_TABLE_IDS
   };
+
   Status CreateNewCDCStreamWithTableIds(
       const CreateCDCStreamRequestPB& req, CreateNewCDCStreamMode mode,
       const std::vector<std::string>& table_ids, const boost::optional<std::string>& namespace_id,
