@@ -533,6 +533,14 @@ struct PersistentTableInfo : public Persistent<SysTablesEntryPB, SysRowEntryType
     return SysTablesEntryPB_State_Name(pb.state());
   }
 
+  bool has_wal_retention_secs() const {
+    return pb.has_wal_retention_secs();
+  }
+
+  auto wal_retention_secs() const {
+    return pb.wal_retention_secs();
+  }
+
   // Helper to set the state of the tablet with a custom message.
   void set_state(SysTablesEntryPB::State state, const std::string& msg);
 };
@@ -1252,7 +1260,7 @@ class CDCStreamInfo : public RefCountedThreadSafe<CDCStreamInfo>,
 
   const NamespaceId namespace_id() const;
 
-  const boost::optional<ReplicationSlotName> cdcsdk_pg_replication_slot_name() const;
+  const ReplicationSlotName cdcsdk_ysql_replication_slot_name() const;
 
   std::string ToString() const override;
 

@@ -164,6 +164,18 @@ typedef std::unordered_map<TableId, xrepl::StreamId> TableBootstrapIdsMap;
 
 constexpr int32_t kInvalidClusterConfigVersion = 0;
 
+YB_DEFINE_ENUM(
+    CreateNewCDCStreamMode,
+    // Only populate the namespace_id. It is only used by CDCSDK while creating a stream from
+    // cdc_service. The caller is expected to populate table_ids in subsequent requests.
+    // This should not be needed after we tackle #18890.
+    (kNamespaceId)
+    // Only populate the table_id. It is only used by xCluster.
+    (kXClusterTableIds)
+    // Populate the namespace_id and a list of table ids. It is only used by CDCSDK.
+    (kNamespaceAndTableIds)
+);
+
 using DdlTxnIdToTablesMap =
   std::unordered_map<TransactionId, std::vector<scoped_refptr<TableInfo>>, TransactionIdHash>;
 
@@ -2648,33 +2660,20 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
   static void SetTabletSnapshotsState(
       SysSnapshotEntryPB::State state, SysSnapshotEntryPB* snapshot_pb);
 
-  Status CreateNewCDCStream(
-      const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
-      CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
   Status CreateNewCDCStreamForNamespace(
-      const CreateCDCStreamRequestPB& req, const std::string& id_type_option_value,
+      const CreateCDCStreamRequestPB& req,
       CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
-
-  enum class CreateNewCDCStreamMode {
-    // Only populate the namespace_id. It is only used by CDCSDK while creating a stream from
-    // cdc_service. The caller is expected to populate table_ids in subsequent requests.
-    // This should not be needed after we tackle #18890.
-    NAMESPACE_ID,
-    // Only populate the table_id. It is only used by xCluster.
-    TABLE_ID,
-    // Populate the namespace_id and a list of table ids. It is only used by CDCSDK.
-    NAMESPACE_AND_TABLE_IDS
-  };
-
-  Status CreateNewCDCStreamWithTableIds(
+  Status CreateNewXReplStream(
       const CreateCDCStreamRequestPB& req, CreateNewCDCStreamMode mode,
-      const std::vector<std::string>& table_ids, const boost::optional<std::string>& namespace_id,
-      CreateCDCStreamResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+      const std::vector<TableId>& table_ids, const std::optional<const NamespaceId>& namespace_id,
+      CreateCDCStreamResponsePB* resp, const LeaderEpoch& epoch);
 
   Status AddTableIdToCDCStream(const CreateCDCStreamRequestPB& req) EXCLUDES(mutex_);
 
   Status SetWalRetentionForTable(
-      const std::string table_id, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+      const TableId& table_id, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
+  Status BackfillMetadataForCDC(
+      const TableId& table_id, rpc::RpcContext* rpc, const LeaderEpoch& epoch);
 
   // Create the cdc_state table if needed (i.e. if it does not exist already).
   //

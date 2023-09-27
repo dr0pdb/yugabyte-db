@@ -24,7 +24,6 @@ using NamespaceName = std::string;
 using TableName = std::string;
 using UDTypeName = std::string;
 using RoleName = std::string;
-using ReplicationSlotName = std::string;
 
 using NamespaceId = std::string;
 using ObjectId = std::string;
@@ -39,6 +38,7 @@ using TablegroupId = std::string;
 using TablespaceId = std::string;
 
 YB_STRONGLY_TYPED_STRING(KvStoreId);
+YB_STRONGLY_TYPED_STRING(ReplicationSlotName);
 
 // TODO(#79): switch to YB_STRONGLY_TYPED_STRING
 using RaftGroupId = std::string;
