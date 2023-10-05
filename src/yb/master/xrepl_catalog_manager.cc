@@ -1659,7 +1659,7 @@ Status CatalogManager::CleanUpDeletedCDCStreams(const std::vector<CDCStreamInfoP
         xcluster_producer_tables_to_stream_map_[id].erase(stream->StreamId());
         cdcsdk_tables_to_stream_map_[id].erase(stream->StreamId());
       }
-      auto cdcsdk_ysql_replication_slot_name = stream->cdcsdk_ysql_replication_slot_name();
+      auto cdcsdk_ysql_replication_slot_name = stream->GetCdcsdkYsqlReplicationSlotName();
       if (!cdcsdk_ysql_replication_slot_name.empty()) {
         cdcsdk_replication_slots_to_stream_map_.erase(cdcsdk_ysql_replication_slot_name);
       }

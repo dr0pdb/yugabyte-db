@@ -1260,7 +1260,7 @@ class CDCStreamInfo : public RefCountedThreadSafe<CDCStreamInfo>,
 
   const NamespaceId namespace_id() const;
 
-  const ReplicationSlotName cdcsdk_ysql_replication_slot_name() const;
+  const ReplicationSlotName GetCdcsdkYsqlReplicationSlotName() const;
 
   std::string ToString() const override;
 
