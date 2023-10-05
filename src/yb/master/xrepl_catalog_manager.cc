@@ -1844,6 +1844,10 @@ Status CatalogManager::ListCDCStreams(
       state_option->set_value(master::SysCDCStreamEntryPB::State_Name(ltm->pb.state()));
     }
 
+    if (ltm->pb.has_namespace_id()) {
+      stream->set_namespace_id(ltm->pb.namespace_id());
+    }
+
     if (ltm->pb.has_cdcsdk_ysql_replication_slot_name()) {
       stream->set_cdcsdk_ysql_replication_slot_name(ltm->pb.cdcsdk_ysql_replication_slot_name());
     }

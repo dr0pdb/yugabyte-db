@@ -47,6 +47,7 @@ constexpr const char* kTableIds[num_tables] = {
     "00004000000030008000000000004001", "00004000000030008000000000004010",
     "00004000000030008000000000004020"};
 constexpr const char* kPgReplicationSlotName = "cdc_replication_slot";
+constexpr const char* kPgReplicationSlotName2 = "cdc_replication_slot2";
 static const Schema kTableSchema({
     ColumnSchema("key", DataType::INT32, ColumnKind::RANGE_ASC_NULL_FIRST),
     ColumnSchema("v1", DataType::UINT64),
@@ -543,14 +544,14 @@ TEST_F(MasterTestXRepl, TestListCDCStreamsCDCSDKWithReplicationSlot) {
 
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
   auto stream_id = ASSERT_RESULT(CreateCDCStreamForNamespace(ns_id, kPgReplicationSlotName));
-  auto stream_id2 = ASSERT_RESULT(CreateCDCStreamForNamespace(ns_id2, "cdc_replication_slot2"));
+  auto stream_id2 = ASSERT_RESULT(CreateCDCStreamForNamespace(ns_id2, kPgReplicationSlotName2));
 
   auto resp = ASSERT_RESULT(ListCDCSDKStreams());
   ASSERT_EQ(2, resp.streams_size());
 
   std::set<std::string> expected_stream_ids = {stream_id.ToString(), stream_id2.ToString()};
   std::set<std::string> expected_replication_slot_names = {
-      kPgReplicationSlotName, "cdc_replication_slot2"};
+      kPgReplicationSlotName, kPgReplicationSlotName2};
 
   std::set<std::string> resp_stream_ids;
   std::set<std::string> resp_replication_slot_names;
