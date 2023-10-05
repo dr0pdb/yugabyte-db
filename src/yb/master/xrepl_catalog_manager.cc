@@ -870,11 +870,11 @@ Status CatalogManager::CreateNewXReplStream(
           xcluster_producer_tables_to_stream_map_[table_id].insert(stream->StreamId());
         } else {
           cdcsdk_tables_to_stream_map_[table_id].insert(stream->StreamId());
-          if (req.has_cdcsdk_ysql_replication_slot_name()) {
-            cdcsdk_replication_slots_to_stream_map_.insert_or_assign(
-                ReplicationSlotName(req.cdcsdk_ysql_replication_slot_name()), stream->StreamId());
-          }
         }
+      }
+      if (req.has_cdcsdk_ysql_replication_slot_name()) {
+        cdcsdk_replication_slots_to_stream_map_.insert_or_assign(
+            ReplicationSlotName(req.cdcsdk_ysql_replication_slot_name()), stream->StreamId());
       }
     }
     resp->set_stream_id(stream->id());
