@@ -1025,22 +1025,47 @@ Status CatalogManager::DeleteCDCStream(
   LOG(INFO) << "Servicing DeleteCDCStream request from " << RequestorString(rpc) << ": "
             << req->ShortDebugString();
 
-  if (req->stream_id_size() < 1) {
+  if (req->stream_id_size() < 1 && req->cdcsdk_ysql_replication_slot_name_size() < 1) {
     return STATUS(
-        InvalidArgument, "No CDC Stream ID given", req->ShortDebugString(),
-        MasterError(MasterErrorPB::INVALID_REQUEST));
+        InvalidArgument, "No CDC Stream ID or YSQL Replication Slot Name given",
+        req->ShortDebugString(), MasterError(MasterErrorPB::INVALID_REQUEST));
   }
 
   std::vector<CDCStreamInfoPtr> streams;
   {
     SharedLock lock(mutex_);
-    for (const auto& stream_id : req->stream_id()) {
-      auto stream =
-          FindPtrOrNull(cdc_stream_map_, VERIFY_RESULT(xrepl::StreamId::FromString(stream_id)));
 
+    auto stream_id_size = req->stream_id_size();
+    auto replication_slot_size = req->cdcsdk_ysql_replication_slot_name_size();
+    std::vector<xrepl::StreamId> all_streams;
+    all_streams.reserve(stream_id_size + replication_slot_size);
+
+    for (const auto& stream_id : req->stream_id()) {
+      all_streams.emplace_back(VERIFY_RESULT(xrepl::StreamId::FromString(stream_id)));
+    }
+    for (const auto& replication_slot_name : req->cdcsdk_ysql_replication_slot_name()) {
+      auto slot_name = ReplicationSlotName(replication_slot_name);
+      auto stream_id = (cdcsdk_replication_slots_to_stream_map_.contains(slot_name))
+                           ? cdcsdk_replication_slots_to_stream_map_.at(slot_name)
+                           : xrepl::StreamId::Nil();
+      all_streams.emplace_back(stream_id);
+    }
+
+    auto count = 0;
+    for (const auto& stream_id : all_streams) {
+      auto stream = FindPtrOrNull(cdc_stream_map_, stream_id);
       if (stream == nullptr || stream->LockForRead()->is_deleting()) {
-        resp->add_not_found_stream_ids(stream_id);
-        LOG(WARNING) << "CDC stream does not exist: " << stream_id;
+        if (count < stream_id_size) {
+          auto stream_id = req->stream_id().Get(count);
+          resp->add_not_found_stream_ids(stream_id);
+          LOG(WARNING) << "CDC stream does not exist for id: " << stream_id;
+        } else {
+          auto replication_slot_name =
+              req->cdcsdk_ysql_replication_slot_name().Get(count - stream_id_size);
+          resp->add_not_found_cdcsdk_ysql_replication_slot_names(replication_slot_name);
+          LOG(WARNING) << "CDC stream does not exist for replication slot name: "
+                       << replication_slot_name;
+        }
       } else {
         auto ltm = stream->LockForRead();
         if (req->has_force_delete() && req->force_delete() == false) {
@@ -1062,6 +1087,7 @@ Status CatalogManager::DeleteCDCStream(
         }
         streams.push_back(stream);
       }
+      count++;
     }
   }
 

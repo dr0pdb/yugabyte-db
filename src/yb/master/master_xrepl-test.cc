@@ -61,6 +61,9 @@ class MasterTestXRepl  : public MasterTestBase {
   Result<GetCDCStreamResponsePB> GetCDCStream(const xrepl::StreamId& stream_id);
   Result<GetCDCStreamResponsePB> GetCDCStream(const std::string& cdcsdk_ysql_replication_slot_name);
   Status DeleteCDCStream(const xrepl::StreamId& stream_id);
+  Result<DeleteCDCStreamResponsePB> DeleteCDCStream(
+      const xrepl::StreamId& stream_id,
+      const std::vector<std::string> cdcsdk_ysql_replication_slot_name);
   Result<ListCDCStreamsResponsePB> ListCDCStreams();
   Result<ListCDCStreamsResponsePB> ListCDCSDKStreams();
   Result<bool> IsObjectPartOfXRepl(const TableId& table_id);
@@ -173,6 +176,22 @@ Status MasterTestXRepl::DeleteCDCStream(const xrepl::StreamId& stream_id) {
     RETURN_NOT_OK(StatusFromPB(resp.error().status()));
   }
   return Status::OK();
+}
+
+Result<DeleteCDCStreamResponsePB> MasterTestXRepl::DeleteCDCStream(
+    const xrepl::StreamId& stream_id, const std::vector<std::string> cdcsdk_ysql_replication_slot_names) {
+  DeleteCDCStreamRequestPB req;
+  DeleteCDCStreamResponsePB resp;
+  req.add_stream_id(stream_id.ToString());
+  for (const auto& replication_slot_name : cdcsdk_ysql_replication_slot_names) {
+    req.add_cdcsdk_ysql_replication_slot_name(replication_slot_name);
+  }
+
+  RETURN_NOT_OK(proxy_replication_->DeleteCDCStream(req, &resp, ResetAndGetController()));
+  if (resp.has_error()) {
+    RETURN_NOT_OK(StatusFromPB(resp.error().status()));
+  }
+  return resp;
 }
 
 Result<ListCDCStreamsResponsePB> MasterTestXRepl::ListCDCStreams() {
@@ -461,6 +480,53 @@ TEST_F(MasterTestXRepl, TestDeleteCDCStream) {
   resp = ASSERT_RESULT(GetCDCStream(stream_id));
   ASSERT_TRUE(resp.has_error());
   ASSERT_EQ(MasterErrorPB::OBJECT_NOT_FOUND, resp.error().code());
+}
+
+TEST_F(MasterTestXRepl, TestDeleteCDCStreamWithReplicationSlotName) {
+  // Setup two streams - with and without replication slot name.
+  TableId table_id;
+  ASSERT_OK(CreateTable(kTableName, kTableSchema, &table_id));
+
+  CreateNamespaceResponsePB create_namespace_resp;
+  ASSERT_OK(CreatePgsqlNamespace(kNamespaceName, kPgsqlNamespaceId, &create_namespace_resp));
+  auto ns_id = create_namespace_resp.id();
+
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_table_num_tablets) = 1;
+  auto stream_id_1 = ASSERT_RESULT(CreateCDCStream(table_id));
+  auto stream_id_2 =
+      ASSERT_RESULT(CreateCDCStreamForNamespace(ns_id, kPgReplicationSlotName));
+
+  // Streams were created successfully.
+  auto resp = ASSERT_RESULT(GetCDCStream(stream_id_1));
+  ASSERT_EQ(resp.stream().table_id().Get(0), table_id);
+
+  resp = ASSERT_RESULT(GetCDCStream(stream_id_2));
+  ASSERT_EQ(resp.stream().namespace_id(), ns_id);
+  ASSERT_EQ(resp.stream().cdcsdk_ysql_replication_slot_name(), kPgReplicationSlotName);
+
+  // Delete streams:
+  // 1. Using stream_id
+  // 2. Using replication slot name
+  // 3. Non existing replication slot name which will be returned in
+  // not_found_cdcsdk_ysql_replication_slot_names.
+  auto delete_resp = ASSERT_RESULT(
+      DeleteCDCStream(stream_id_1, {kPgReplicationSlotName, "non_existent_replication_slot"}));
+
+  resp.Clear();
+  resp = ASSERT_RESULT(GetCDCStream(stream_id_1));
+  ASSERT_TRUE(resp.has_error());
+  ASSERT_EQ(MasterErrorPB::OBJECT_NOT_FOUND, resp.error().code());
+
+  resp.Clear();
+  resp = ASSERT_RESULT(GetCDCStream(stream_id_2));
+  ASSERT_TRUE(resp.has_error());
+  ASSERT_EQ(MasterErrorPB::OBJECT_NOT_FOUND, resp.error().code());
+
+  ASSERT_EQ(delete_resp.not_found_stream_ids_size(), 0);
+  ASSERT_EQ(delete_resp.not_found_cdcsdk_ysql_replication_slot_names_size(), 1);
+  ASSERT_EQ(
+      delete_resp.not_found_cdcsdk_ysql_replication_slot_names().Get(0),
+      "non_existent_replication_slot");
 }
 
 TEST_F(MasterTestXRepl, TestDeleteTableWithCDCStream) {

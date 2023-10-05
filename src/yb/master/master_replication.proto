@@ -65,6 +65,7 @@ message CreateCDCStreamResponsePB {
 
 message DeleteCDCStreamRequestPB {
   repeated bytes stream_id = 1;
+  repeated string cdcsdk_ysql_replication_slot_name = 4;
   optional bool ignore_errors = 2 [default = false];
   optional bool force_delete = 3 [default = false];
 }
@@ -73,6 +74,7 @@ message DeleteCDCStreamResponsePB {
   // The error, if an error occurred with this request.
   optional MasterErrorPB error = 1;
   repeated bytes not_found_stream_ids = 2;
+  repeated string not_found_cdcsdk_ysql_replication_slot_names = 3;
 }
 
 enum IdTypePB {
