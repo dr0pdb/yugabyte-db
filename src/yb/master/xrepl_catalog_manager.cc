@@ -741,13 +741,13 @@ Status CatalogManager::CreateCDCStream(
         // If the id_type is kNamespaceId, the table_id field contains the namespace_id. The caller
         // is expected to make future calls with table id. It is used by cdc_service to create a
         // namespace level CDCSDK stream. This should not be needed after we tackle #18890.
-        return CreateNewXReplStream(
+        RETURN_NOT_OK(CreateNewXReplStream(
             *req, CreateNewCDCStreamMode::kNamespaceId, /*table_ids=*/{},
-            /*namespace_id=*/req->table_id(), resp, epoch);
+            /*namespace_id=*/req->table_id(), resp, epoch));
       } else {
-        return CreateNewXReplStream(
+        RETURN_NOT_OK(CreateNewXReplStream(
             *req, CreateNewCDCStreamMode::kXClusterTableIds,
-            /*table_ids=*/{req->table_id()}, /*namespace_id=*/std::nullopt, resp, epoch);
+            /*table_ids=*/{req->table_id()}, /*namespace_id=*/std::nullopt, resp, epoch));
       }
     } else {
       // Update and add table_id.
