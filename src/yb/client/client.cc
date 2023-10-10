@@ -189,6 +189,8 @@ using yb::master::IsLoadBalancerIdleRequestPB;
 using yb::master::IsLoadBalancerIdleResponsePB;
 using yb::master::IsObjectPartOfXReplRequestPB;
 using yb::master::IsObjectPartOfXReplResponsePB;
+using yb::master::ListCDCStreamsRequestPB;
+using yb::master::ListCDCStreamsResponsePB;
 using yb::master::ListLiveTabletServersRequestPB;
 using yb::master::ListLiveTabletServersResponsePB;
 using yb::master::ListLiveTabletServersResponsePB_Entry;
@@ -1442,6 +1444,25 @@ void YBClient::CreateCDCStream(
   data_->CreateCDCStream(this, table_id, options, transactional, deadline, callback);
 }
 
+Result<xrepl::StreamId> YBClient::CreateCDCSDKStreamForNamespace(
+    const NamespaceId& namespace_id,
+    const ReplicationSlotName& replication_slot_name,
+    const std::unordered_map<std::string, std::string>& options) {
+  CreateCDCStreamRequestPB req;
+  req.set_namespace_id(namespace_id);
+  req.set_cdcsdk_ysql_replication_slot_name(replication_slot_name.ToString());
+  req.mutable_options()->Reserve(narrow_cast<int>(options.size()));
+  for (const auto& option : options) {
+    auto new_option = req.add_options();
+    new_option->set_key(option.first);
+    new_option->set_value(option.second);
+  }
+
+  CreateCDCStreamResponsePB resp;
+  CALL_SYNC_LEADER_MASTER_RPC_EX(Replication, req, resp, CreateCDCStream);
+  return xrepl::StreamId::FromString(resp.stream_id());
+}
+
 Status YBClient::GetCDCStream(
     const xrepl::StreamId& stream_id,
     NamespaceId* ns_id,
@@ -1489,6 +1510,27 @@ void YBClient::GetCDCStream(
   data_->GetCDCStream(this, stream_id, table_id, options, deadline, callback);
 }
 
+Result<std::vector<CDCSDKStreamInfo>> YBClient::ListCDCSDKStreams() {
+  ListCDCStreamsRequestPB req;
+  ListCDCStreamsResponsePB resp;
+
+  req.set_id_type(master::IdTypePB::NAMESPACE_ID);
+  CALL_SYNC_LEADER_MASTER_RPC_EX(Replication, req, resp, ListCDCStreams);
+
+  std::vector<CDCSDKStreamInfo> stream_infos;
+  stream_infos.reserve(resp.streams_size());
+  for (const auto& stream : resp.streams()) {
+    // Skip CDCSDK streams which do not have a replication slot.
+    if (!stream.has_cdcsdk_ysql_replication_slot_name()) {
+        VLOG(4) << "Skipping stream " << stream.stream_id()
+                << " since it does not have a cdcsdk_ysql_replication_slot_name";
+        continue;
+    }
+    stream_infos.push_back(VERIFY_RESULT(CDCSDKStreamInfo::FromPB(stream)));
+  }
+  return stream_infos;
+}
+
 Status YBClient::DeleteCDCStream(
     const vector<xrepl::StreamId>& streams,
     bool force_delete,
@@ -1522,6 +1564,19 @@ Status YBClient::DeleteCDCStream(
   // Setting up request.
   DeleteCDCStreamRequestPB req;
   req.add_stream_id(stream_id.ToString());
+  req.set_force_delete(force_delete);
+  req.set_ignore_errors(ignore_errors);
+
+  DeleteCDCStreamResponsePB resp;
+  CALL_SYNC_LEADER_MASTER_RPC_EX(Replication, req, resp, DeleteCDCStream);
+  return Status::OK();
+}
+
+Status YBClient::DeleteCDCStream(
+    const ReplicationSlotName& replication_slot_name, bool force_delete, bool ignore_errors) {
+  // Setting up request.
+  DeleteCDCStreamRequestPB req;
+  req.add_cdcsdk_ysql_replication_slot_name(replication_slot_name.ToString());
   req.set_force_delete(force_delete);
   req.set_ignore_errors(ignore_errors);
 

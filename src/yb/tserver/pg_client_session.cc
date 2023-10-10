@@ -18,6 +18,8 @@
 #include <mutex>
 #include <set>
 
+#include "yb/cdc/cdc_service.h"
+
 #include "yb/client/batcher.h"
 #include "yb/client/client.h"
 #include "yb/client/error.h"
@@ -665,6 +667,46 @@ Status PgClientSession::TruncateTable(
     const PgTruncateTableRequestPB& req, PgTruncateTableResponsePB* resp,
     rpc::RpcContext* context) {
   return client().TruncateTable(PgObjectId::GetYbTableIdFromPB(req.table_id()));
+}
+
+Status PgClientSession::CreateReplicationSlot(
+    const PgCreateReplicationSlotRequestPB& req, PgCreateReplicationSlotResponsePB* resp,
+    rpc::RpcContext* context) {
+  std::unordered_map<std::string, std::string> options;
+  // TODO(#19260): Support customizing the CDCRecordType.
+  options.reserve(5);
+  options.emplace(cdc::kIdType, cdc::kNamespaceId);
+  options.emplace(cdc::kRecordType, CDCRecordType_Name(cdc::CDCRecordType::CHANGE));
+  options.emplace(cdc::kRecordFormat, CDCRecordFormat_Name(cdc::CDCRecordFormat::PROTO));
+  options.emplace(cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
+  options.emplace(cdc::kCheckpointType, CDCCheckpointType_Name(cdc::CDCCheckpointType::EXPLICIT));
+
+  auto stream_result = client().CreateCDCSDKStreamForNamespace(
+      GetPgsqlNamespaceId(req.database_oid()), ReplicationSlotName(req.replication_slot_name()),
+      options);
+  if (stream_result.ok()) {
+    *resp->mutable_stream_id() = stream_result->ToString();
+    return Status::OK();
+  }
+
+  return STATUS_FORMAT(
+      InvalidArgument, "Invalid replication slot definition: $0",
+      stream_result.status().ToString(false /* include_file_and_line */, false /* include_code */));
+}
+
+Status PgClientSession::DropReplicationSlot(
+    const PgDropReplicationSlotRequestPB& req, PgDropReplicationSlotResponsePB* resp,
+    rpc::RpcContext* context) {
+  LOG(INFO) << __func__ << ": Started with request:\n" << req.DebugString();
+
+  auto deletion_result = client().DeleteCDCStream(ReplicationSlotName(req.replication_slot_name()));
+  if (deletion_result.ok()) {
+    return Status::OK();
+  }
+
+  return STATUS_FORMAT(
+      InvalidArgument, "Couldn't drop replication slot: $0",
+      deletion_result.ToString(false /* include_file_and_line */, false /* include_code */));
 }
 
 Status PgClientSession::WaitForBackendsCatalogVersion(

@@ -94,6 +94,9 @@
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
 
+/* YB includes. */
+#include "pg_yb_utils.h"
+
 /*
  * Maximum data payload in a WAL data message.  Must be >= XLOG_BLCKSZ.
  *
@@ -838,6 +841,13 @@ parseCreateReplSlotOptions(CreateReplicationSlotCmd *cmd,
 static void
 CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 {
+	if (IsYugaByteEnabled() && !yb_enable_replication_commands)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("CreateReplicationSlot is unavailable"),
+				 errdetail("yb_enable_replication_commands is false or a "
+				 		   "system upgrade is in progress")));
+
 	const char *snapshot_name = NULL;
 	char		xloc[MAXFNAMELEN];
 	char	   *slot_name;
@@ -859,11 +869,30 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 
 	if (cmd->kind == REPLICATION_KIND_PHYSICAL)
 	{
+		if (IsYugaByteEnabled())
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("YSQL only supports logical replication slots")));
+
 		ReplicationSlotCreate(cmd->slotname, false,
 							  cmd->temporary ? RS_TEMPORARY : RS_PERSISTENT);
 	}
 	else
 	{
+		/*
+		 * Validate output plugin requirement early so that we can avoid the
+		 * expensive call to yb-master.
+		 *
+		 * This is different from PG since the validation is done after creating
+		 * the replication slot on disk which is cleaned up in case of errors.
+		 */
+		if (IsYugaByteEnabled() &&
+			(cmd->plugin == NULL || strcmp(cmd->plugin, "yboutput") != 0))
+			ereport(ERROR, 
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid output plugin"),
+					 errdetail("Only yboutput plugin is supported")));
+
 		CheckLogicalDecodingRequirements();
 
 		/*
@@ -888,6 +917,11 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 		 */
 		if (snapshot_action == CRS_EXPORT_SNAPSHOT)
 		{
+			if (IsYugaByteEnabled())
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("Exporting snapshot is not yet supported")));
+
 			if (IsTransactionBlock())
 				ereport(ERROR,
 						(errmsg("CREATE_REPLICATION_SLOT ... EXPORT_SNAPSHOT "
@@ -920,43 +954,46 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 			need_full_snapshot = true;
 		}
 
-		ctx = CreateInitDecodingContext(cmd->plugin, NIL, need_full_snapshot,
-										logical_read_xlog_page,
-										WalSndPrepareWrite, WalSndWriteData,
-										WalSndUpdateProgress);
-
-		/*
-		 * Signal that we don't need the timeout mechanism. We're just
-		 * creating the replication slot and don't yet accept feedback
-		 * messages or send keepalives. As we possibly need to wait for
-		 * further WAL the walsender would otherwise possibly be killed too
-		 * soon.
-		 */
-		last_reply_timestamp = 0;
-
-		/* build initial snapshot, might take a while */
-		DecodingContextFindStartpoint(ctx);
-
-		/*
-		 * Export or use the snapshot if we've been asked to do so.
-		 *
-		 * NB. We will convert the snapbuild.c kind of snapshot to normal
-		 * snapshot when doing this.
-		 */
-		if (snapshot_action == CRS_EXPORT_SNAPSHOT)
+		if (!IsYugaByteEnabled())
 		{
-			snapshot_name = SnapBuildExportSnapshot(ctx->snapshot_builder);
-		}
-		else if (snapshot_action == CRS_USE_SNAPSHOT)
-		{
-			Snapshot	snap;
+			ctx = CreateInitDecodingContext(cmd->plugin, NIL, need_full_snapshot,
+								logical_read_xlog_page,
+								WalSndPrepareWrite, WalSndWriteData,
+								WalSndUpdateProgress);
+			
+			/*
+			* Signal that we don't need the timeout mechanism. We're just
+			* creating the replication slot and don't yet accept feedback
+			* messages or send keepalives. As we possibly need to wait for
+			* further WAL the walsender would otherwise possibly be killed too
+			* soon.
+			*/
+			last_reply_timestamp = 0;
 
-			snap = SnapBuildInitialSnapshot(ctx->snapshot_builder);
-			RestoreTransactionSnapshot(snap, MyProc);
-		}
+			/* build initial snapshot, might take a while */
+			DecodingContextFindStartpoint(ctx);
 
-		/* don't need the decoding context anymore */
-		FreeDecodingContext(ctx);
+			/*
+			* Export or use the snapshot if we've been asked to do so.
+			*
+			* NB. We will convert the snapbuild.c kind of snapshot to normal
+			* snapshot when doing this.
+			*/
+			if (snapshot_action == CRS_EXPORT_SNAPSHOT)
+			{
+				snapshot_name = SnapBuildExportSnapshot(ctx->snapshot_builder);
+			}
+			else if (snapshot_action == CRS_USE_SNAPSHOT)
+			{
+				Snapshot	snap;
+
+				snap = SnapBuildInitialSnapshot(ctx->snapshot_builder);
+				RestoreTransactionSnapshot(snap, MyProc);
+			}
+
+			/* don't need the decoding context anymore */
+			FreeDecodingContext(ctx);
+		}
 
 		if (!cmd->temporary)
 			ReplicationSlotPersist();
@@ -1032,6 +1069,19 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 static void
 DropReplicationSlot(DropReplicationSlotCmd *cmd)
 {
+	if (IsYugaByteEnabled() && !yb_enable_replication_commands)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("DropReplicationSlot is unavailable"),
+				 errdetail("yb_enable_replication_commands is false or a "
+				 		   "system upgrade is in progress")));
+
+	if (IsYugaByteEnabled() && cmd->wait)
+		ereport(ERROR, 
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					errmsg("Waiting for a replication slot is not yet"
+						   " supported")));
+
 	ReplicationSlotDrop(cmd->slotname, !cmd->wait);
 	EndCommand("DROP_REPLICATION_SLOT", DestRemote);
 }
@@ -1531,6 +1581,12 @@ exec_replication_command(const char *cmd_string)
 
 		case T_StartReplicationCmd:
 			{
+				if (IsYugaByteEnabled())
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("Consuming changes via Walsender is not yet"
+									" supported")));
+
 				StartReplicationCmd *cmd = (StartReplicationCmd *) cmd_node;
 
 				PreventInTransactionBlock(true, "START_REPLICATION");

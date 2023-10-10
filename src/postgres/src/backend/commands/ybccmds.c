@@ -1761,3 +1761,34 @@ YBCValidatePlacement(const char *placement_info)
 {
 	HandleYBStatus(YBCPgValidatePlacement(placement_info));
 }
+
+/* ------------------------------------------------------------------------- */
+/*  Replication Slot Functions. */
+
+void
+YBCCreateReplicationSlot(const char *slot_name)
+{
+	YBCPgStatement handle;
+
+	HandleYBStatus(YBCPgNewCreateReplicationSlot(slot_name,
+												 MyDatabaseId,
+												 &handle));
+	HandleYBStatus(YBCPgExecCreateReplicationSlot(handle));
+}
+
+void
+YBCListReplicationSlots(YBCReplicationSlotDescriptor **replication_slots,
+						size_t* numreplicationslots)
+{
+	HandleYBStatus(YBCPgListReplicationSlots(replication_slots, numreplicationslots));
+}
+
+void
+YBCDropReplicationSlot(const char *slot_name)
+{
+	YBCPgStatement handle;
+
+	HandleYBStatus(YBCPgNewDropReplicationSlot(slot_name,
+											   &handle));
+	HandleYBStatus(YBCPgExecDropReplicationSlot(handle));
+}

@@ -50,6 +50,10 @@
 #include "storage/procarray.h"
 #include "utils/builtins.h"
 
+/* YB includes. */
+#include "commands/ybccmds.h"
+#include "pg_yb_utils.h"
+
 /*
  * Replication slot on-disk data structure.
  */
@@ -288,11 +292,22 @@ ReplicationSlotCreate(const char *name, bool db_specific,
 	slot->candidate_restart_valid = InvalidXLogRecPtr;
 	slot->candidate_restart_lsn = InvalidXLogRecPtr;
 
-	/*
-	 * Create the slot on disk.  We haven't actually marked the slot allocated
-	 * yet, so no special cleanup is required if this errors out.
-	 */
-	CreateSlotOnDisk(slot);
+	if (IsYugaByteEnabled()) 
+	{
+		/*
+		 * In YSQL, the yb-master does the name uniqueness check instead of the
+		 * checks done earlier in this function.
+		 */
+		YBCCreateReplicationSlot(name);
+	}
+	else
+	{
+		/*
+		* Create the slot on disk.  We haven't actually marked the slot allocated
+		* yet, so no special cleanup is required if this errors out.
+		*/
+		CreateSlotOnDisk(slot);
+	}
 
 	/*
 	 * We need to briefly prevent any other backend from iterating over the
@@ -526,9 +541,22 @@ ReplicationSlotDrop(const char *name, bool nowait)
 {
 	Assert(MyReplicationSlot == NULL);
 
-	ReplicationSlotAcquire(name, nowait);
-
-	ReplicationSlotDropAcquired();
+	/*
+	 * The PG concept of aquiring a replication slot is not applicable for YSQL
+	 * since it works via shared memory which isn't possible across nodes.
+	 *
+	 * TODO(#19441): Come up with a YSQL equivalent acquiring mechanism once we
+	 * support consuming changes via a Replication Slot via Walsender.
+	 */
+	if (IsYugaByteEnabled())
+	{
+		YBCDropReplicationSlot(name);
+	}
+	else
+	{
+		ReplicationSlotAcquire(name, nowait);
+		ReplicationSlotDropAcquired();
+	}
 }
 
 /*
@@ -697,8 +725,11 @@ ReplicationSlotPersist(void)
 	slot->data.persistency = RS_PERSISTENT;
 	SpinLockRelease(&slot->mutex);
 
-	ReplicationSlotMarkDirty();
-	ReplicationSlotSave();
+	if (!IsYugaByteEnabled())
+	{
+		ReplicationSlotMarkDirty();
+		ReplicationSlotSave();
+	}
 }
 
 /*

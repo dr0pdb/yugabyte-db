@@ -404,5 +404,20 @@ Result<xrepl::StreamId> CDCSDKTestBase::CreateDBStream(
   return xrepl::StreamId::FromString(resp.db_stream_id());
 }
 
+Result<xrepl::StreamId> CDCSDKTestBase::CreateDBStream(
+    Cluster* cluster, const std::string& replication_slot_name) {
+  auto conn = VERIFY_RESULT(cluster->ConnectToDB(kNamespaceName));
+  RETURN_NOT_OK(conn.FetchFormat(
+      "SELECT * FROM pg_create_logical_replication_slot('$0', 'yboutput', false)",
+      replication_slot_name));
+
+  // Fetch the stream_id of the replication slot.
+  auto result = VERIFY_RESULT(conn.FetchFormat(
+      "select yb_stream_id from pg_replication_slots WHERE slot_name = '$0'",
+      replication_slot_name));
+  auto stream_id = VERIFY_RESULT(pgwrapper::GetValue<std::string>(result.get(), 0, 0));
+  return xrepl::StreamId::FromString(stream_id);
+}
+
 }  // namespace cdc
 }  // namespace yb

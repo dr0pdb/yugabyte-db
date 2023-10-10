@@ -48,6 +48,7 @@ namespace cdc {
 constexpr int kRpcTimeout = NonTsanVsTsan(60, 120);
 static const std::string kUniverseId = "test_universe";
 static const std::string kNamespaceName = "test_namespace";
+static const std::string kReplicationSlotName = "test_replication_slot";
 constexpr static const char* const kTableName = "test_table";
 constexpr static const char* const kKeyColumnName = "key";
 constexpr static const char* const kValueColumnName = "value_1";
@@ -188,6 +189,11 @@ class CDCSDKTestBase : public YBTest {
   Result<xrepl::StreamId> CreateDBStream(
       CDCCheckpointType checkpoint_type = CDCCheckpointType::EXPLICIT,
       CDCRecordType record_type = CDCRecordType::CHANGE);
+  // Creates a DB stream on the database kNamespaceName using the Replication Slot syntax.
+  // Only supports the CDCCheckpointType::EXPLICIT and CDCRecordType::CHANGE.
+  // TODO(#19260): Support customizing the CDCRecordType.
+  Result<xrepl::StreamId> CreateDBStream(
+      Cluster* cluster, const std::string& replication_slot_name = kReplicationSlotName);
 
  protected:
   // Every test needs to initialize this cdc_proxy_.

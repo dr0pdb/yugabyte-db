@@ -912,7 +912,7 @@ Status CatalogManager::CreateNewXReplStream(
       cdc::CDCStateTable::GetNamespaceName(), cdc::CDCStateTable::GetTableName(),
       &cdc::CDCStateTable::GenerateCreateCdcStateTableRequest, &table_resp, /* rpc */ nullptr,
       epoch));
-  TRACE("Created CDC state table");
+  LOG(INFO) << "Created CDC state table";
 
   // Skip if disable_cdc_state_insert_on_setup is set.
   // If this is a bootstrap (initial state not ACTIVE), let the BootstrapProducer logic take care of
@@ -938,7 +938,7 @@ Status CatalogManager::CreateNewXReplStream(
   }
 
   RETURN_NOT_OK(cdc_state_table_->InsertEntries(entries));
-  TRACE("Created CDC state entries");
+  LOG(INFO) << "Created CDC state entries";
   return Status::OK();
 }
 
