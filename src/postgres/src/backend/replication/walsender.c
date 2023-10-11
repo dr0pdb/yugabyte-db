@@ -962,23 +962,23 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 								WalSndUpdateProgress);
 			
 			/*
-			* Signal that we don't need the timeout mechanism. We're just
-			* creating the replication slot and don't yet accept feedback
-			* messages or send keepalives. As we possibly need to wait for
-			* further WAL the walsender would otherwise possibly be killed too
-			* soon.
-			*/
+			 * Signal that we don't need the timeout mechanism. We're just
+			 * creating the replication slot and don't yet accept feedback
+			 * messages or send keepalives. As we possibly need to wait for
+			 * further WAL the walsender would otherwise possibly be killed too
+			 * soon.
+			 */
 			last_reply_timestamp = 0;
 
 			/* build initial snapshot, might take a while */
 			DecodingContextFindStartpoint(ctx);
 
 			/*
-			* Export or use the snapshot if we've been asked to do so.
-			*
-			* NB. We will convert the snapbuild.c kind of snapshot to normal
-			* snapshot when doing this.
-			*/
+			 * Export or use the snapshot if we've been asked to do so.
+			 *
+			 * NB. We will convert the snapbuild.c kind of snapshot to normal
+			 * snapshot when doing this.
+			 */
 			if (snapshot_action == CRS_EXPORT_SNAPSHOT)
 			{
 				snapshot_name = SnapBuildExportSnapshot(ctx->snapshot_builder);

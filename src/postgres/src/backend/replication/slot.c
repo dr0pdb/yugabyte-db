@@ -303,9 +303,9 @@ ReplicationSlotCreate(const char *name, bool db_specific,
 	else
 	{
 		/*
-		* Create the slot on disk.  We haven't actually marked the slot allocated
-		* yet, so no special cleanup is required if this errors out.
-		*/
+		 * Create the slot on disk.  We haven't actually marked the slot allocated
+		 * yet, so no special cleanup is required if this errors out.
+		 */
 		CreateSlotOnDisk(slot);
 	}
 

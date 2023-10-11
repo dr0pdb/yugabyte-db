@@ -179,8 +179,8 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 	else
 	{
 		/*
-		* Create logical decoding context, to build the initial snapshot.
-		*/
+		 * Create logical decoding context, to build the initial snapshot.
+		 */
 		ctx = CreateInitDecodingContext(NameStr(*plugin), NIL,
 										false,	/* do not build snapshot */
 										logical_read_local_xlog_page, NULL, NULL,
@@ -305,9 +305,7 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 	 * ReplicationSlotCtl->replication_slots array just acts as a cache.
 	 */
 	if (IsYugaByteEnabled())
-	{
 		YBCListReplicationSlots(&yb_replication_slots, &yb_numreplicationslots);
-	}
 
 	/*
 	 * Note that yb_numreplicationslots <= max_replication_slots, so looping
