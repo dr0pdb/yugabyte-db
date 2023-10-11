@@ -144,12 +144,12 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 							 "priority")));
 	
 		/*
-		* Validate output plugin requirement early so that we can avoid the
-		* expensive call to yb-master.
-		*
-		* This is different from PG where the validation is done after creating
-		* the replication slot on disk which is cleaned up in case of errors.
-		*/
+		 * Validate output plugin requirement early so that we can avoid the
+		 * expensive call to yb-master.
+		 *
+		 * This is different from PG where the validation is done after creating
+		 * the replication slot on disk which is cleaned up in case of errors.
+		 */
 		if (plugin == NULL || strcmp(NameStr(*plugin), "yboutput") != 0)
 			ereport(ERROR, 
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -174,7 +174,7 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 
 	if (IsYugaByteEnabled())
 	{
-		values[0] = CStringGetTextDatum(NameStr(MyReplicationSlot->data.name));
+		values[0] = CStringGetTextDatum(name->data);
 	}
 	else
 	{

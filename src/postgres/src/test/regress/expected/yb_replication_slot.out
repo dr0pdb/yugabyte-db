@@ -27,6 +27,20 @@ FROM pg_replication_slots;
  testslot1 | yboutput | logical   |  13301 | yugabyte | f         | f      |            |      |              |             |                     
 (2 rows)
 
+-- drop the replication slot and create with same name again.
+SELECT * FROM pg_drop_replication_slot('testslot1');
+ pg_drop_replication_slot
+--------------------------
+
+(1 row)
+
+-- TODO(#19263): Change the slot to temporary once supported.
+SELECT * FROM pg_create_logical_replication_slot('testslot1', 'yboutput', false);
+ slot_name | lsn
+-----------+-----
+ testslot1 |
+(1 row)
+
 -- unsupported cases
 SELECT * FROM pg_create_logical_replication_slot('testslot_unsupported_plugin', 'unsupported_plugin', false);
 ERROR:  invalid output plugin
@@ -36,7 +50,9 @@ ERROR:  Temporary replication slot is not yet supported
 HINT:  See https://github.com/yugabyte/yugabyte-db/issues/19263. React with thumbs up to raise its priority
 SELECT * FROM pg_create_physical_replication_slot('testslot_unsupported_physical', true, false);
 ERROR:  YSQL only supports logical replication slots
--- TODO(#19263): Add test case to drop and create slot with same name with different persistence.
+-- creating replication slot with same name fails.
+SELECT * FROM pg_create_logical_replication_slot('testslot1', 'yboutput', false);
+ERROR:  replication slot "testslot1" already exists
 -- success since user has 'replication' role
 SET ROLE regress_replicationslot_replication_user;
 SELECT * FROM pg_create_logical_replication_slot('testslot3', 'yboutput', false);
@@ -79,11 +95,7 @@ FROM pg_replication_slots;
 
 -- drop non-existent replication slot
 SELECT * FROM pg_drop_replication_slot('testslot_nonexistent');
- pg_drop_replication_slot
---------------------------
-
-(1 row)
-
+ERROR:  replication slot "testslot_nonexistent" does not exist
 RESET SESSION AUTHORIZATION;
 DROP ROLE regress_replicationslot_user;
 DROP ROLE regress_replicationslot_replication_user;

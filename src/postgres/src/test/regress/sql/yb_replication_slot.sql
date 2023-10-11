@@ -15,12 +15,18 @@ SELECT slot_name, plugin, slot_type, datoid, database, temporary, active,
     active_pid, xmin, catalog_xmin, restart_lsn, confirmed_flush_lsn
 FROM pg_replication_slots;
 
+-- drop the replication slot and create with same name again.
+SELECT * FROM pg_drop_replication_slot('testslot1');
+-- TODO(#19263): Change the slot to temporary once supported.
+SELECT * FROM pg_create_logical_replication_slot('testslot1', 'yboutput', false);
+
 -- unsupported cases
 SELECT * FROM pg_create_logical_replication_slot('testslot_unsupported_plugin', 'unsupported_plugin', false);
 SELECT * FROM pg_create_logical_replication_slot('testslot_unsupported_temporary', 'yboutput', true);
 SELECT * FROM pg_create_physical_replication_slot('testslot_unsupported_physical', true, false);
 
--- TODO(#19263): Add test case to drop and create slot with same name with different persistence.
+-- creating replication slot with same name fails.
+SELECT * FROM pg_create_logical_replication_slot('testslot1', 'yboutput', false);
 
 -- success since user has 'replication' role
 SET ROLE regress_replicationslot_replication_user;

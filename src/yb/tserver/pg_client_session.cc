@@ -681,32 +681,17 @@ Status PgClientSession::CreateReplicationSlot(
   options.emplace(cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
   options.emplace(cdc::kCheckpointType, CDCCheckpointType_Name(cdc::CDCCheckpointType::EXPLICIT));
 
-  auto stream_result = client().CreateCDCSDKStreamForNamespace(
+  auto stream_result = VERIFY_RESULT(client().CreateCDCSDKStreamForNamespace(
       GetPgsqlNamespaceId(req.database_oid()), ReplicationSlotName(req.replication_slot_name()),
-      options);
-  if (stream_result.ok()) {
-    *resp->mutable_stream_id() = stream_result->ToString();
-    return Status::OK();
-  }
-
-  return STATUS_FORMAT(
-      InvalidArgument, "Invalid replication slot definition: $0",
-      stream_result.status().ToString(false /* include_file_and_line */, false /* include_code */));
+      options));
+  *resp->mutable_stream_id() = stream_result.ToString();
+  return Status::OK();
 }
 
 Status PgClientSession::DropReplicationSlot(
     const PgDropReplicationSlotRequestPB& req, PgDropReplicationSlotResponsePB* resp,
     rpc::RpcContext* context) {
-  LOG(INFO) << __func__ << ": Started with request:\n" << req.DebugString();
-
-  auto deletion_result = client().DeleteCDCStream(ReplicationSlotName(req.replication_slot_name()));
-  if (deletion_result.ok()) {
-    return Status::OK();
-  }
-
-  return STATUS_FORMAT(
-      InvalidArgument, "Couldn't drop replication slot: $0",
-      deletion_result.ToString(false /* include_file_and_line */, false /* include_code */));
+  return client().DeleteCDCStream(ReplicationSlotName(req.replication_slot_name()));
 }
 
 Status PgClientSession::WaitForBackendsCatalogVersion(

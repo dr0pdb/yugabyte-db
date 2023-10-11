@@ -1079,8 +1079,8 @@ DropReplicationSlot(DropReplicationSlotCmd *cmd)
 	if (IsYugaByteEnabled() && cmd->wait)
 		ereport(ERROR, 
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					errmsg("Waiting for a replication slot is not yet"
-						   " supported")));
+				 errmsg("Waiting for a replication slot is not yet"
+						" supported")));
 
 	ReplicationSlotDrop(cmd->slotname, !cmd->wait);
 	EndCommand("DROP_REPLICATION_SLOT", DestRemote);

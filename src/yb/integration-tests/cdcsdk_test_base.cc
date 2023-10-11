@@ -41,6 +41,7 @@
 #include "yb/gutil/strings/join.h"
 #include "yb/gutil/strings/substitute.h"
 
+#include "yb/gutil/strings/util.h"
 #include "yb/integration-tests/mini_cluster.h"
 
 #include "yb/master/catalog_manager.h"
@@ -402,6 +403,12 @@ Result<xrepl::StreamId> CDCSDKTestBase::CreateDBStream(
   RETURN_NOT_OK(cdc_proxy_->CreateCDCStream(req, &resp, &rpc));
 
   return xrepl::StreamId::FromString(resp.db_stream_id());
+}
+
+Result<xrepl::StreamId> CDCSDKTestBase::CreateDBStream(Cluster* cluster) {
+  auto uuid_without_dash = StringReplace(Uuid::Generate().ToString(), "-", "", true);
+  auto slot_name = Format("test_replication_slot_$0", uuid_without_dash);
+  return CreateDBStream(cluster, slot_name);
 }
 
 Result<xrepl::StreamId> CDCSDKTestBase::CreateDBStream(

@@ -93,6 +93,16 @@ typedef struct ReplicationSlotOnDisk
 #define SLOT_MAGIC		0x1051CA1	/* format identifier */
 #define SLOT_VERSION	2		/* version for new files */
 
+/*
+ * In YSQL, the below control array acts as a cache of replication slots. 
+ * Key thing to note is that there is no negative caching i.e. this array cannot be
+ * used to conclude that a replication slot DOES NOT exist.
+ *
+ * TODO(#19441): This cache can be stale and include slots which have been
+ * deleted via another node. It is fine for now since we do not yet support
+ * consumption of a replication slot via Walsender. We only support Create and
+ * Drop at the moment, both of which go to yb-master.
+ */
 /* Control array for replication slot management */
 ReplicationSlotCtlData *ReplicationSlotCtl = NULL;
 
@@ -103,7 +113,7 @@ ReplicationSlot *MyReplicationSlot = NULL;
 int			max_replication_slots = 0;	/* the maximum number of replication
 										 * slots */
 
-static void ReplicationSlotDropAcquired(void);
+static void ReplicationSlotDropAcquired(const char *yb_replication_slot_name);
 static void ReplicationSlotDropPtr(ReplicationSlot *slot);
 
 /* internal persistency functions */
@@ -251,14 +261,24 @@ ReplicationSlotCreate(const char *name, bool db_specific,
 	{
 		ReplicationSlot *s = &ReplicationSlotCtl->replication_slots[i];
 
-		if (s->in_use && strcmp(name, NameStr(s->data.name)) == 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_DUPLICATE_OBJECT),
-					 errmsg("replication slot \"%s\" already exists", name)));
+		/* Uniqueness check is done by yb-master. */
+		if (!IsYugaByteEnabled())
+		{
+			if (s->in_use && strcmp(name, NameStr(s->data.name)) == 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_DUPLICATE_OBJECT),
+						 errmsg("replication slot \"%s\" already exists",
+								name)));
+		}
 		if (!s->in_use && slot == NULL)
 			slot = s;
 	}
 	LWLockRelease(ReplicationSlotControlLock);
+
+	// TODO: What if we didn't find a slot? It depends on the cache consistency
+	// mechanism. If the cache is assumed to be consistent then we can do what
+	// PG does which is to ask to increase max_replication_slots.
+	// If not, then it could be used as a cache invalidation mechanism.
 
 	/* If all slots are in use, we're out of luck. */
 	if (slot == NULL)
@@ -293,13 +313,7 @@ ReplicationSlotCreate(const char *name, bool db_specific,
 	slot->candidate_restart_lsn = InvalidXLogRecPtr;
 
 	if (IsYugaByteEnabled()) 
-	{
-		/*
-		 * In YSQL, the yb-master does the name uniqueness check instead of the
-		 * checks done earlier in this function.
-		 */
 		YBCCreateReplicationSlot(name);
-	}
 	else
 	{
 		/*
@@ -395,6 +409,14 @@ retry:
 	}
 	LWLockRelease(ReplicationSlotControlLock);
 
+	/*
+	 * It is still possible that the replication slot exists even if we didn't
+	 * find it in the ReplicationSlotCtl as it is just used as a cache. The slot
+	 * could have been created via another node.
+	 */
+	if (IsYugaByteEnabled() && slot == NULL)
+		return;
+
 	/* If we did not find the slot, error out. */
 	if (slot == NULL)
 		ereport(ERROR,
@@ -449,7 +471,7 @@ ReplicationSlotRelease(void)
 		 * fail, all that may happen is an incomplete cleanup of the on-disk
 		 * data.
 		 */
-		ReplicationSlotDropAcquired();
+		ReplicationSlotDropAcquired(NameStr(slot->data.name));
 	}
 
 	/*
@@ -541,38 +563,35 @@ ReplicationSlotDrop(const char *name, bool nowait)
 {
 	Assert(MyReplicationSlot == NULL);
 
-	/*
-	 * The PG concept of aquiring a replication slot is not applicable for YSQL
-	 * since it works via shared memory which isn't possible across nodes.
-	 *
-	 * TODO(#19441): Come up with a YSQL equivalent acquiring mechanism once we
-	 * support consuming changes via a Replication Slot via Walsender.
-	 */
-	if (IsYugaByteEnabled())
-	{
-		YBCDropReplicationSlot(name);
-	}
-	else
-	{
-		ReplicationSlotAcquire(name, nowait);
-		ReplicationSlotDropAcquired();
-	}
+	ReplicationSlotAcquire(name, nowait);
+
+	ReplicationSlotDropAcquired(name);
 }
 
 /*
  * Permanently drop the currently acquired replication slot.
  */
 static void
-ReplicationSlotDropAcquired(void)
+ReplicationSlotDropAcquired(const char *yb_replication_slot_name)
 {
 	ReplicationSlot *slot = MyReplicationSlot;
 
-	Assert(MyReplicationSlot != NULL);
+	/*
+	 * In YSQL, ReplicationSlotAcquire does not gurantee that we would have
+	 * found the slot in ReplicationSlotCtl. 
+	 */
+	if (!IsYugaByteEnabled())
+		Assert(MyReplicationSlot != NULL);
 
 	/* slot isn't acquired anymore */
 	MyReplicationSlot = NULL;
 
-	ReplicationSlotDropPtr(slot);
+	if (IsYugaByteEnabled())
+		YBCDropReplicationSlot(yb_replication_slot_name);
+
+	/* Cleanup the slot data from ReplicationSlotCtl cache if we found one. */
+	if (!IsYugaByteEnabled() || (IsYugaByteEnabled() && slot))
+		ReplicationSlotDropPtr(slot);
 }
 
 /*
@@ -592,47 +611,50 @@ ReplicationSlotDropPtr(ReplicationSlot *slot)
 	 */
 	LWLockAcquire(ReplicationSlotAllocationLock, LW_EXCLUSIVE);
 
-	/* Generate pathnames. */
-	sprintf(path, "pg_replslot/%s", NameStr(slot->data.name));
-	sprintf(tmppath, "pg_replslot/%s.tmp", NameStr(slot->data.name));
-
-	/*
-	 * Rename the slot directory on disk, so that we'll no longer recognize
-	 * this as a valid slot.  Note that if this fails, we've got to mark the
-	 * slot inactive before bailing out.  If we're dropping an ephemeral or a
-	 * temporary slot, we better never fail hard as the caller won't expect
-	 * the slot to survive and this might get called during error handling.
-	 */
-	if (rename(path, tmppath) == 0)
+	if (!IsYugaByteEnabled())
 	{
+		/* Generate pathnames. */
+		sprintf(path, "pg_replslot/%s", NameStr(slot->data.name));
+		sprintf(tmppath, "pg_replslot/%s.tmp", NameStr(slot->data.name));
+
 		/*
-		 * We need to fsync() the directory we just renamed and its parent to
-		 * make sure that our changes are on disk in a crash-safe fashion.  If
-		 * fsync() fails, we can't be sure whether the changes are on disk or
-		 * not.  For now, we handle that by panicking;
-		 * StartupReplicationSlots() will try to straighten it out after
-		 * restart.
+		 * Rename the slot directory on disk, so that we'll no longer recognize
+		 * this as a valid slot.  Note that if this fails, we've got to mark the
+		 * slot inactive before bailing out.  If we're dropping an ephemeral or a
+		 * temporary slot, we better never fail hard as the caller won't expect
+		 * the slot to survive and this might get called during error handling.
 		 */
-		START_CRIT_SECTION();
-		fsync_fname(tmppath, true);
-		fsync_fname("pg_replslot", true);
-		END_CRIT_SECTION();
-	}
-	else
-	{
-		bool		fail_softly = slot->data.persistency != RS_PERSISTENT;
+		if (rename(path, tmppath) == 0)
+		{
+			/*
+			 * We need to fsync() the directory we just renamed and its parent
+			 * to make sure that our changes are on disk in a crash-safe
+			 * fashion.  If fsync() fails, we can't be sure whether the changes
+			 * are on disk or not.  For now, we handle that by panicking;
+			 * StartupReplicationSlots() will try to straighten it out after
+			 * restart.
+			 */
+			START_CRIT_SECTION();
+			fsync_fname(tmppath, true);
+			fsync_fname("pg_replslot", true);
+			END_CRIT_SECTION();
+		}
+		else
+		{
+			bool		fail_softly = slot->data.persistency != RS_PERSISTENT;
 
-		SpinLockAcquire(&slot->mutex);
-		slot->active_pid = 0;
-		SpinLockRelease(&slot->mutex);
+			SpinLockAcquire(&slot->mutex);
+			slot->active_pid = 0;
+			SpinLockRelease(&slot->mutex);
 
-		/* wake up anyone waiting on this slot */
-		ConditionVariableBroadcast(&slot->active_cv);
+			/* wake up anyone waiting on this slot */
+			ConditionVariableBroadcast(&slot->active_cv);
 
-		ereport(fail_softly ? WARNING : ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not rename file \"%s\" to \"%s\": %m",
-						path, tmppath)));
+			ereport(fail_softly ? WARNING : ERROR,
+					(errcode_for_file_access(),
+					 errmsg("could not rename file \"%s\" to \"%s\": %m",
+							path, tmppath)));
+		}
 	}
 
 	/*
@@ -650,22 +672,25 @@ ReplicationSlotDropPtr(ReplicationSlot *slot)
 	LWLockRelease(ReplicationSlotControlLock);
 	ConditionVariableBroadcast(&slot->active_cv);
 
-	/*
-	 * Slot is dead and doesn't prevent resource removal anymore, recompute
-	 * limits.
-	 */
-	ReplicationSlotsComputeRequiredXmin(false);
-	ReplicationSlotsComputeRequiredLSN();
+	if (!IsYugaByteEnabled())
+	{
+		/*
+	 	 * Slot is dead and doesn't prevent resource removal anymore, recompute
+	 	 * limits.
+	 	 */
+		ReplicationSlotsComputeRequiredXmin(false);
+		ReplicationSlotsComputeRequiredLSN();
 
-	/*
-	 * If removing the directory fails, the worst thing that will happen is
-	 * that the user won't be able to create a new slot with the same name
-	 * until the next server restart.  We warn about it, but that's all.
-	 */
-	if (!rmtree(tmppath, true))
-		ereport(WARNING,
-				(errcode_for_file_access(),
-				 errmsg("could not remove directory \"%s\"", tmppath)));
+		/*
+		 * If removing the directory fails, the worst thing that will happen is
+		 * that the user won't be able to create a new slot with the same name
+		 * until the next server restart.  We warn about it, but that's all.
+		 */
+		if (!rmtree(tmppath, true))
+			ereport(WARNING,
+					(errcode_for_file_access(),
+					 errmsg("could not remove directory \"%s\"", tmppath)));
+	}
 
 	/*
 	 * We release this at the very end, so that nobody starts trying to create
@@ -997,7 +1022,7 @@ restart:
 		 * beginning each time we release the lock.
 		 */
 		LWLockRelease(ReplicationSlotControlLock);
-		ReplicationSlotDropAcquired();
+		ReplicationSlotDropAcquired(slotname);
 		goto restart;
 	}
 	LWLockRelease(ReplicationSlotControlLock);
