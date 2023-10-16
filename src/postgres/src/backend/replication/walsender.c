@@ -861,6 +861,16 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 
 	Assert(!MyReplicationSlot);
 
+	/*
+	 * Exporting a snapshot is not supported yet. So we change the default for
+	 * YSQL. A valid default is needed because drivers such as the Java JDBC
+	 * driver do not allow chosing the snapshot action during creation of a
+	 * replication slot. The only action available to the user is the default
+	 * action, so it must work.
+	 */
+	if (IsYugaByteEnabled())
+		snapshot_action = CRS_USE_SNAPSHOT;
+
 	parseCreateReplSlotOptions(cmd, &reserve_wal, &snapshot_action);
 
 	/* setup state for XLogReadPage */
@@ -879,31 +889,25 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 	}
 	else
 	{
-		/*
-		 * Validate output plugin requirement early so that we can avoid the
-		 * expensive call to yb-master.
-		 *
-		 * This is different from PG since the validation is done after creating
-		 * the replication slot on disk which is cleaned up in case of errors.
-		 */
-		if (IsYugaByteEnabled() &&
-			(cmd->plugin == NULL || strcmp(cmd->plugin, "yboutput") != 0))
-			ereport(ERROR, 
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("invalid output plugin"),
-					 errdetail("Only yboutput plugin is supported")));
-
 		CheckLogicalDecodingRequirements();
 
 		/*
-		 * Initially create persistent slot as ephemeral - that allows us to
-		 * nicely handle errors during initialization because it'll get
-		 * dropped if this transaction fails. We'll make it persistent at the
-		 * end. Temporary slots can be created as temporary from beginning as
-		 * they get dropped on error as well.
+		 * Only create replication slot after all the validation is done. This
+		 * is because creating a replication slot requires going to yb-master
+		 * which is expensive.
 		 */
-		ReplicationSlotCreate(cmd->slotname, true,
-							  cmd->temporary ? RS_TEMPORARY : RS_EPHEMERAL);
+		if (!IsYugaByteEnabled())
+		{
+			/*
+			 * Initially create persistent slot as ephemeral - that allows us to
+			 * nicely handle errors during initialization because it'll get
+			 * dropped if this transaction fails. We'll make it persistent at
+			 * the end. Temporary slots can be created as temporary from
+			 * beginning as they get dropped on error as well.
+			 */
+			ReplicationSlotCreate(cmd->slotname, true,
+								  cmd->temporary ? RS_TEMPORARY : RS_EPHEMERAL);
+		}
 	}
 
 	if (cmd->kind == REPLICATION_KIND_LOGICAL)
@@ -929,14 +933,18 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 
 			need_full_snapshot = true;
 		}
-		else if (snapshot_action == CRS_USE_SNAPSHOT)
+
+		/* 
+		 * YB has its own snapshot mechanism that does not require the command
+		 * to be created within a transaction, so we disable these checks here.
+		 */
+		else if (snapshot_action == CRS_USE_SNAPSHOT && !IsYugaByteEnabled())
 		{
 			if (!IsTransactionBlock())
 				ereport(ERROR,
 						(errmsg("CREATE_REPLICATION_SLOT ... USE_SNAPSHOT "
 								"must be called inside a transaction")));
 
-			if (XactIsoLevel != XACT_REPEATABLE_READ)
 				ereport(ERROR,
 						(errmsg("CREATE_REPLICATION_SLOT ... USE_SNAPSHOT "
 								"must be called in REPEATABLE READ isolation mode transaction")));
@@ -952,6 +960,35 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 								"must not be called in a subtransaction")));
 
 			need_full_snapshot = true;
+		}
+
+		if (IsYugaByteEnabled())
+		{
+			if (cmd->plugin == NULL || strcmp(cmd->plugin, "yboutput") != 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						 errmsg("invalid output plugin"),
+						 errdetail("Only yboutput plugin is supported")));
+
+			if (cmd->temporary)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 	 errmsg("Temporary replication slot is not yet"
+						 		" supported"),
+					 	 errhint("See https://github.com/yugabyte/yugabyte-db/"
+							 	 "issues/19263. React with thumbs up to raise"
+								 " its priority")));
+
+			ReplicationSlotCreate(cmd->slotname, true, RS_PERSISTENT);
+
+			/*
+			 * Signal that we don't need the timeout mechanism. We're just
+			 * creating the replication slot and don't yet accept feedback
+			 * messages or send keepalives. As we possibly need to wait for
+			 * further WAL the walsender would otherwise possibly be killed too
+			 * soon.
+			 */
+			last_reply_timestamp = 0;
 		}
 
 		if (!IsYugaByteEnabled())
@@ -993,10 +1030,10 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 
 			/* don't need the decoding context anymore */
 			FreeDecodingContext(ctx);
+		
+			if (!cmd->temporary)
+				ReplicationSlotPersist();
 		}
-
-		if (!cmd->temporary)
-			ReplicationSlotPersist();
 	}
 	else if (cmd->kind == REPLICATION_KIND_PHYSICAL && reserve_wal)
 	{
@@ -1009,9 +1046,17 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 			ReplicationSlotSave();
 	}
 
-	snprintf(xloc, sizeof(xloc), "%X/%X",
-			 (uint32) (MyReplicationSlot->data.confirmed_flush >> 32),
-			 (uint32) MyReplicationSlot->data.confirmed_flush);
+	/* 
+	 * Send "0/0" as the consistent wal location instead of a NULL value. This
+	 * is so that the drivers which have a NULL check on the value continue to
+	 * work. 
+	 */
+	if (IsYugaByteEnabled())
+		snprintf(xloc, sizeof(xloc), "%X/%X", 0, 0);
+	else
+		snprintf(xloc, sizeof(xloc), "%X/%X",
+				 (uint32) (MyReplicationSlot->data.confirmed_flush >> 32),
+				 (uint32) MyReplicationSlot->data.confirmed_flush);
 
 	dest = CreateDestReceiver(DestRemoteSimple);
 	MemSet(nulls, false, sizeof(nulls));
@@ -1038,7 +1083,11 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 	tstate = begin_tup_output_tupdesc(dest, tupdesc);
 
 	/* slot_name */
-	slot_name = NameStr(MyReplicationSlot->data.name);
+	if (IsYugaByteEnabled())
+		slot_name = cmd->slotname;
+	else
+		slot_name = NameStr(MyReplicationSlot->data.name);
+	
 	values[0] = CStringGetTextDatum(slot_name);
 
 	/* consistent wal location */
@@ -1060,7 +1109,8 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 	do_tup_output(tstate, values, nulls);
 	end_tup_output(tstate);
 
-	ReplicationSlotRelease();
+	if (!IsYugaByteEnabled())
+		ReplicationSlotRelease();
 }
 
 /*

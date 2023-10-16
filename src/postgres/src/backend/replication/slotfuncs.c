@@ -172,9 +172,13 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 	ReplicationSlotCreate(NameStr(*name), true,
 						  temporary ? RS_TEMPORARY : RS_EPHEMERAL);
 
+	memset(nulls, 0, sizeof(nulls));
+
 	if (IsYugaByteEnabled())
 	{
 		values[0] = CStringGetTextDatum(name->data);
+		/* Send lsn as NULL */
+		nulls[1] = true;
 	}
 	else
 	{
@@ -196,21 +200,16 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 		FreeDecodingContext(ctx);
 	}
 
-	memset(nulls, 0, sizeof(nulls));
-
-	/* Send lsn as NULL */
-	if (IsYugaByteEnabled())
-	{
-		nulls[1] = true;
-	}
-
 	tuple = heap_form_tuple(tupdesc, values, nulls);
 	result = HeapTupleGetDatum(tuple);
 
-	/* ok, slot is now fully created, mark it as persistent if needed */
-	if (!temporary)
-		ReplicationSlotPersist();
-	ReplicationSlotRelease();
+	if (!IsYugaByteEnabled())
+	{
+		/* ok, slot is now fully created, mark it as persistent if needed */
+		if (!temporary)
+			ReplicationSlotPersist();
+		ReplicationSlotRelease();
+	}
 
 	PG_RETURN_DATUM(result);
 }
