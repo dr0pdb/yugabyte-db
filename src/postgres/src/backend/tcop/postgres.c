@@ -5378,6 +5378,8 @@ PostgresMain(int argc, char *argv[],
 			{
 				const char *query_string;
 
+				bool		yb_is_simple_query = false;
+
 				/* Set statement_timestamp() */
 				SetCurrentStatementStartTimestamp();
 
@@ -5388,7 +5390,10 @@ PostgresMain(int argc, char *argv[],
 				PG_TRY();
 				{
 					if (!am_walsender || !exec_replication_command(query_string))
-                      yb_exec_simple_query(query_string, oldcontext);
+					{
+						yb_is_simple_query = true;
+						yb_exec_simple_query(query_string, oldcontext);
+					}
 				}
 				PG_CATCH();
 				{
@@ -5398,11 +5403,13 @@ PostgresMain(int argc, char *argv[],
 					edata = CopyErrorData();
 
 					bool need_retry = false;
-					YBPrepareCacheRefreshIfNeeded(
-							edata,
-							yb_check_retry_allowed(query_string),
-							yb_is_dml_command(query_string),
-							&need_retry);
+					/* Skip cache refresh for replication commands. */
+					if (yb_is_simple_query)
+						YBPrepareCacheRefreshIfNeeded(
+								edata,
+								yb_check_retry_allowed(query_string),
+								yb_is_dml_command(query_string),
+								&need_retry);
 
 					if (need_retry)
 					{

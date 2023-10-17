@@ -12,12 +12,15 @@
 //
 package org.yb.pgsql;
 
+import static org.junit.Assert.fail;
+
 import java.sql.Connection;
 import java.sql.Statement;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.commons.lang3.StringUtils;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
@@ -26,6 +29,7 @@ import org.yb.YBTestRunner;
 
 import com.yugabyte.PGConnection;
 import com.yugabyte.replication.PGReplicationConnection;
+import com.yugabyte.util.PSQLException;
 
 @RunWith(value = YBTestRunner.class)
 public class TestPgReplicationSlot extends BasePgSQLTest {
@@ -70,7 +74,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  public void createAndDropViaReplicationConnection() throws Exception {
+  public void replicationConnectionCreateDrop() throws Exception {
     restartWithHba(String.format("host all all 0.0.0.0/0 trust"));
 
     Connection conn =
@@ -83,5 +87,55 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
         .withOutputPlugin("yboutput")
         .make();
     replConnection.dropReplicationSlot("test_slot_repl_conn");
+  }
+
+  @Test
+  public void replicationConnectionCreateTemporaryUnsupported() throws Exception {
+    restartWithHba(String.format("host all all 0.0.0.0/0 trust"));
+
+    Connection conn = getConnectionBuilder().withTServer(0).replicationConnect();
+    PGReplicationConnection replConnection = conn.unwrap(PGConnection.class).getReplicationAPI();
+
+    String expectedErrorMessage = "Temporary replication slot is not yet supported";
+
+    try {
+      replConnection.createReplicationSlot()
+          .logical()
+          .withSlotName("test_slot_repl_conn_temporary")
+          .withOutputPlugin("yboutput")
+          .withTemporaryOption()
+          .make();
+    } catch (PSQLException e) {
+      if (StringUtils.containsIgnoreCase(e.getMessage(), expectedErrorMessage)) {
+        LOG.info("Expected exception", e);
+      } else {
+        fail(String.format("Unexpected Error Message. Got: '%s', Expected to contain: '%s'",
+            e.getMessage(), expectedErrorMessage));
+      }
+    }
+  }
+
+  @Test
+  public void replicationConnectionCreatePhysicalUnsupported() throws Exception {
+    restartWithHba(String.format("host all all 0.0.0.0/0 trust"));
+
+    Connection conn = getConnectionBuilder().withTServer(0).replicationConnect();
+    PGReplicationConnection replConnection = conn.unwrap(PGConnection.class).getReplicationAPI();
+
+    String expectedErrorMessage = "YSQL only supports logical replication slots";
+
+    try {
+      replConnection.createReplicationSlot()
+          .physical()
+          .withSlotName("test_slot_repl_conn_temporary")
+          .make();
+    } catch (PSQLException e) {
+      if (StringUtils.containsIgnoreCase(e.getMessage(), expectedErrorMessage)) {
+        LOG.info("Expected exception", e);
+      } else {
+        fail(String.format("Unexpected Error Message. Got: '%s', Expected to contain: '%s'",
+            e.getMessage(), expectedErrorMessage));
+      }
+    }
   }
 }
