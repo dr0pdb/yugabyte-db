@@ -138,13 +138,9 @@ struct CDCSDKStreamInfo {
       auto stream_info = CDCSDKStreamInfo{
           .stream_id = pb.stream_id(),
           .database_oid = database_oid,
-          .options = std::move(options),
-      };
-
-      if (pb.has_cdcsdk_ysql_replication_slot_name()) {
-        stream_info.cdcsdk_ysql_replication_slot_name =
-            ReplicationSlotName(pb.cdcsdk_ysql_replication_slot_name());
-      }
+          .cdcsdk_ysql_replication_slot_name =
+              ReplicationSlotName(pb.cdcsdk_ysql_replication_slot_name()),
+          .options = std::move(options)};
 
       return stream_info;
     }

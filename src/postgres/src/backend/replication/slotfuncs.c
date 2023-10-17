@@ -262,7 +262,8 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 	MemoryContext per_query_ctx;
 	MemoryContext oldcontext;
 	int			slotno;
-	int			totalslots;
+
+	int			yb_totalslots;
 
 	/* check to see if caller supports us returning a tuplestore */
 	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
@@ -307,11 +308,11 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 	if (IsYugaByteEnabled())
 		YBCListReplicationSlots(&yb_replication_slots, &yb_numreplicationslots);
 
-	totalslots = (IsYugaByteEnabled()) ? yb_numreplicationslots :
+	yb_totalslots = (IsYugaByteEnabled()) ? yb_numreplicationslots :
 										 max_replication_slots;
 
 	LWLockAcquire(ReplicationSlotControlLock, LW_SHARED);
-	for (slotno = 0; slotno < totalslots; slotno++)
+	for (slotno = 0; slotno < yb_totalslots; slotno++)
 	{
 		ReplicationSlot *slot = &ReplicationSlotCtl->replication_slots[slotno];
 		Datum		values[PG_GET_REPLICATION_SLOTS_COLS +

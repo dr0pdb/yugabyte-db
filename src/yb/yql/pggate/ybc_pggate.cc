@@ -1797,7 +1797,6 @@ YBCStatus YBCPgListReplicationSlots(
     return ToYBCStatus(result.status());
   }
 
-  LOG(INFO) << "YBCPgListReplicationSlots: Response from master: " << result->DebugString();
   const auto &replication_slots_info = result.get().replication_slots();
   *numreplicationslots = replication_slots_info.size();
   *replication_slots = NULL;
@@ -1810,6 +1809,8 @@ YBCStatus YBCPgListReplicationSlots(
           .slot_name = YBCPAllocStdString(info.slot_name()),
           .stream_id = YBCPAllocStdString(info.stream_id()),
           .database_oid = info.database_oid(),
+          // TODO(#19211): Fetch the status of the stream.
+          .active = false,
       };
       ++dest;
     }

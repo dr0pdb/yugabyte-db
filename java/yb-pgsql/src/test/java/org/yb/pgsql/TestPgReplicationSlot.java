@@ -12,12 +12,11 @@
 //
 package org.yb.pgsql;
 
-import static org.junit.Assert.fail;
+import static org.yb.AssertionWrappers.fail;
 
 import java.sql.Connection;
 import java.sql.Statement;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
