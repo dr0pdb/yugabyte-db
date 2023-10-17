@@ -93,16 +93,6 @@ typedef struct ReplicationSlotOnDisk
 #define SLOT_MAGIC		0x1051CA1	/* format identifier */
 #define SLOT_VERSION	2		/* version for new files */
 
-/*
- * In YSQL, the below control array acts as a cache of replication slots. 
- * Key thing to note is that there is no negative caching i.e. this array cannot be
- * used to conclude that a replication slot DOES NOT exist.
- *
- * TODO(#19441): This cache can be stale and include slots which have been
- * deleted via another node. It is fine for now since we do not yet support
- * consumption of a replication slot via Walsender. We only support Create and
- * Drop at the moment, both of which go to yb-master.
- */
 /* Control array for replication slot management */
 ReplicationSlotCtlData *ReplicationSlotCtl = NULL;
 
@@ -113,7 +103,7 @@ ReplicationSlot *MyReplicationSlot = NULL;
 int			max_replication_slots = 0;	/* the maximum number of replication
 										 * slots */
 
-static void ReplicationSlotDropAcquired();
+static void ReplicationSlotDropAcquired(void);
 static void ReplicationSlotDropPtr(ReplicationSlot *slot);
 
 /* internal persistency functions */
@@ -271,11 +261,11 @@ ReplicationSlotCreate(const char *name, bool db_specific,
 	for (i = 0; i < max_replication_slots; i++)
 	{
 		ReplicationSlot *s = &ReplicationSlotCtl->replication_slots[i];
+
 		if (s->in_use && strcmp(name, NameStr(s->data.name)) == 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_DUPLICATE_OBJECT),
-					 errmsg("replication slot \"%s\" already exists",
-							name)));
+					 errmsg("replication slot \"%s\" already exists", name)));
 		if (!s->in_use && slot == NULL)
 			slot = s;
 	}
@@ -571,7 +561,7 @@ ReplicationSlotDrop(const char *name, bool nowait)
  * Permanently drop the currently acquired replication slot.
  */
 static void
-ReplicationSlotDropAcquired()
+ReplicationSlotDropAcquired(void)
 {
 	ReplicationSlot *slot = MyReplicationSlot;
 

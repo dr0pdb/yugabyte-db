@@ -945,6 +945,7 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 						(errmsg("CREATE_REPLICATION_SLOT ... USE_SNAPSHOT "
 								"must be called inside a transaction")));
 
+			if (XactIsoLevel != XACT_REPEATABLE_READ)
 				ereport(ERROR,
 						(errmsg("CREATE_REPLICATION_SLOT ... USE_SNAPSHOT "
 								"must be called in REPEATABLE READ isolation mode transaction")));

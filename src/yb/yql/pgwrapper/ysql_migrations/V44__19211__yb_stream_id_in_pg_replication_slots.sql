@@ -13,7 +13,7 @@ BEGIN;
     proargnames, proargdefaults, protrftypes, prosrc, probin, proconfig, proacl
   ) VALUES (
     3781, 'pg_get_replication_slots', 11, 10, 12, 1, 10, 0, '-', 'f', false, false, false,
-    true, 's', 's', 0, 0, 2249, NULL, '{19,19,25,26,16,16,23,28,28,3220,3220,25}',
+    true, 's', 's', 0, 0, 2249, '', '{19,19,25,26,16,16,23,28,28,3220,3220,25}',
     '{o,o,o,o,o,o,o,o,o,o,o,o}', '{slot_name,plugin,slot_type,datoid,temporary,active,
     active_pid,xmin,catalog_xmin,restart_lsn,confirmed_flush_lsn,yb_stream_id}',
     NULL, NULL, 'pg_get_replication_slots', NULL, NULL, NULL)
