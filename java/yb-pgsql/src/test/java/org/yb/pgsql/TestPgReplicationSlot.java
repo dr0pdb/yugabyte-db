@@ -12,12 +12,11 @@
 //
 package org.yb.pgsql;
 
+import static org.yb.AssertionWrappers.assertTrue;
 import static org.yb.AssertionWrappers.fail;
 
 import java.sql.Connection;
 import java.sql.Statement;
-import java.util.Collections;
-import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Test;
@@ -37,20 +36,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   @Override
   protected int getInitialNumTServers() {
     return 3;
-  }
-
-  /** Restart cluster with specified hba conf. */
-  private void restartWithHba(String hba) throws Exception {
-    Map<String, String> flagMap = super.getTServerFlags();
-
-    // ysql_enable_auth auto-adds an HBA entry, so turn it off.
-    flagMap.put("ysql_enable_auth", "false");
-
-    // Add given hba.
-    flagMap.put("ysql_hba_conf_csv", hba);
-    LOG.info("Restarting with the following HBA config: {}", flagMap.get("ysql_hba_conf_csv"));
-
-    restartClusterWithFlags(Collections.emptyMap(), flagMap);
   }
 
   @Test
@@ -74,8 +59,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
 
   @Test
   public void replicationConnectionCreateDrop() throws Exception {
-    restartWithHba(String.format("host all all 0.0.0.0/0 trust"));
-
     Connection conn =
         getConnectionBuilder().withTServer(0).replicationConnect();
     PGReplicationConnection replConnection = conn.unwrap(PGConnection.class).getReplicationAPI();
@@ -90,13 +73,12 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
 
   @Test
   public void replicationConnectionCreateTemporaryUnsupported() throws Exception {
-    restartWithHba(String.format("host all all 0.0.0.0/0 trust"));
-
     Connection conn = getConnectionBuilder().withTServer(0).replicationConnect();
     PGReplicationConnection replConnection = conn.unwrap(PGConnection.class).getReplicationAPI();
 
     String expectedErrorMessage = "Temporary replication slot is not yet supported";
 
+    boolean exceptionThrown = false;
     try {
       replConnection.createReplicationSlot()
           .logical()
@@ -105,6 +87,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
           .withTemporaryOption()
           .make();
     } catch (PSQLException e) {
+      exceptionThrown = true;
       if (StringUtils.containsIgnoreCase(e.getMessage(), expectedErrorMessage)) {
         LOG.info("Expected exception", e);
       } else {
@@ -112,23 +95,25 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
             e.getMessage(), expectedErrorMessage));
       }
     }
+
+    assertTrue("Expected an exception but wasn't thrown", exceptionThrown);
   }
 
   @Test
   public void replicationConnectionCreatePhysicalUnsupported() throws Exception {
-    restartWithHba(String.format("host all all 0.0.0.0/0 trust"));
-
     Connection conn = getConnectionBuilder().withTServer(0).replicationConnect();
     PGReplicationConnection replConnection = conn.unwrap(PGConnection.class).getReplicationAPI();
 
     String expectedErrorMessage = "YSQL only supports logical replication slots";
 
+    boolean exceptionThrown = false;
     try {
       replConnection.createReplicationSlot()
           .physical()
           .withSlotName("test_slot_repl_conn_temporary")
           .make();
     } catch (PSQLException e) {
+      exceptionThrown = true;
       if (StringUtils.containsIgnoreCase(e.getMessage(), expectedErrorMessage)) {
         LOG.info("Expected exception", e);
       } else {
@@ -136,5 +121,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
             e.getMessage(), expectedErrorMessage));
       }
     }
+
+    assertTrue("Expected an exception but wasn't thrown", exceptionThrown);
   }
 }

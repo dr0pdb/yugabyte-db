@@ -155,6 +155,10 @@ public class ConnectionBuilder implements Cloneable {
     // in 9.4.0.
     PGProperty.ASSUME_MIN_SERVER_VERSION.set(props, "110200");
     PGProperty.REPLICATION.set(props, "database");
+
+    if (preferQueryMode != null && preferQueryMode != "simple") {
+      throw new RuntimeException("replication connection only supports simple query mode");
+    }
     // https://github.com/pgjdbc/pgjdbc/issues/759
     PGProperty.PREFER_QUERY_MODE.set(props, "simple");
     return connect(props);

@@ -965,7 +965,8 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 
 		if (IsYugaByteEnabled())
 		{
-			if (cmd->plugin == NULL || strcmp(cmd->plugin, "yboutput") != 0)
+			if (cmd->plugin == NULL || 
+				strcmp(cmd->plugin, YB_OUTPUT_PLUGIN) != 0)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("invalid output plugin"),

@@ -103,6 +103,8 @@ ReplicationSlot *MyReplicationSlot = NULL;
 int			max_replication_slots = 0;	/* the maximum number of replication
 										 * slots */
 
+const char *YB_OUTPUT_PLUGIN = "yboutput";
+
 static void ReplicationSlotDropAcquired(void);
 static void ReplicationSlotDropPtr(ReplicationSlot *slot);
 

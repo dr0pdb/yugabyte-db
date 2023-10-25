@@ -150,7 +150,7 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 		 * This is different from PG where the validation is done after creating
 		 * the replication slot on disk which is cleaned up in case of errors.
 		 */
-		if (plugin == NULL || strcmp(NameStr(*plugin), "yboutput") != 0)
+		if (plugin == NULL || strcmp(NameStr(*plugin), YB_OUTPUT_PLUGIN) != 0)
 			ereport(ERROR, 
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("invalid output plugin"),
@@ -339,7 +339,7 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 
 			database = slot->database_oid;
 			namestrcpy(&slot_name, slot->slot_name);
-			namestrcpy(&plugin, "yboutput");
+			namestrcpy(&plugin, YB_OUTPUT_PLUGIN);
 			yb_stream_id = slot->stream_id;
 
 			/* Fill in the dummy values. */
