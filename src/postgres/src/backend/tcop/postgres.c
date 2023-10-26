@@ -5378,7 +5378,7 @@ PostgresMain(int argc, char *argv[],
 			{
 				const char *query_string;
 
-				bool		yb_is_simple_query = false;
+				bool		yb_is_replication_command = false;
 
 				/* Set statement_timestamp() */
 				SetCurrentStatementStartTimestamp();
@@ -5389,11 +5389,22 @@ PostgresMain(int argc, char *argv[],
 
 				PG_TRY();
 				{
-					if (!am_walsender || !exec_replication_command(query_string))
+					if (am_walsender)
 					{
-						yb_is_simple_query = true;
-						yb_exec_simple_query(query_string, oldcontext);
+						/*
+						 * Set yb_is_replication_command to true before
+						 * attempting to execute as a replication command.
+						 * We do this so that after a genuine failure in
+						 * executing the replication command, the flag
+						 * remains true and we skip the cache refresh.
+						 */
+						yb_is_replication_command = true;
+						yb_is_replication_command =
+							exec_replication_command(query_string);
 					}
+
+					if (!yb_is_replication_command)
+						yb_exec_simple_query(query_string, oldcontext);
 				}
 				PG_CATCH();
 				{
@@ -5404,7 +5415,7 @@ PostgresMain(int argc, char *argv[],
 
 					bool need_retry = false;
 					/* Skip cache refresh for replication commands. */
-					if (yb_is_simple_query)
+					if (!yb_is_replication_command)
 						YBPrepareCacheRefreshIfNeeded(
 								edata,
 								yb_check_retry_allowed(query_string),

@@ -406,6 +406,8 @@ Result<xrepl::StreamId> CDCSDKTestBase::CreateDBStream(
 }
 
 Result<xrepl::StreamId> CDCSDKTestBase::CreateDBStreamWithReplicationSlot() {
+  // Generate a unique name for the replication slot as a UUID. Replication slot names cannot
+  // contain dash. Hence, we remove them from here.
   auto uuid_without_dash = StringReplace(Uuid::Generate().ToString(), "-", "", true);
   auto slot_name = Format("test_replication_slot_$0", uuid_without_dash);
   return CreateDBStreamWithReplicationSlot(slot_name);

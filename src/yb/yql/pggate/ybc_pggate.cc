@@ -1798,8 +1798,8 @@ YBCStatus YBCPgListReplicationSlots(
   }
 
   const auto &replication_slots_info = result.get().replication_slots();
-  *numreplicationslots = replication_slots_info.size();
-  *replication_slots = NULL;
+  *DCHECK_NOTNULL(numreplicationslots) = replication_slots_info.size();
+  *DCHECK_NOTNULL(replication_slots) = NULL;
   if (!replication_slots_info.empty()) {
     *replication_slots = static_cast<YBCReplicationSlotDescriptor *>(
         YBCPAlloc(sizeof(YBCReplicationSlotDescriptor) * replication_slots_info.size()));
