@@ -92,6 +92,9 @@
 #include "utils/builtins.h"
 #include "utils/rel.h"
 
+/* YB includes */
+#include "replication/walsender_private.h"
+
 /* ----------------
  *		global variables
  * ----------------
@@ -4070,6 +4073,22 @@ static bool yb_is_dml_command(const char *query_string)
 	if (!query_string)
 		return false;
 
+	/*
+	 * Detect and return false for replication commands since they are never a
+	 * DML. This is needed to avoid calling yb_parse_command_tag for replication
+	 * commands which have a different grammar (repl_gram.y) and will always
+	 * lead to a syntax error.
+	 */
+	if (IsYugaByteEnabled())
+	{
+		int			parse_rc;
+
+		replication_scanner_init(query_string);
+		parse_rc = replication_yyparse();
+		if (parse_rc == 0 && replication_parse_result->type != T_SQLCmd)
+			return false;
+	}
+
 	const char* command_tag = yb_parse_command_tag(query_string);
 	if (!command_tag)
 		return false;
@@ -5378,8 +5397,6 @@ PostgresMain(int argc, char *argv[],
 			{
 				const char *query_string;
 
-				bool		yb_is_replication_command = false;
-
 				/* Set statement_timestamp() */
 				SetCurrentStatementStartTimestamp();
 
@@ -5389,21 +5406,7 @@ PostgresMain(int argc, char *argv[],
 
 				PG_TRY();
 				{
-					if (am_walsender)
-					{
-						/*
-						 * Set yb_is_replication_command to true before
-						 * attempting to execute as a replication command.
-						 * We do this so that after a genuine failure in
-						 * executing the replication command, the flag
-						 * remains true and we skip the cache refresh.
-						 */
-						yb_is_replication_command = true;
-						yb_is_replication_command =
-							exec_replication_command(query_string);
-					}
-
-					if (!yb_is_replication_command)
+					if (!am_walsender || !exec_replication_command(query_string))
 						yb_exec_simple_query(query_string, oldcontext);
 				}
 				PG_CATCH();
@@ -5414,13 +5417,11 @@ PostgresMain(int argc, char *argv[],
 					edata = CopyErrorData();
 
 					bool need_retry = false;
-					/* Skip cache refresh for replication commands. */
-					if (!yb_is_replication_command)
-						YBPrepareCacheRefreshIfNeeded(
-								edata,
-								yb_check_retry_allowed(query_string),
-								yb_is_dml_command(query_string),
-								&need_retry);
+					YBPrepareCacheRefreshIfNeeded(
+							edata,
+							yb_check_retry_allowed(query_string),
+							yb_is_dml_command(query_string),
+							&need_retry);
 
 					if (need_retry)
 					{
