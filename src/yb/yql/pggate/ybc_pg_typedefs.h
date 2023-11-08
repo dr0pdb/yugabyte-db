@@ -545,6 +545,14 @@ typedef struct PgReplicationSlotDescriptor {
   bool active;
 } YBCReplicationSlotDescriptor;
 
+typedef enum PgReplicationSlotRecordType {
+  YB_REPLICATION_SLOT_RECORD_TYPE_FULL = 0,
+  YB_REPLICATION_SLOT_RECORD_TYPE_NOTHING,
+  YB_REPLICATION_SLOT_RECORD_TYPE_DEFAULT,
+  YB_REPLICATION_SLOT_RECORD_TYPE_CHANGE_OLD_NEW,
+  YB_REPLICATION_SLOT_RECORD_TYPE_CHANGE,
+} YBCPgReplicationSlotRecordType;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

@@ -2139,8 +2139,10 @@ Result<boost::container::small_vector<RefCntSlice, 2>> PgApiImpl::GetTableKeyRan
 
 Status PgApiImpl::NewCreateReplicationSlot(const char *slot_name,
                                            const PgOid database_oid,
+                                           YBCPgReplicationSlotRecordType record_type,
                                            PgStatement **handle) {
-  auto stmt = std::make_unique<PgCreateReplicationSlot>(pg_session_, slot_name, database_oid);
+  auto stmt =
+      std::make_unique<PgCreateReplicationSlot>(pg_session_, slot_name, database_oid, record_type);
   RETURN_NOT_OK(AddToCurrentPgMemctx(std::move(stmt), handle));
   return Status::OK();
 }

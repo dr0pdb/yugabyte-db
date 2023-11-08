@@ -1781,9 +1781,11 @@ YBCStatus YBCGetTableKeyRanges(
 
 YBCStatus YBCPgNewCreateReplicationSlot(const char *slot_name,
                                         YBCPgOid database_oid,
+                                        YBCPgReplicationSlotRecordType record_type,
                                         YBCPgStatement *handle) {
   return ToYBCStatus(pgapi->NewCreateReplicationSlot(slot_name,
                                                      database_oid,
+                                                     record_type,
                                                      handle));
 }
 

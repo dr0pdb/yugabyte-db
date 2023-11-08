@@ -317,7 +317,8 @@ class PgCreateReplicationSlot : public PgDdl {
  public:
   PgCreateReplicationSlot(PgSession::ScopedRefPtr pg_session,
                           const char *slot_name,
-                          PgOid database_oid);
+                          PgOid database_oid,
+                          YBCPgReplicationSlotRecordType record_type);
 
   Status Exec();
 

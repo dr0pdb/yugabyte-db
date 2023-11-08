@@ -104,7 +104,9 @@ extern void YBCValidatePlacement(const char *placement_info);
 
 /*  Replication Slot Functions ------------------------------------------------------------------ */
 
-extern void YBCCreateReplicationSlot(const char *slot_name);
+extern void
+YBCCreateReplicationSlot(const char *slot_name,
+						 YBCPgReplicationSlotRecordType record_type);
 
 extern void
 YBCListReplicationSlots(YBCReplicationSlotDescriptor **replication_slots,

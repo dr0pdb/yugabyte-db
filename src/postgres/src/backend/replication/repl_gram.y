@@ -21,6 +21,8 @@
 #include "replication/walsender.h"
 #include "replication/walsender_private.h"
 
+/* YB includes. */
+#include "yb/yql/pggate/ybc_pg_typedefs.h"
 
 /* Result of the parsing is returned here */
 Node *replication_parse_result;
@@ -85,6 +87,15 @@ Node *replication_parse_result;
 %token K_NOEXPORT_SNAPSHOT
 %token K_USE_SNAPSHOT
 
+/* YB specific */
+%token K_WITH
+%token K_RECORD_TYPE
+%token K_FULL
+%token K_NOTHING
+%token K_DEFAULT
+%token K_CHANGE_OLD_NEW
+%token K_CHANGE
+
 %type <node>	command
 %type <node>	base_backup start_replication start_logical_replication
 				create_replication_slot drop_replication_slot identify_system
@@ -99,6 +110,9 @@ Node *replication_parse_result;
 %type <boolval>	opt_temporary
 %type <list>	create_slot_opt_list
 %type <defelt>	create_slot_opt
+
+%type <uintval>	opt_record_type
+%type <uintval>	record_type_value
 
 %%
 
@@ -224,8 +238,8 @@ create_replication_slot:
 					cmd->options = $5;
 					$$ = (Node *) cmd;
 				}
-			/* CREATE_REPLICATION_SLOT slot TEMPORARY LOGICAL plugin */
-			| K_CREATE_REPLICATION_SLOT IDENT opt_temporary K_LOGICAL IDENT create_slot_opt_list
+			/* CREATE_REPLICATION_SLOT slot TEMPORARY LOGICAL plugin [WITH RECORD_TYPE record_type] */
+			| K_CREATE_REPLICATION_SLOT IDENT opt_temporary K_LOGICAL IDENT create_slot_opt_list opt_with opt_record_type
 				{
 					CreateReplicationSlotCmd *cmd;
 					cmd = makeNode(CreateReplicationSlotCmd);
@@ -234,6 +248,9 @@ create_replication_slot:
 					cmd->temporary = $3;
 					cmd->plugin = $5;
 					cmd->options = $6;
+
+					cmd->yb_recordtype = $8;
+
 					$$ = (Node *) cmd;
 				}
 			;
@@ -395,6 +412,43 @@ plugin_opt_arg:
 			SCONST							{ $$ = (Node *) makeString($1); }
 			| /* EMPTY */					{ $$ = NULL; }
 		;
+
+/* YB syntax */
+
+opt_with:	K_WITH									{}
+			| /*EMPTY*/								{}
+		;
+
+opt_record_type:
+			K_RECORD_TYPE record_type_value		{ $$ = $2; }
+			| /* EMPTY */
+				{
+					$$ = YB_REPLICATION_SLOT_RECORD_TYPE_CHANGE;
+				}
+			;
+
+record_type_value:
+			K_FULL
+				{
+				  $$ = YB_REPLICATION_SLOT_RECORD_TYPE_FULL;
+				}
+			| K_NOTHING
+				{
+				  $$ = YB_REPLICATION_SLOT_RECORD_TYPE_NOTHING;
+				}
+			| K_DEFAULT
+				{
+				  $$ = YB_REPLICATION_SLOT_RECORD_TYPE_DEFAULT;
+				}
+			| K_CHANGE_OLD_NEW
+				{
+				  $$ = YB_REPLICATION_SLOT_RECORD_TYPE_CHANGE_OLD_NEW;
+				}
+			| K_CHANGE
+				{
+				  $$ = YB_REPLICATION_SLOT_RECORD_TYPE_CHANGE;
+				}
+			;
 
 %%
 

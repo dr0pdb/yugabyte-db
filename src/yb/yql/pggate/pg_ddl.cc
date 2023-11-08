@@ -440,12 +440,32 @@ Status PgDropDBSequences::Exec() {
 // PgCreateReplicationSlot
 //--------------------------------------------------------------------------------------------------
 
-PgCreateReplicationSlot::PgCreateReplicationSlot(PgSession::ScopedRefPtr pg_session,
-                                                 const char *slot_name,
-                                                 PgOid database_oid)
+PgCreateReplicationSlot::PgCreateReplicationSlot(
+    PgSession::ScopedRefPtr pg_session, const char *slot_name, PgOid database_oid,
+    YBCPgReplicationSlotRecordType record_type)
     : PgDdl(pg_session) {
   req_.set_database_oid(database_oid);
   req_.set_replication_slot_name(slot_name);
+
+  tserver::PgReplicationSlotRecordTypePB record_type_pb;
+  switch (record_type) {
+    case YB_REPLICATION_SLOT_RECORD_TYPE_FULL:
+      record_type_pb = tserver::PgReplicationSlotRecordTypePB::FULL;
+      break;
+    case YB_REPLICATION_SLOT_RECORD_TYPE_NOTHING:
+      record_type_pb = tserver::PgReplicationSlotRecordTypePB::NOTHING;
+      break;
+    case YB_REPLICATION_SLOT_RECORD_TYPE_DEFAULT:
+      record_type_pb = tserver::PgReplicationSlotRecordTypePB::DEFAULT;
+      break;
+    case YB_REPLICATION_SLOT_RECORD_TYPE_CHANGE_OLD_NEW:
+      record_type_pb = tserver::PgReplicationSlotRecordTypePB::CHANGE_OLD_NEW;
+      break;
+    case YB_REPLICATION_SLOT_RECORD_TYPE_CHANGE:
+      record_type_pb = tserver::PgReplicationSlotRecordTypePB::CHANGE;
+      break;
+  }
+  req_.set_record_type(record_type_pb);
 }
 
 Status PgCreateReplicationSlot::Exec() {

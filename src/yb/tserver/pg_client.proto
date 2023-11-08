@@ -178,10 +178,19 @@ message PgCreateDatabaseResponsePB {
 message PgCreateSequencesDataTableRequestPB {
 }
 
+enum PgReplicationSlotRecordTypePB {
+  FULL = 0;
+  NOTHING = 1;
+  DEFAULT = 2;
+  CHANGE_OLD_NEW = 3;
+  CHANGE = 4;
+}
+
 message PgCreateReplicationSlotRequestPB {
   uint64 session_id = 1;
   uint32 database_oid = 2;
   string replication_slot_name = 3;
+  PgReplicationSlotRecordTypePB record_type = 4;
 }
 
 message PgCreateReplicationSlotResponsePB {

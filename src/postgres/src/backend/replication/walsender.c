@@ -885,7 +885,8 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 					 errmsg("YSQL only supports logical replication slots")));
 
 		ReplicationSlotCreate(cmd->slotname, false,
-							  cmd->temporary ? RS_TEMPORARY : RS_PERSISTENT);
+							  cmd->temporary ? RS_TEMPORARY : RS_PERSISTENT,
+							  cmd->yb_recordtype);
 	}
 	else
 	{
@@ -906,7 +907,8 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 			 * beginning as they get dropped on error as well.
 			 */
 			ReplicationSlotCreate(cmd->slotname, true,
-								  cmd->temporary ? RS_TEMPORARY : RS_EPHEMERAL);
+								  cmd->temporary ? RS_TEMPORARY : RS_EPHEMERAL,
+								  cmd->yb_recordtype);
 		}
 	}
 
@@ -981,7 +983,8 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 							 	 "issues/19263. React with thumbs up to raise"
 								 " its priority")));
 
-			ReplicationSlotCreate(cmd->slotname, true, RS_PERSISTENT);
+			ReplicationSlotCreate(cmd->slotname, true, RS_PERSISTENT,
+								  cmd->yb_recordtype);
 
 			/*
 			 * Signal that we don't need the timeout mechanism. We're just

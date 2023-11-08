@@ -674,13 +674,33 @@ Status PgClientSession::CreateReplicationSlot(
     const PgCreateReplicationSlotRequestPB& req, PgCreateReplicationSlotResponsePB* resp,
     rpc::RpcContext* context) {
   std::unordered_map<std::string, std::string> options;
-  // TODO(#19260): Support customizing the CDCRecordType.
   options.reserve(5);
   options.emplace(cdc::kIdType, cdc::kNamespaceId);
-  options.emplace(cdc::kRecordType, CDCRecordType_Name(cdc::CDCRecordType::CHANGE));
   options.emplace(cdc::kRecordFormat, CDCRecordFormat_Name(cdc::CDCRecordFormat::PROTO));
   options.emplace(cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
   options.emplace(cdc::kCheckpointType, CDCCheckpointType_Name(cdc::CDCCheckpointType::EXPLICIT));
+
+  cdc::CDCRecordType cdc_record_type;
+  switch (req.record_type()) {
+    case PgReplicationSlotRecordTypePB::FULL:
+      cdc_record_type = cdc::CDCRecordType::PG_FULL;
+      break;
+    case PgReplicationSlotRecordTypePB::NOTHING:
+      cdc_record_type = cdc::CDCRecordType::PG_NOTHING;
+      break;
+    case PgReplicationSlotRecordTypePB::DEFAULT:
+      cdc_record_type = cdc::CDCRecordType::PG_DEFAULT;
+      break;
+    case PgReplicationSlotRecordTypePB::CHANGE_OLD_NEW:
+      cdc_record_type = cdc::CDCRecordType::PG_CHANGE_OLD_NEW;
+      break;
+    case PgReplicationSlotRecordTypePB::CHANGE:
+      cdc_record_type = cdc::CDCRecordType::CHANGE;
+      break;
+    default:
+      return STATUS_FORMAT(InvalidArgument, "invalid record_type $0", req.record_type());
+  }
+  options.emplace(cdc::kRecordType, CDCRecordType_Name(cdc_record_type));
 
   auto stream_result = VERIFY_RESULT(client().CreateCDCSDKStreamForNamespace(
       GetPgsqlNamespaceId(req.database_oid()), options,

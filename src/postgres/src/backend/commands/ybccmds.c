@@ -1766,12 +1766,14 @@ YBCValidatePlacement(const char *placement_info)
 /*  Replication Slot Functions. */
 
 void
-YBCCreateReplicationSlot(const char *slot_name)
+ YBCCreateReplicationSlot(const char *slot_name,
+						 YBCPgReplicationSlotRecordType record_type)
 {
 	YBCPgStatement handle;
 
 	HandleYBStatus(YBCPgNewCreateReplicationSlot(slot_name,
 												 MyDatabaseId,
+												 record_type,
 												 &handle));
 
 	bool already_present = false;

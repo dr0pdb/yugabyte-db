@@ -72,7 +72,8 @@ pg_create_physical_replication_slot(PG_FUNCTION_ARGS)
 
 	/* acquire replication slot, this will check for conflicting names */
 	ReplicationSlotCreate(NameStr(*name), false,
-						  temporary ? RS_TEMPORARY : RS_PERSISTENT);
+						  temporary ? RS_TEMPORARY : RS_PERSISTENT,
+						  YB_REPLICATION_SLOT_RECORD_TYPE_CHANGE /* Ignored */);
 
 	values[0] = NameGetDatum(&MyReplicationSlot->data.name);
 	nulls[0] = false;
@@ -102,6 +103,26 @@ pg_create_physical_replication_slot(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(result);
 }
 
+static YBCPgReplicationSlotRecordType
+yb_parse_record_type(char *yb_record_type_raw)
+{
+	if (strcmp(yb_record_type_raw, "FULL") == 0)
+		return YB_REPLICATION_SLOT_RECORD_TYPE_FULL;
+	else if (strcmp(yb_record_type_raw, "NOTHING") == 0)
+		return YB_REPLICATION_SLOT_RECORD_TYPE_NOTHING;
+	else if (strcmp(yb_record_type_raw, "DEFAULT") == 0)
+		return YB_REPLICATION_SLOT_RECORD_TYPE_DEFAULT;
+	else if (strcmp(yb_record_type_raw, "CHANGE") == 0)
+		return YB_REPLICATION_SLOT_RECORD_TYPE_CHANGE;
+	else if (strcmp(yb_record_type_raw, "CHANGE_OLD_NEW") == 0)
+		return YB_REPLICATION_SLOT_RECORD_TYPE_CHANGE_OLD_NEW;
+
+	ereport(ERROR,
+			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			 errmsg("invalid record_type argument value"),
+			 errdetail("record_type argument must be one of FULL, NOTHING,"
+					   " DEFAULT, CHANGE or CHANGE_OLD_NEW")));
+}
 
 /*
  * SQL function for creating a new logical replication slot.
@@ -120,7 +141,12 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 	Name		plugin = PG_GETARG_NAME(1);
 	bool		temporary = PG_GETARG_BOOL(2);
 
+	char		*yb_record_type_raw = text_to_cstring(PG_GETARG_TEXT_PP(3));
+
 	LogicalDecodingContext *ctx = NULL;
+
+	YBCPgReplicationSlotRecordType yb_record_type =
+		YB_REPLICATION_SLOT_RECORD_TYPE_CHANGE;
 
 	TupleDesc	tupdesc;
 	HeapTuple	tuple;
@@ -155,6 +181,9 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("invalid output plugin"),
 					 errdetail("Only 'yboutput' plugin is supported")));
+
+		yb_record_type =
+				yb_parse_record_type(yb_record_type_raw);
 	}
 
 	check_permissions();
@@ -170,7 +199,8 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 	 * error as well.
 	 */
 	ReplicationSlotCreate(NameStr(*name), true,
-						  temporary ? RS_TEMPORARY : RS_EPHEMERAL);
+						  temporary ? RS_TEMPORARY : RS_EPHEMERAL,
+						  yb_record_type);
 
 	memset(nulls, 0, sizeof(nulls));
 

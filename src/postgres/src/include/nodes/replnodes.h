@@ -17,6 +17,9 @@
 #include "access/xlogdefs.h"
 #include "nodes/pg_list.h"
 
+/* YB includes. */
+#include "yb/yql/pggate/ybc_pg_typedefs.h"
+
 typedef enum ReplicationKind
 {
 	REPLICATION_KIND_PHYSICAL,
@@ -57,6 +60,8 @@ typedef struct CreateReplicationSlotCmd
 	char	   *plugin;
 	bool		temporary;
 	List	   *options;
+
+	YBCPgReplicationSlotRecordType yb_recordtype;
 } CreateReplicationSlotCmd;
 
 
