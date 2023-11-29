@@ -833,6 +833,11 @@ parseCreateReplSlotOptions(CreateReplicationSlotCmd *cmd,
 		else
 			elog(ERROR, "unrecognized option: %s", defel->defname);
 	}
+
+	if (IsYugaByteEnabled() && snapshot_action_given &&
+		!YBEnableCDCConsistentSnapshotStreams())
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("Snapshot feature is not yet supported")));
 }
 
 /*
@@ -885,7 +890,8 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 					 errmsg("YSQL only supports logical replication slots")));
 
 		ReplicationSlotCreate(cmd->slotname, false,
-							  cmd->temporary ? RS_TEMPORARY : RS_PERSISTENT);
+							  cmd->temporary ? RS_TEMPORARY : RS_PERSISTENT,
+							  snapshot_action);
 	}
 	else
 	{
@@ -906,7 +912,8 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 			 * beginning as they get dropped on error as well.
 			 */
 			ReplicationSlotCreate(cmd->slotname, true,
-								  cmd->temporary ? RS_TEMPORARY : RS_EPHEMERAL);
+								  cmd->temporary ? RS_TEMPORARY : RS_EPHEMERAL,
+								  snapshot_action);
 		}
 	}
 
@@ -981,7 +988,8 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 							 	 "issues/19263. React with thumbs up to raise"
 								 " its priority")));
 
-			ReplicationSlotCreate(cmd->slotname, true, RS_PERSISTENT);
+			ReplicationSlotCreate(cmd->slotname, true, RS_PERSISTENT,
+								  snapshot_action);
 
 			/*
 			 * Signal that we don't need the timeout mechanism. We're just

@@ -759,6 +759,7 @@ YBCStatus YBCGetTableKeyRanges(
 
 YBCStatus YBCPgNewCreateReplicationSlot(const char *slot_name,
                                         YBCPgOid database_oid,
+                                        YBCPgReplicationSlotSnapshotAction snapshot_action,
                                         YBCPgStatement *handle);
 YBCStatus YBCPgExecCreateReplicationSlot(YBCPgStatement handle);
 

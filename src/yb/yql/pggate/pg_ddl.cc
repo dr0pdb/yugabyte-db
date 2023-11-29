@@ -35,6 +35,8 @@ DEFINE_test_flag(int32, user_ddl_operation_timeout_sec, 0,
 DECLARE_int32(max_num_tablets_for_table);
 DECLARE_int32(yb_client_admin_operation_timeout_sec);
 
+DECLARE_bool(yb_enable_cdc_consistent_snapshot_streams);
+
 namespace yb {
 namespace pggate {
 
@@ -444,10 +446,26 @@ Status PgDropDBSequences::Exec() {
 
 PgCreateReplicationSlot::PgCreateReplicationSlot(PgSession::ScopedRefPtr pg_session,
                                                  const char *slot_name,
-                                                 PgOid database_oid)
+                                                 PgOid database_oid,
+                                                 YBCPgReplicationSlotSnapshotAction snapshot_action)
     : PgDdl(pg_session) {
   req_.set_database_oid(database_oid);
   req_.set_replication_slot_name(slot_name);
+
+  if (FLAGS_yb_enable_cdc_consistent_snapshot_streams) {
+    tserver::PgReplicationSlotSnapshotActionPB snapshot_action_pb;
+    switch (snapshot_action) {
+      case YB_REPLICATION_SLOT_NOEXPORT_SNAPSHOT:
+        snapshot_action_pb = tserver::PgReplicationSlotSnapshotActionPB::NOEXPORT_SNAPSHOT;
+        break;
+      case YB_REPLICATION_SLOT_USE_SNAPSHOT:
+        snapshot_action_pb = tserver::PgReplicationSlotSnapshotActionPB::USE_SNAPSHOT;
+        break;
+      default:
+        DCHECK(false) << "Unknown snapshot_action " << snapshot_action;
+    }
+    req_.set_snapshot_action(snapshot_action_pb);
+  }
 }
 
 Status PgCreateReplicationSlot::Exec() {
