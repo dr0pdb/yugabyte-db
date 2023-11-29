@@ -35,6 +35,8 @@ DEFINE_test_flag(int32, user_ddl_operation_timeout_sec, 0,
 DECLARE_int32(max_num_tablets_for_table);
 DECLARE_int32(yb_client_admin_operation_timeout_sec);
 
+DECLARE_bool(yb_enable_cdc_consistent_snapshot_streams);
+
 namespace yb {
 namespace pggate {
 
