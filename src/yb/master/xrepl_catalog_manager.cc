@@ -991,7 +991,9 @@ Status CatalogManager::CreateNewXReplStream(
       // the table from the AsyncAlterTable callback
       // Just wait for the cdc_state table creation to finish
       // TODO(#19211): Need to fix this as part of making createStream synchronous
-      SleepFor(MonoDelta::FromMilliseconds(100*kTimeMultiplier));
+      // SleepFor(MonoDelta::FromMilliseconds(100*kTimeMultiplier));
+      auto deadline = rpc->GetClientDeadline();
+      RETURN_NOT_OK(cdc_state_table_->WaitForCreateTableToFinish(deadline));
     }
 
     auto require_history_cutoff = consistent_snapshot_option_use || record_type_option_all;
@@ -1120,9 +1122,11 @@ Status CatalogManager::SetAllCDCSDKRetentionBarriers(
     }
   }
 
-  // TEMPORARY: Just sleep a bit to allow ALTER TABLEs to finish.
-  // TODO(#19211): Make this function synchronous
-  SleepFor(MonoDelta::FromMilliseconds(500*kTimeMultiplier));
+  auto deadline = rpc->GetClientDeadline();
+  // TODO(#18934): Handle partial failures by rolling back all changes.
+  for (const auto& table_id : table_ids) {
+    RETURN_NOT_OK(WaitForAlterTableToFinish(table_id, deadline));
+  }
 
   return Status::OK();
 }
@@ -1160,8 +1164,8 @@ Status CatalogManager::SetWalRetentionForTable(
 Status CatalogManager::PopulateCDCStateTableWithCDCSDKSnapshotSafeOpIdDetails(
     const scoped_refptr<TableInfo>& table,
     const yb::TabletId& tablet_id,
-    const xrepl::StreamId&  cdc_sdk_stream_id,
-    const yb::OpIdPB&   snapshot_safe_opid,
+    const xrepl::StreamId& cdc_sdk_stream_id,
+    const yb::OpIdPB& snapshot_safe_opid,
     const yb::HybridTime& proposed_snapshot_time,
     bool require_history_cutoff) {
 

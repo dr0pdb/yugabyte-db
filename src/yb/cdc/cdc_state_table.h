@@ -114,6 +114,8 @@ class CDCStateTable {
   static const std::string& GetTableName();
   static Result<master::CreateTableRequestPB> GenerateCreateCdcStateTableRequest();
 
+  Status WaitForCreateTableToFinish(const CoarseTimePoint& deadline);
+
   Status InsertEntries(
       const std::vector<CDCStateTableEntry>& entries)
       EXCLUDES(mutex_);

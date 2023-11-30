@@ -285,6 +285,11 @@ Status CDCStateTable::OpenTable(client::TableHandle* cdc_table) {
   return Status::OK();
 }
 
+Status CDCStateTable::WaitForCreateTableToFinish(const CoarseTimePoint& deadline) {
+  auto* client = VERIFY_RESULT(GetClient());
+  return client->WaitForCreateTableToFinish(kCdcStateYBTableName, deadline);
+}
+
 Result<std::shared_ptr<client::TableHandle>> CDCStateTable::GetTable() {
   bool use_cache = GetAtomicFlag(&FLAGS_enable_cdc_state_table_caching);
   if (!use_cache) {
