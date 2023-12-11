@@ -30,6 +30,8 @@ class CDCSDKConsistentSnapshotTest : public CDCSDKYsqlTest {
 
   }
 
+  void TestCSStreamFailureRollback(
+      cdc::TEST_CreateCDCStreamFailureMode failure_mode, std::string expected_error);
 };
 
 
@@ -85,6 +87,110 @@ TEST_F(CDCSDKConsistentSnapshotTest, TestCSStreamSnapshotEstablishment) {
             tablet_peer->get_cdc_min_replicated_index());
   ASSERT_EQ(tablet_peer->cdc_sdk_min_checkpoint_op_id().index,
             tablet_peer->get_cdc_min_replicated_index());
+}
+
+void CDCSDKConsistentSnapshotTest::TestCSStreamFailureRollback(
+    cdc::TEST_CreateCDCStreamFailureMode failure_mode, std::string expected_error) {
+  // Make UpdatePeersAndMetrics and Catalog Manager background tasks run frequently.
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_update_min_cdc_indices_interval_secs) = 1;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_catalog_manager_bg_task_wait_ms) = 100;
+
+  auto tablets = ASSERT_RESULT(SetUpWithOneTablet(1, 1, false));
+  auto tablet_peer =
+      ASSERT_RESULT(GetLeaderPeerForTablet(test_cluster(), tablets.begin()->tablet_id()));
+
+  FLAGS_TEST_cdcsdk_fail_create_cdc_stream = static_cast<int32_t>(failure_mode);
+
+  if (failure_mode ==
+      cdc::TEST_CreateCDCStreamFailureMode::kWhileStoringConsistentSnapshotDetails) {
+    expected_error = Format(
+        "Checkpoint for tablet id $0 unexpectedly found Invalid for stream id",
+        tablet_peer->tablet_id());
+  }
+
+  auto s = CreateConsistentSnapshotStream();
+  ASSERT_NOK(s);
+  ASSERT_NE(s.status().message().AsStringView().find(expected_error), std::string::npos)
+      << s.status().message().AsStringView();
+
+  // Allow the background UpdatePeersAndMetrics to clean up the stream.
+  SleepFor(
+      MonoDelta::FromSeconds(4 * FLAGS_update_min_cdc_indices_interval_secs * kTimeMultiplier));
+
+  auto list_streams_resp = ASSERT_RESULT(ListDBStreams());
+  ASSERT_EQ(list_streams_resp.streams_size(), 0) << list_streams_resp.DebugString();
+
+  ASSERT_EQ(tablet_peer->get_cdc_sdk_safe_time(), HybridTime::kInvalid);
+
+  // The stream creation must succeed after reverting the flag.
+  FLAGS_TEST_cdcsdk_fail_create_cdc_stream = 0;
+  // Disable running UpdatePeersAndMetrics now so that it doesn't interfere with the safe time.
+  FLAGS_enable_log_retention_by_op_idx = false;
+
+  xrepl::StreamId stream1_id = ASSERT_RESULT(CreateConsistentSnapshotStream());
+  const auto& snapshot_time_key_pair =
+      ASSERT_RESULT(GetSnapshotDetailsFromCdcStateTable(
+          stream1_id, tablet_peer->tablet_id(), test_client()));
+  auto checkpoint_result =
+      ASSERT_RESULT(GetCDCSnapshotCheckpoint(stream1_id, tablet_peer->tablet_id()));
+
+  LogRetentionBarrierAndRelatedDetails(checkpoint_result, tablet_peer);
+  ASSERT_GT(checkpoint_result.checkpoint().op_id().term(), 0);
+  ASSERT_GT(checkpoint_result.checkpoint().op_id().index(), 0);
+  ASSERT_GT(std::get<0>(snapshot_time_key_pair), tablet_peer->get_cdc_sdk_safe_time().ToUint64());
+  ASSERT_LE(checkpoint_result.checkpoint().op_id().index(),
+            tablet_peer->get_cdc_min_replicated_index());
+  ASSERT_EQ(tablet_peer->cdc_sdk_min_checkpoint_op_id().index,
+            tablet_peer->get_cdc_min_replicated_index());
+
+  list_streams_resp = ASSERT_RESULT(ListDBStreams());
+  ASSERT_EQ(list_streams_resp.streams_size(), 1);
+}
+
+TEST_F(CDCSDKConsistentSnapshotTest, TestCSStreamFailureRollbackFailureBeforeSysCatalogEntry) {
+  TestCSStreamFailureRollback(
+      cdc::TEST_CreateCDCStreamFailureMode::kBeforeSysCatalogEntry,
+      "Test failure for failure mode 1.");
+}
+
+TEST_F(CDCSDKConsistentSnapshotTest, TestCSStreamFailureRollbackFailureBeforeInMemoryCommit) {
+  TestCSStreamFailureRollback(
+      cdc::TEST_CreateCDCStreamFailureMode::kBeforeInMemoryStateCommit,
+      "Test failure for failure mode 2.");
+}
+
+TEST_F(CDCSDKConsistentSnapshotTest, TestCSStreamFailureRollbackFailureAfterInMemoryStateCommit) {
+  TestCSStreamFailureRollback(
+      cdc::TEST_CreateCDCStreamFailureMode::kAfterInMemoryStateCommit,
+      "Test failure for failure mode 3.");
+}
+
+TEST_F(CDCSDKConsistentSnapshotTest, TestCSStreamFailureRollbackFailureAfterDummy) {
+  TestCSStreamFailureRollback(
+      cdc::TEST_CreateCDCStreamFailureMode::kAfterDummyCDCStateEntries,
+      "Test failure for failure mode 4.");
+}
+
+TEST_F(CDCSDKConsistentSnapshotTest, TestCSStreamFailureRollbackFailureAfterRetentionBarriers) {
+  TestCSStreamFailureRollback(
+      cdc::TEST_CreateCDCStreamFailureMode::kAfterRetentionBarriers,
+      "Test failure for failure mode 5.");
+}
+
+TEST_F(
+    CDCSDKConsistentSnapshotTest,
+    TestCSStreamFailureRollbackFailureWhileStoringConsistentSnapshot) {
+  TestCSStreamFailureRollback(
+      cdc::TEST_CreateCDCStreamFailureMode::kWhileStoringConsistentSnapshotDetails,
+      "" /* ignored */);
+}
+
+TEST_F(
+    CDCSDKConsistentSnapshotTest,
+    TestCSStreamFailureRollbackFailureAfterStoringConsistentSnapshot) {
+  TestCSStreamFailureRollback(
+      cdc::TEST_CreateCDCStreamFailureMode::kAfterStoringConsistentSnapshotDetails,
+      "Test failure for failure mode 7.");
 }
 
 // The goal of this test is to confirm that the retention barriers are set

@@ -79,6 +79,20 @@ static const char* const kCheckpointType = "checkpoint_type";
 static const char* const kStreamState = "state";
 static const char* const kNamespaceId = "NAMESPACEID";
 static const char* const kCDCSDKSnapshotDoneKey = "snapshot_done_key";
+
+// Kept as an int32_t so that it can be set via a TEST Gflag.
+enum class TEST_CreateCDCStreamFailureMode : int32_t {
+  kNoFailure = 0,
+
+  kBeforeSysCatalogEntry,
+  kBeforeInMemoryStateCommit,
+  kAfterInMemoryStateCommit,
+  kAfterDummyCDCStateEntries,
+  kAfterRetentionBarriers,
+  kWhileStoringConsistentSnapshotDetails,
+  kAfterStoringConsistentSnapshotDetails,
+};
+
 struct TabletCheckpoint {
   OpId op_id;
   // Timestamp at which the op ID was last updated.
