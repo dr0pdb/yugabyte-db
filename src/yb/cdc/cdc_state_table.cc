@@ -278,9 +278,37 @@ Result<master::CreateTableRequestPB> CDCStateTable::GenerateCreateCdcStateTableR
   return req;
 }
 
-Status CDCStateTable::OpenTable(client::TableHandle* cdc_table) {
+Status CDCStateTable::WaitForCreateTableToFinish() {
+  bool use_cache = GetAtomicFlag(&FLAGS_enable_cdc_state_table_caching);
+  if (!use_cache) {
+    return WaitForCreateTableToFinishWithoutCache();
+  }
+
+  {
+    SharedLock sl(mutex_);
+    if (created_) {
+      return Status::OK();
+    }
+  }
+
+  std::lock_guard l(mutex_);
+  if (created_) {
+    return Status::OK();
+  }
   auto* client = VERIFY_RESULT(GetClient());
   RETURN_NOT_OK(client->WaitForCreateTableToFinish(kCdcStateYBTableName));
+  created_ = true;
+  return Status::OK();
+}
+
+Status CDCStateTable::WaitForCreateTableToFinishWithoutCache() {
+  auto* client = VERIFY_RESULT(GetClient());
+  return client->WaitForCreateTableToFinish(kCdcStateYBTableName);
+}
+
+Status CDCStateTable::OpenTable(client::TableHandle* cdc_table) {
+  RETURN_NOT_OK(WaitForCreateTableToFinishWithoutCache());
+  auto* client = VERIFY_RESULT(GetClient());
   RETURN_NOT_OK(cdc_table->Open(kCdcStateYBTableName, client));
   return Status::OK();
 }
@@ -306,6 +334,7 @@ Result<std::shared_ptr<client::TableHandle>> CDCStateTable::GetTable() {
   }
   auto cdc_table = std::make_shared<client::TableHandle>();
   RETURN_NOT_OK(OpenTable(cdc_table.get()));
+  created_ = true;
   cdc_table_.swap(cdc_table);
   return cdc_table_;
 }

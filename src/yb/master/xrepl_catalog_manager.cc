@@ -796,10 +796,6 @@ Status CatalogManager::CreateCDCStream(
 
   // CDCSDK only.
   } else {
-    // Mark the cluster as a cdc enabled so that we can rollback failed creations which relies on
-    // the UpdatePeersAndMetrics background thread to run.
-    SetCDCServiceEnabled();
-
     RETURN_NOT_OK(ValidateCDCSDKRequestProperties(
         *req, source_type_option_value, record_type_option_value, id_type_option_value));
 
@@ -866,14 +862,24 @@ Status CatalogManager::CreateNewXReplStream(
   CDCStreamInfoPtr stream;
   xrepl::StreamId stream_id = xrepl::StreamId::Nil();
 
-  // Kick-off the CDC state table creation before any other logic so that in case we need a
-  // rollback, we can assume that it already exists.
+  // Kick-off the CDC state table creation before any other logic. Also ensure that it has been
+  // successfully created in the case of CDCSDK so that in case we need a rollback, we can assume
+  // that it already exists. 
   // This is a one-time operation in a universe so the performance penalty of doing this is minimal.
   CreateTableResponsePB table_resp;
   RETURN_NOT_OK(CreateTableIfNotFound(
       cdc::CDCStateTable::GetNamespaceName(), cdc::CDCStateTable::GetTableName(),
       &cdc::CDCStateTable::GenerateCreateCdcStateTableRequest, &table_resp, /* rpc */ nullptr,
       epoch));
+  if (mode == CreateNewCDCStreamMode::kCdcsdkNamespaceAndTableIds) {
+    RETURN_NOT_OK(cdc_state_table_->WaitForCreateTableToFinish());
+
+    // Mark the cluster as a cdc enabled so that we can rollback failed creations which relies on
+    // the UpdatePeersAndMetrics background thread to run.
+    // This can only be done after we have ensured that the CDC state table exists as
+    // UpdatePeersAndMetrics thread assumes that.
+    SetCDCServiceEnabled();
+  }
   TRACE("Created CDC state table");
 
   // TODO(#18934): Move to the DDL transactional atomicity model.

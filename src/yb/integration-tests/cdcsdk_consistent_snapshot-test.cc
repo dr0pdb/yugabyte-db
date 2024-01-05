@@ -99,7 +99,8 @@ void CDCSDKConsistentSnapshotTest::TestCSStreamFailureRollback(
   auto tablet_peer =
       ASSERT_RESULT(GetLeaderPeerForTablet(test_cluster(), tablets.begin()->tablet_id()));
 
-  FLAGS_TEST_cdcsdk_fail_create_cdc_stream = static_cast<int32_t>(failure_mode);
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_cdcsdk_fail_create_cdc_stream) =
+      static_cast<int32_t>(failure_mode);
 
   if (failure_mode ==
       cdc::TEST_CreateCDCStreamFailureMode::kWhileStoringConsistentSnapshotDetails) {
@@ -123,9 +124,9 @@ void CDCSDKConsistentSnapshotTest::TestCSStreamFailureRollback(
   ASSERT_EQ(tablet_peer->get_cdc_sdk_safe_time(), HybridTime::kInvalid);
 
   // The stream creation must succeed after reverting the flag.
-  FLAGS_TEST_cdcsdk_fail_create_cdc_stream = 0;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_cdcsdk_fail_create_cdc_stream) = 0;
   // Disable running UpdatePeersAndMetrics now so that it doesn't interfere with the safe time.
-  FLAGS_enable_log_retention_by_op_idx = false;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_enable_log_retention_by_op_idx) = false;
 
   xrepl::StreamId stream1_id = ASSERT_RESULT(CreateConsistentSnapshotStream());
   const auto& snapshot_time_key_pair =
