@@ -44,7 +44,6 @@ DECLARE_uint32(max_replication_slots);
 DECLARE_bool(TEST_ysql_yb_enable_replication_commands);
 DECLARE_uint32(cdcsdk_retention_barrier_no_revision_interval_secs);
 DECLARE_int32(cleanup_split_tablets_interval_sec);
-DECLARE_int32(TEST_cdcsdk_fail_create_cdc_stream);
 
 namespace yb {
 using client::YBClient;

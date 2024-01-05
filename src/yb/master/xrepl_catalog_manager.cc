@@ -140,10 +140,6 @@ DEFINE_RUNTIME_bool(enable_backfilling_cdc_stream_with_replication_slot, false,
     "Intended to be used for making CDC streams created before replication slot support work with"
     " the replication slot commands.");
 
-DEFINE_test_flag(int32, cdcsdk_fail_create_cdc_stream, 0,
-                 "When > 0, simulates failure to test the rollback mechanism of CreateCDCStream "
-                 "RPC. The possible values are taken from cdc::TEST_CreateCDCStreamFailureMode.");
-
 DECLARE_bool(xcluster_wait_on_ddl_alter);
 DECLARE_int32(master_rpc_timeout_ms);
 DECLARE_bool(TEST_ysql_yb_enable_replication_commands);
@@ -864,7 +860,7 @@ Status CatalogManager::CreateNewXReplStream(
 
   // Kick-off the CDC state table creation before any other logic. Also ensure that it has been
   // successfully created in the case of CDCSDK so that in case we need a rollback, we can assume
-  // that it already exists. 
+  // that it already exists.
   // This is a one-time operation in a universe so the performance penalty of doing this is minimal.
   CreateTableResponsePB table_resp;
   RETURN_NOT_OK(CreateTableIfNotFound(
@@ -991,8 +987,8 @@ Status CatalogManager::CreateNewXReplStream(
   // Any failure beyond this point requires a rollback for CDCSDK streams.
   SET_CDCSDK_ROLLBACK(CDCSDKCreateStreamRollback::kMaps);
 
-  RETURN_NOT_OK(TEST_CDCSDKFailCreateStreamRequestIfNeeded(
-      cdc::TEST_CreateCDCStreamFailureMode::kBeforeSysCatalogEntry));
+  RETURN_NOT_OK(
+      TEST_CDCSDKFailCreateStreamRequestIfNeeded("CreateCDCStream::kBeforeSysCatalogEntry"));
 
   // Update the on-disk system catalog.
   RETURN_NOT_OK(CheckLeaderStatusAndSetupError(
@@ -1001,16 +997,16 @@ Status CatalogManager::CreateNewXReplStream(
   SET_CDCSDK_ROLLBACK(CDCSDKCreateStreamRollback::kMapsAndSysCatalogPreCommitMutation);
   TRACE("Wrote CDC stream to sys-catalog");
 
-  RETURN_NOT_OK(TEST_CDCSDKFailCreateStreamRequestIfNeeded(
-      cdc::TEST_CreateCDCStreamFailureMode::kBeforeInMemoryStateCommit));
+  RETURN_NOT_OK(
+      TEST_CDCSDKFailCreateStreamRequestIfNeeded("CreateCDCStream::kBeforeInMemoryStateCommit"));
 
   // Commit the in-memory state.
   stream->mutable_metadata()->CommitMutation();
   SET_CDCSDK_ROLLBACK(CDCSDKCreateStreamRollback::kMapsAndSysCatalogPostCommitMutation);
   LOG(INFO) << "Created CDC stream " << stream->ToString();
 
-  RETURN_NOT_OK(TEST_CDCSDKFailCreateStreamRequestIfNeeded(
-      cdc::TEST_CreateCDCStreamFailureMode::kAfterInMemoryStateCommit));
+  RETURN_NOT_OK(
+      TEST_CDCSDKFailCreateStreamRequestIfNeeded("CreateCDCStream::kAfterInMemoryStateCommit"));
 
   // Skip if disable_cdc_state_insert_on_setup is set.
   // If this is a bootstrap (initial state not ACTIVE), let the BootstrapProducer logic take care of
@@ -1045,8 +1041,8 @@ Status CatalogManager::CreateNewXReplStream(
         stream->StreamId(), table_ids, false /* has_consistent_snapshot_option */,
         false /* consistent_snapshot_option_use */, 0 /* ignored */, 0 /* ignored */));
 
-    RETURN_NOT_OK(TEST_CDCSDKFailCreateStreamRequestIfNeeded(
-        cdc::TEST_CreateCDCStreamFailureMode::kAfterDummyCDCStateEntries));
+    RETURN_NOT_OK(
+        TEST_CDCSDKFailCreateStreamRequestIfNeeded("CreateCDCStream::kAfterDummyCDCStateEntries"));
 
     // Step 2: Set retention barriers for all tables.
     auto require_history_cutoff = consistent_snapshot_option_use || record_type_option_all;
@@ -1054,8 +1050,8 @@ Status CatalogManager::CreateNewXReplStream(
         req, rpc, epoch, table_ids, stream->StreamId(), has_consistent_snapshot_option,
         require_history_cutoff));
 
-    RETURN_NOT_OK(TEST_CDCSDKFailCreateStreamRequestIfNeeded(
-        cdc::TEST_CreateCDCStreamFailureMode::kAfterRetentionBarriers));
+    RETURN_NOT_OK(
+        TEST_CDCSDKFailCreateStreamRequestIfNeeded("CreateCDCStream::kAfterRetentionBarriers"));
 
     // Step 3: At this stage, the retention barriers have been set using ALTER TABLE and the
     // SnapshotSafeOpId details have been written to the CDC state table via callback.
@@ -1088,7 +1084,7 @@ Status CatalogManager::CreateNewXReplStream(
         consistent_snapshot_option_use, consistent_snapshot_time, stream_creation_time));
 
     RETURN_NOT_OK(TEST_CDCSDKFailCreateStreamRequestIfNeeded(
-        cdc::TEST_CreateCDCStreamFailureMode::kAfterStoringConsistentSnapshotDetails));
+        "CreateCDCStream::kAfterStoringConsistentSnapshotDetails"));
 
     SET_CDCSDK_ROLLBACK(CDCSDKCreateStreamRollback::kNotNeeded);
   } else {
@@ -1112,36 +1108,38 @@ Status CatalogManager::CreateNewXReplStream(
 
 Status CatalogManager::RollbackFailedCreateCDCSDKStream(
     const xrepl::StreamId& stream_id, CDCSDKCreateStreamRollback& cdcsdk_rollback) {
-  if (cdcsdk_rollback != CDCSDKCreateStreamRollback::kNotNeeded &&
-      stream_id != xrepl::StreamId::Nil()) {
-    LOG(WARNING) << "Rolling back the CDC stream creation for stream_id = " << stream_id
-                 << ", cdcsdk_needs_rollback = " << cdcsdk_rollback;
+  if (cdcsdk_rollback == CDCSDKCreateStreamRollback::kNotNeeded ||
+      stream_id == xrepl::StreamId::Nil()) {
+    return Status::OK();
+  }
 
-    CDCStreamInfoPtr stream;
-    {
-      TRACE("Acquired catalog manager lock for rolling back CDCSDK stream creation");
-      SharedLock lock(mutex_);
-      stream = cdc_stream_map_[stream_id];
+  LOG(WARNING) << "Rolling back the CDC stream creation for stream_id = " << stream_id
+               << ", cdcsdk_needs_rollback = " << cdcsdk_rollback;
+
+  CDCStreamInfoPtr stream;
+  {
+    TRACE("Acquired catalog manager lock for rolling back CDCSDK stream creation");
+    SharedLock lock(mutex_);
+    stream = cdc_stream_map_[stream_id];
+  }
+
+  switch (cdcsdk_rollback) {
+    case CDCSDKCreateStreamRollback::kMaps: {
+      RETURN_NOT_OK(CleanUpCDCSDKStreamFromCatalogManagerMaps(stream));
+      break;
+    }
+    case CDCSDKCreateStreamRollback::kMapsAndSysCatalogPreCommitMutation:
+      // Call AbortMutation since we didn't commit the in-memory changes so that the write lock
+      // is released.
+      stream->mutable_metadata()->AbortMutation();
+      FALLTHROUGH_INTENDED;
+    case CDCSDKCreateStreamRollback::kMapsAndSysCatalogPostCommitMutation: {
+      RETURN_NOT_OK(MarkCDCStreamsForMetadataCleanup({stream}, SysCDCStreamEntryPB::DELETING));
+      break;
     }
 
-    switch (cdcsdk_rollback) {
-      case CDCSDKCreateStreamRollback::kMaps: {
-        RETURN_NOT_OK(CleanUpCDCSDKStreamFromCatalogManagerMaps(stream));
-        break;
-      }
-      case CDCSDKCreateStreamRollback::kMapsAndSysCatalogPreCommitMutation:
-        // Call AbortMutation since we didn't commit the in-memory changes so that the write lock
-        // is released.
-        stream->mutable_metadata()->AbortMutation();
-        FALLTHROUGH_INTENDED;
-      case CDCSDKCreateStreamRollback::kMapsAndSysCatalogPostCommitMutation: {
-        RETURN_NOT_OK(MarkCDCStreamsForMetadataCleanup({stream}, SysCDCStreamEntryPB::DELETING));
-        break;
-      }
-
-      case CDCSDKCreateStreamRollback::kNotNeeded:
-        VLOG(2) << "Nothing to rollback";
-    }
+    case CDCSDKCreateStreamRollback::kNotNeeded:
+      VLOG(2) << "Nothing to rollback";
   }
 
   return Status::OK();
@@ -1343,7 +1341,7 @@ Status CatalogManager::PopulateCDCStateTableWithCDCSDKSnapshotSafeOpIdDetails(
   }
 
   RETURN_NOT_OK(TEST_CDCSDKFailCreateStreamRequestIfNeeded(
-      cdc::TEST_CreateCDCStreamFailureMode::kWhileStoringConsistentSnapshotDetails));
+      "CreateCDCStream::kWhileStoringConsistentSnapshotDetails"));
 
   return cdc_state_table_->UpsertEntries(entries);
 }
@@ -5922,11 +5920,11 @@ Status CatalogManager::ReplicationSlotValidateName(const std::string& replicatio
   return Status::OK();
 }
 
-Status CatalogManager::TEST_CDCSDKFailCreateStreamRequestIfNeeded(
-    cdc::TEST_CreateCDCStreamFailureMode failure_mode) {
-  if (FLAGS_TEST_cdcsdk_fail_create_cdc_stream == static_cast<int32_t>(failure_mode)) {
-    return STATUS_FORMAT(
-        Aborted, "Test failure for failure mode $0.", static_cast<int32_t>(failure_mode));
+Status CatalogManager::TEST_CDCSDKFailCreateStreamRequestIfNeeded(const std::string& sync_point) {
+  bool fail_create_cdc_stream_request = false;
+  TEST_SYNC_POINT_CALLBACK(sync_point, &fail_create_cdc_stream_request);
+  if (fail_create_cdc_stream_request) {
+    return STATUS_FORMAT(Aborted, "Test failure for sync point $0.", sync_point);
   }
   return Status::OK();
 }

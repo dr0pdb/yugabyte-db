@@ -2728,8 +2728,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
 
   Status ReplicationSlotValidateName(const std::string& replication_slot_name);
 
-  Status TEST_CDCSDKFailCreateStreamRequestIfNeeded(
-      cdc::TEST_CreateCDCStreamFailureMode failure_mode);
+  Status TEST_CDCSDKFailCreateStreamRequestIfNeeded(const std::string& sync_point);
 
   // Create the cdc_state table if needed (i.e. if it does not exist already).
   //
