@@ -787,9 +787,6 @@ Status CatalogManager::CreateCDCStream(
         *req, CreateNewCDCStreamMode::kXClusterTableIds,
         /*table_ids=*/{req->table_id()}, /*namespace_id=*/std::nullopt, resp, epoch, rpc));
 
-    // Now that the stream is set up, mark the entire cluster as a cdc enabled.
-    SetCDCServiceEnabled();
-
   // CDCSDK only.
   } else {
     RETURN_NOT_OK(ValidateCDCSDKRequestProperties(
@@ -858,23 +855,23 @@ Status CatalogManager::CreateNewXReplStream(
   CDCStreamInfoPtr stream;
   xrepl::StreamId stream_id = xrepl::StreamId::Nil();
 
-  // Kick-off the CDC state table creation before any other logic. Also ensure that it has been
-  // successfully created in the case of CDCSDK so that in case we need a rollback, we can assume
-  // that it already exists.
-  // This is a one-time operation in a universe so the performance penalty of doing this is minimal.
+  // Kick-off the CDC state table creation before any other logic.
   CreateTableResponsePB table_resp;
   RETURN_NOT_OK(CreateTableIfNotFound(
       cdc::CDCStateTable::GetNamespaceName(), cdc::CDCStateTable::GetTableName(),
       &cdc::CDCStateTable::GenerateCreateCdcStateTableRequest, &table_resp, /* rpc */ nullptr,
       epoch));
+  SetCDCServiceEnabled();
+
+  // Ensure that the CDC state table has been successfully created in the case of CDCSDK.
+  // It is important because the rollback of a CDCSDK stream (CatalogManager::RunXClusterBgTasks)
+  // and the creation of tablets of a table (CDC state table) are both done in the same
+  // CatalogManagerBgTasks thread. In the absence of this wait, we could end up in a deadlock
+  // situation where the rollback logic waits for the CDC state table to be created while blocking
+  // the creation of tablets of the CDC state table.
+  // This is a one-time operation in a universe so the performance penalty of doing this is minimal.
   if (mode == CreateNewCDCStreamMode::kCdcsdkNamespaceAndTableIds) {
     RETURN_NOT_OK(cdc_state_table_->WaitForCreateTableToFinish());
-
-    // Mark the cluster as a cdc enabled so that we can rollback failed creations which relies on
-    // the UpdatePeersAndMetrics background thread to run.
-    // This can only be done after we have ensured that the CDC state table exists as
-    // UpdatePeersAndMetrics thread assumes that.
-    SetCDCServiceEnabled();
   }
   TRACE("Created CDC state table");
 

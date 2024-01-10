@@ -98,7 +98,7 @@ void CDCSDKConsistentSnapshotTest::TestCSStreamFailureRollback(
   auto tablet_peer =
       ASSERT_RESULT(GetLeaderPeerForTablet(test_cluster(), tablets.begin()->tablet_id()));
 
-  bool force_failure = true;
+  std::atomic<bool> force_failure = true;
   yb::SyncPoint::GetInstance()->SetCallBack(sync_point, [&force_failure, &sync_point](void* arg) {
     LOG(INFO) << "CDC stream creation sync point callback: " << sync_point
               << ", force_failure: " << force_failure;
