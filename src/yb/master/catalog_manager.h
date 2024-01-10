@@ -44,7 +44,6 @@
 #include <boost/functional/hash.hpp>
 #include <gtest/internal/gtest-internal.h>
 
-#include "yb/cdc/cdc_service.h"
 #include "yb/cdc/xcluster_types.h"
 #include "yb/common/constants.h"
 #include "yb/common/entity_ids.h"
@@ -170,15 +169,20 @@ YB_DEFINE_ENUM(
 );
 
 YB_DEFINE_ENUM(
-    CDCSDKCreateStreamRollback,
-    // No rollback needed.
-    (kNotNeeded)
-    // Rollback changes done to CatalogManager maps.
-    (kMaps)
-    // Rollback changes done to CatalogManager maps and abort the commit mutation.
-    (kMapsAndSysCatalogPreCommitMutation)
-    // Rollback changes done to CatalogManager maps and delete from sys catalog.
-    (kMapsAndSysCatalogPostCommitMutation)
+    CDCSDKStreamCreationState,
+    // Stream has been initialized but no in-memory data structures or sys-catalog have been
+    // modified.
+    (kInitialized)
+    // Stream has been added to the in-memory maps.
+    (kAddedToMaps)
+    // Stream has been added to the in-memory maps and sys-catalog. Also an in-memory mutation has
+    // been created but not yet committed.
+    (kPreCommitMutation)
+    // Stream has been added to the in-memory maps and sys-catalog. The in-memory mutation has
+    // been committed.
+    (kPostCommitMutation)
+    // Stream has been created successfully and is ready to be streamed.
+    (kReady)
 );
 
 using DdlTxnIdToTablesMap =
@@ -1437,7 +1441,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
       const std::string& record_type_option_value, const std::string& id_type_option_value);
 
   Status RollbackFailedCreateCDCSDKStream(
-      const xrepl::StreamId& stream_id, CDCSDKCreateStreamRollback& cdcsdk_rollback);
+      const xrepl::StreamId& stream_id, CDCSDKStreamCreationState& cdcsdk_stream_creation_state);
 
   // Process the newly created tables that are relevant to existing CDCSDK streams.
   Status ProcessNewTablesForCDCSDKStreams(
@@ -1465,9 +1469,7 @@ class CatalogManager : public tserver::TabletPeerLookupIf,
 
   Status CleanUpCDCMetadataFromSystemCatalog(const StreamTablesMap& drop_stream_tablelist);
 
-  Status CleanUpCDCSDKStreamFromCatalogManagerMaps(CDCStreamInfoPtr stream);
-  Status CleanUpCDCSDKStreamFromCatalogManagerMapsUnlocked(CDCStreamInfoPtr stream)
-      REQUIRES(mutex_);
+  Status CleanUpCDCSDKStreamFromMaps(CDCStreamInfoPtr stream) REQUIRES(mutex_);
 
   Status UpdateCDCStreams(
       const std::vector<xrepl::StreamId>& stream_ids,

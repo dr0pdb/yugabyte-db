@@ -157,47 +157,47 @@ void CDCSDKConsistentSnapshotTest::TestCSStreamFailureRollback(
 
 TEST_F(CDCSDKConsistentSnapshotTest, TestCSStreamFailureRollbackFailureBeforeSysCatalogEntry) {
   TestCSStreamFailureRollback(
-      "CreateCDCStream::kBeforeSysCatalogEntry",
-      "Test failure for sync point CreateCDCStream::kBeforeSysCatalogEntry.");
+      "CreateCDCSDKStream::kBeforeSysCatalogEntry",
+      "Test failure for sync point CreateCDCSDKStream::kBeforeSysCatalogEntry.");
 }
 
 TEST_F(CDCSDKConsistentSnapshotTest, TestCSStreamFailureRollbackFailureBeforeInMemoryCommit) {
   TestCSStreamFailureRollback(
-      "CreateCDCStream::kBeforeInMemoryStateCommit",
-      "Test failure for sync point CreateCDCStream::kBeforeInMemoryStateCommit.");
+      "CreateCDCSDKStream::kBeforeInMemoryStateCommit",
+      "Test failure for sync point CreateCDCSDKStream::kBeforeInMemoryStateCommit.");
 }
 
 TEST_F(CDCSDKConsistentSnapshotTest, TestCSStreamFailureRollbackFailureAfterInMemoryStateCommit) {
   TestCSStreamFailureRollback(
-      "CreateCDCStream::kAfterInMemoryStateCommit",
-      "Test failure for sync point CreateCDCStream::kAfterInMemoryStateCommit.");
+      "CreateCDCSDKStream::kAfterInMemoryStateCommit",
+      "Test failure for sync point CreateCDCSDKStream::kAfterInMemoryStateCommit.");
 }
 
 TEST_F(CDCSDKConsistentSnapshotTest, TestCSStreamFailureRollbackFailureAfterDummy) {
   TestCSStreamFailureRollback(
-      "CreateCDCStream::kAfterDummyCDCStateEntries",
-      "Test failure for sync point CreateCDCStream::kAfterDummyCDCStateEntries.");
+      "CreateCDCSDKStream::kAfterDummyCDCStateEntries",
+      "Test failure for sync point CreateCDCSDKStream::kAfterDummyCDCStateEntries.");
 }
 
 TEST_F(CDCSDKConsistentSnapshotTest, TestCSStreamFailureRollbackFailureAfterRetentionBarriers) {
   TestCSStreamFailureRollback(
-      "CreateCDCStream::kAfterRetentionBarriers",
-      "Test failure for sync point CreateCDCStream::kAfterRetentionBarriers.");
+      "CreateCDCSDKStream::kAfterRetentionBarriers",
+      "Test failure for sync point CreateCDCSDKStream::kAfterRetentionBarriers.");
 }
 
 TEST_F(
     CDCSDKConsistentSnapshotTest,
     TestCSStreamFailureRollbackFailureWhileStoringConsistentSnapshot) {
   TestCSStreamFailureRollback(
-      "CreateCDCStream::kWhileStoringConsistentSnapshotDetails", "" /* ignored */);
+      "CreateCDCSDKStream::kWhileStoringConsistentSnapshotDetails", "" /* ignored */);
 }
 
 TEST_F(
     CDCSDKConsistentSnapshotTest,
     TestCSStreamFailureRollbackFailureAfterStoringConsistentSnapshot) {
   TestCSStreamFailureRollback(
-      "CreateCDCStream::kAfterStoringConsistentSnapshotDetails",
-      "Test failure for sync point CreateCDCStream::kAfterStoringConsistentSnapshotDetails.");
+      "CreateCDCSDKStream::kAfterStoringConsistentSnapshotDetails",
+      "Test failure for sync point CreateCDCSDKStream::kAfterStoringConsistentSnapshotDetails.");
 }
 
 // The goal of this test is to confirm that the retention barriers are set

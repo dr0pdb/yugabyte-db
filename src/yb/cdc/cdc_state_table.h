@@ -113,7 +113,7 @@ class CDCStateTable {
   static const std::string& GetNamespaceName();
   static const std::string& GetTableName();
   static Result<master::CreateTableRequestPB> GenerateCreateCdcStateTableRequest();
-  Status WaitForCreateTableToFinish();
+  Status WaitForCreateTableToFinish() EXCLUDES(mutex_);
 
   Status InsertEntries(
       const std::vector<CDCStateTableEntry>& entries)
@@ -136,6 +136,7 @@ class CDCStateTable {
  private:
   Result<client::YBClient*> GetClient();
   Result<std::shared_ptr<client::YBSession>> GetSession();
+  Status WaitForCreateTableToFinishWithCache() REQUIRES(mutex_);
   Status WaitForCreateTableToFinishWithoutCache();
   Result<std::shared_ptr<client::TableHandle>> GetTable() EXCLUDES(mutex_);
   Status OpenTable(client::TableHandle* cdc_table);
