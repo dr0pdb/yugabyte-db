@@ -872,7 +872,7 @@ Status CatalogManager::CreateNewXReplStream(
   // the creation of tablets of the CDC state table.
   // This is a one-time operation in a universe so the performance penalty of doing this is minimal.
   if (mode == CreateNewCDCStreamMode::kCdcsdkNamespaceAndTableIds) {
-    RETURN_NOT_OK(cdc_state_table_->WaitForCreateTableToFinish());
+    // RETURN_NOT_OK(cdc_state_table_->WaitForCreateTableToFinish());
   }
   TRACE("Created CDC state table");
 
@@ -2011,9 +2011,13 @@ Status CatalogManager::CleanUpDeletedCDCStreams(
     stream_id_to_stream_info_map.emplace(stream->StreamId(), stream.get());
   }
 
+  // We use GetTableRangeAsync here since it could be that we came here to rollback a CDCSDK stream
+  // with the CDC state table creation still in progress. This can happen in case the stream being
+  // rolled back is the first CDC stream in the universe. In this case, we skip the rollback and the
+  // caller (CatalogManagerBgTasks) is expected to retry this cleanup at a later time.
   Status iteration_status;
-  auto all_entry_keys =
-      VERIFY_RESULT(cdc_state_table_->GetTableRange({} /* just key columns */, &iteration_status));
+  auto all_entry_keys = VERIFY_RESULT(
+      cdc_state_table_->GetTableRangeAsync({} /* just key columns */, &iteration_status));
   std::vector<cdc::CDCStateTableKey> entries_to_delete;
   std::vector<cdc::CDCStateTableEntry> entries_to_update;
 

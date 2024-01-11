@@ -441,6 +441,19 @@ Result<CDCStateTableRange> CDCStateTable::GetTableRange(
   return CDCStateTableRange(VERIFY_RESULT(GetTable()), iteration_status, std::move(columns));
 }
 
+Result<CDCStateTableRange> CDCStateTable::GetTableRangeAsync(
+    CDCStateTableEntrySelector&& field_filter, Status* iteration_status) {
+  auto* client = VERIFY_RESULT(GetClient());
+
+  bool table_creation_in_progress = false;
+  RETURN_NOT_OK(client->IsCreateTableInProgress(kCdcStateYBTableName, &table_creation_in_progress));
+  if (table_creation_in_progress) {
+    return STATUS(Uninitialized, "CDC State Table creation is in progress");
+  }
+
+  return GetTableRange(std::move(field_filter), iteration_status);
+}
+
 Result<std::optional<CDCStateTableEntry>> CDCStateTable::TryFetchEntry(
     const CDCStateTableKey& key, CDCStateTableEntrySelector&& field_filter) {
   DCHECK(!key.tablet_id.empty() && key.stream_id);

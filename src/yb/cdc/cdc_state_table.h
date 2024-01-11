@@ -128,6 +128,9 @@ class CDCStateTable {
 
   Result<CDCStateTableRange> GetTableRange(
       CDCStateTableEntrySelector&& field_filter, Status* iteration_status) EXCLUDES(mutex_);
+  // Returns early if the CDC state table doesn't exist.
+  Result<CDCStateTableRange> GetTableRangeAsync(
+      CDCStateTableEntrySelector&& field_filter, Status* iteration_status) EXCLUDES(mutex_);
 
   // Get a single row from the table. If the row is not found, returns an nullopt.
   Result<std::optional<CDCStateTableEntry>> TryFetchEntry(
