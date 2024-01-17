@@ -106,6 +106,11 @@ LogicalOutputWrite(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId xi
 }
 
 static void
+YBLogicalOutputInvalidatePublications(LogicalDecodingContext *ctx)
+{
+}
+
+static void
 check_permissions(void)
 {
 	if (!superuser() && !has_rolreplication(GetUserId()))
@@ -254,7 +259,8 @@ pg_logical_slot_get_changes_guts(FunctionCallInfo fcinfo, bool confirm, bool bin
 									false,
 									logical_read_local_xlog_page,
 									LogicalOutputPrepareWrite,
-									LogicalOutputWrite, NULL);
+									LogicalOutputWrite, NULL,
+									YBLogicalOutputInvalidatePublications);
 
 		MemoryContextSwitchTo(oldcontext);
 

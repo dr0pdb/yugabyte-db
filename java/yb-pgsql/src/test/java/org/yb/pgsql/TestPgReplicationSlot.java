@@ -15,8 +15,12 @@ package org.yb.pgsql;
 import static org.yb.AssertionWrappers.assertTrue;
 import static org.yb.AssertionWrappers.fail;
 
+import java.nio.ByteBuffer;
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
@@ -27,7 +31,9 @@ import org.slf4j.LoggerFactory;
 import org.yb.YBTestRunner;
 
 import com.yugabyte.PGConnection;
+import com.yugabyte.replication.LogSequenceNumber;
 import com.yugabyte.replication.PGReplicationConnection;
+import com.yugabyte.replication.PGReplicationStream;
 import com.yugabyte.util.PSQLException;
 
 @RunWith(value = YBTestRunner.class)
@@ -44,6 +50,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     Map<String, String> flagMap = super.getTServerFlags();
     flagMap.put("allowed_preview_flags_csv", "ysql_yb_enable_replication_commands");
     flagMap.put("ysql_yb_enable_replication_commands", "true");
+    flagMap.put("vmodule", "cdc_service=4,cdcsdk_producer=4");
     return flagMap;
   }
 
@@ -140,5 +147,62 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     }
 
     assertTrue("Expected an exception but wasn't thrown", exceptionThrown);
+  }
+
+  private static String toString(ByteBuffer buffer) {
+    int offset = buffer.arrayOffset();
+    byte[] source = buffer.array();
+    int length = source.length - offset;
+
+    return new String(source, offset, length);
+  }
+
+  private List<String> receiveMessage(PGReplicationStream stream, int count) throws SQLException {
+    List<String> result = new ArrayList<String>(count);
+    for (int index = 0; index < count; index++) {
+      result.add(toString(stream.read()));
+    }
+
+    return result;
+  }
+
+  @Test
+  public void replicationConnectionConsumption() throws Exception {
+    try (Statement stmt = connection.createStatement()) {
+      stmt.execute("CREATE TABLE t1 (a int primary key, b text) SPLIT INTO 1 TABLETS");
+      // stmt.execute("CREATE TABLE t2 (a int primary key, b text)");
+      // stmt.execute("CREATE TABLE t3 (a int primary key, b text)");
+
+      stmt.execute("CREATE PUBLICATION pub FOR ALL TABLES");
+    }
+
+    Connection conn =
+        getConnectionBuilder().withTServer(0).replicationConnect();
+    PGReplicationConnection replConnection = conn.unwrap(PGConnection.class).getReplicationAPI();
+
+    replConnection.createReplicationSlot()
+        .logical()
+        .withSlotName("test_slot_repl_conn")
+        .withOutputPlugin("pgoutput")
+        .make();
+
+    try (Statement stmt = connection.createStatement()) {
+      stmt.execute("INSERT INTO t1 VALUES(1, 'abcd')");
+      stmt.execute("INSERT INTO t1 VALUES(2, 'defg')");
+      stmt.execute("INSERT INTO t1 VALUES(3, 'hijk')");
+    }
+
+    PGReplicationStream stream = replConnection.replicationStream()
+                                     .logical()
+                                     .withSlotName("test_slot_repl_conn")
+                                     .withStartPosition(LogSequenceNumber.valueOf(0L))
+                                     .withSlotOption("proto_version",1)
+                                     .withSlotOption("publication_names", "pub")
+                                     .start();
+
+    List<String> result = new ArrayList<String>();
+    result.addAll(receiveMessage(stream, 1));
+
+    stream.close();
   }
 }

@@ -548,6 +548,55 @@ typedef struct PgReplicationSlotDescriptor {
   bool active;
 } YBCReplicationSlotDescriptor;
 
+typedef struct PgCDCSDKCheckpoint {
+  int64_t term;
+  int64_t index;
+  const char *key;
+  int32_t write_id;
+} YBCPgCDCSDKCheckpoint;
+
+typedef struct PgTabletLocationsDescriptor {
+  const char *tablet_id;
+} YBCPgTabletLocationsDescriptor;
+
+typedef struct PgTabletCheckpoint {
+  YBCPgTabletLocationsDescriptor *location;
+  YBCPgCDCSDKCheckpoint *checkpoint;
+} YBCPgTabletCheckpoint;
+
+typedef struct PgDatumMessage {
+  const char* column_name;
+  long column_type;
+  // const char* ql_value_str;
+  uint64_t datum;
+  bool is_null;
+} YBCPgDatumMessage;
+
+typedef enum PgRowMessageAction {
+  YB_PG_ROW_MESSAGE_ACTION_UNKNOWN = 0,
+  YB_PG_ROW_MESSAGE_ACTION_BEGIN = 1,
+  YB_PG_ROW_MESSAGE_ACTION_COMMIT = 2,
+  YB_PG_ROW_MESSAGE_ACTION_INSERT = 3,
+  YB_PG_ROW_MESSAGE_ACTION_UPDATE = 4,
+  YB_PG_ROW_MESSAGE_ACTION_DELETE = 5,
+} YBCPgRowMessageAction;
+
+typedef struct PgRowMessage {
+  int col_count;
+  YBCPgDatumMessage* cols;
+  uint64_t commit_time;
+  uint32_t transaction_id;
+  uint64_t record_op_id_index;
+  YBCPgRowMessageAction action;
+  YBCPgOid table_oid;
+} YBCPgRowMessage;
+
+typedef struct PgChangeRecordBatch {
+  int row_count;
+  YBCPgRowMessage* rows;
+  YBCPgCDCSDKCheckpoint* checkpoint;
+} YBCPgChangeRecordBatch;
+
 // A struct to store ASH metadata in PG's procarray
 typedef struct AshMetadata {
   // A unique id corresponding to a YSQL query in bytes.

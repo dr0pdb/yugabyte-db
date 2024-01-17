@@ -1032,6 +1032,12 @@ ResetDecoder(XLogReaderState *state)
 	state->max_block_id = -1;
 }
 
+void
+YBResetDecoder(XLogReaderState *state)
+{
+	ResetDecoder(state);
+}
+
 /*
  * Decode the previously read record.
  *

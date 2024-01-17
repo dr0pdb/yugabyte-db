@@ -271,6 +271,8 @@ GetPublicationRelations(Oid pubid)
 	SysScanDesc scan;
 	HeapTuple	tup;
 
+	YBC_LOG_INFO("GetPublicationRelations start");
+
 	/* Find all publications associated with the relation. */
 	pubrelsrel = heap_open(PublicationRelRelationId, AccessShareLock);
 
@@ -343,6 +345,8 @@ GetAllTablesPublicationRelations(void)
 	HeapTuple	tuple;
 	List	   *result = NIL;
 
+	YBC_LOG_INFO("GetAllTablesPublicationRelations start");
+
 	classRel = heap_open(RelationRelationId, AccessShareLock);
 
 	ScanKeyInit(&key[0],
@@ -376,6 +380,31 @@ GetAllTablesPublicationRelations(void)
 
 	heap_endscan(scan);
 	heap_close(classRel, AccessShareLock);
+
+	return result;
+}
+
+/*
+ * Gets list of publications by its name.
+ */
+List *
+YBGetPublicationsByNames(List *pubnames, bool missing_ok)
+{
+	List	   *result = NIL;
+	ListCell   *lc;
+
+	YBC_LOG_INFO("Getting all publications");
+
+	foreach(lc, pubnames)
+	{
+		char	   *pubname = (char *) lfirst(lc);
+		YBC_LOG_INFO("GetPublicationByName: %s", pubname);
+
+		Publication *pub = GetPublicationByName(pubname, false);
+
+		YBC_LOG_INFO("Got the publication: %u, %s", pub->oid, pub->name);
+		result = lappend(result, pub);
+	}
 
 	return result;
 }
@@ -526,6 +555,71 @@ pg_get_publication_tables(PG_FUNCTION_ARGS)
 	}
 
 	SRF_RETURN_DONE(funcctx);
+}
+
+List *
+yb_pg_get_publications_tables(List *publications)
+{
+	/* hash table for O(1) rel_oid lookup */
+	HTAB	   *seen_tables;
+	HASHCTL		ctl;
+	List	   *tables = NIL;
+	ListCell   *lc;
+
+	memset(&ctl, 0, sizeof(ctl));
+	ctl.keysize = sizeof(Oid);
+	ctl.entrysize = sizeof(Oid);
+	ctl.hcxt = GetCurrentMemoryContext();
+
+	YBC_LOG_INFO("yb_pg_get_publications_tables Starting");
+
+	seen_tables = hash_create("yb_pg_get_publications_tables temporary table",
+							32, /* start small and extend */
+							&ctl,
+							HASH_ELEM | HASH_BLOBS);
+
+	YBC_LOG_INFO("yb_pg_get_publications_tables before looping, hash table created");
+
+	foreach (lc, publications)
+	{
+		List		*pub_tables;
+		ListCell	*lc_tables;
+
+		YBC_LOG_INFO("Getting publication from the list");
+
+		Publication *pub = (Publication *) lfirst(lc);
+		YBC_LOG_INFO("Got publication from the list");
+		YBC_LOG_INFO("publication name, %s", pub->name);
+
+		if (pub->alltables)
+			pub_tables = GetAllTablesPublicationRelations();
+		else
+			pub_tables = GetPublicationRelations(pub->oid);
+
+		YBC_LOG_INFO("yb_pg_get_publications_tables got tables");
+
+		foreach(lc_tables, pub_tables)
+		{
+			Oid			rel = lfirst_oid(lc_tables);
+			bool		found;
+
+			YBC_LOG_INFO("yb_pg_get_publications_tables time for hash search");
+
+			hash_search(seen_tables, &rel, HASH_ENTER, &found);
+			if (!found)
+				tables = lappend_oid(tables, rel);
+		}
+
+		YBC_LOG_INFO("yb_pg_get_publications_tables free 1");
+
+		list_free(pub_tables);
+	}
+
+	YBC_LOG_INFO("yb_pg_get_publications_tables free 2");
+
+	hash_destroy(seen_tables);
+
+	return tables;
 }
 
 static Datum

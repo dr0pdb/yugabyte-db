@@ -100,6 +100,84 @@ Status PgValueToDatum(const YBCPgTypeEntity *type_entity,
   return Status::OK();
 }
 
+Status PBToDatum(const YBCPgTypeEntity *type_entity,
+                 YBCPgTypeAttrs type_attrs,
+                 const QLValuePB& value,
+                 uint64_t* datum,
+                 bool* is_null) {
+  *is_null = value.value_case() == QLValuePB::VALUE_NOT_SET;
+  if (is_null) {
+    return Status::OK();
+  }
+
+  switch (type_entity->yb_type) {
+    case YB_YQL_DATA_TYPE_GIN_NULL: FALLTHROUGH_INTENDED;
+    case YB_YQL_DATA_TYPE_BOOL: FALLTHROUGH_INTENDED;
+    case YB_YQL_DATA_TYPE_INT8: {
+      int8_t val = value.int8_value();
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_INT16: {
+      int16_t val = value.int16_value();
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_FLOAT: FALLTHROUGH_INTENDED;
+      // Float is represented using int32 in network byte order.
+    case YB_YQL_DATA_TYPE_UINT32: FALLTHROUGH_INTENDED;
+    case YB_YQL_DATA_TYPE_INT32: {
+      int32_t val = value.int32_value();
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_DOUBLE: FALLTHROUGH_INTENDED;
+      // Double is represented using int64 in network byte order.
+    case YB_YQL_DATA_TYPE_TIMESTAMP: FALLTHROUGH_INTENDED;
+    case YB_YQL_DATA_TYPE_UINT64: FALLTHROUGH_INTENDED;
+    case YB_YQL_DATA_TYPE_INT64: {
+      int64_t val = value.int64_value();
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_STRING: {
+      auto str = value.string_value();
+      *datum = type_entity->yb_to_datum(str.data(), str.size(), &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_BINARY: {
+      auto str = value.binary_value();
+      *datum = type_entity->yb_to_datum(str.data(), str.size(), &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_DECIMAL: {
+      util::Decimal yb_decimal;
+      if (!yb_decimal.DecodeFromComparable(value.decimal_value()).ok()) {
+        return STATUS_SUBSTITUTE(InternalError,
+                                  "Failed to deserialize DECIMAL from $1",
+                                  value.decimal_value());
+      }
+      auto plaintext = yb_decimal.ToString();
+      auto val = const_cast<char *>(plaintext.c_str());
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(val),
+                                        plaintext.size(),
+                                        &type_attrs);
+      break;
+    }
+
+    YB_PG_UNSUPPORTED_TYPES_IN_SWITCH:
+    YB_PG_INVALID_TYPES_IN_SWITCH:
+      return STATUS_SUBSTITUTE(InternalError, "unsupported type $0", type_entity->yb_type);
+  }
+
+  return Status::OK();
+}
 
 Status PgValueToPB(const YBCPgTypeEntity *type_entity,
                    uint64_t datum,

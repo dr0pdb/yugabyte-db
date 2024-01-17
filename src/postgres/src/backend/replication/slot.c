@@ -353,6 +353,50 @@ ReplicationSlotAcquire(const char *name, bool nowait)
 retry:
 	Assert(MyReplicationSlot == NULL);
 
+	YBC_LOG_INFO("Time to acquire the slot");
+
+	if (IsYugaByteEnabled())
+	{
+		YBCReplicationSlotDescriptor *yb_replication_slot;
+
+		YBCGetReplicationSlot(name, &yb_replication_slot);
+
+		YBC_LOG_INFO("Got the descriptor");
+		YBC_LOG_INFO("stream_id = %s", yb_replication_slot->stream_id);
+		slot = palloc(sizeof(ReplicationSlot));
+
+		YBC_LOG_INFO("Allocated the slot");
+		namestrcpy(&slot->data.name, yb_replication_slot->slot_name);
+		namestrcpy(&slot->data.plugin, "pgoutput");
+		slot->data.database = yb_replication_slot->database_oid;
+		slot->data.persistency = RS_PERSISTENT;
+		strcpy(slot->data.yb_stream_id, yb_replication_slot->stream_id);
+		slot->active_pid = MyProcPid;
+
+		YBC_LOG_INFO("set values from the descriptor");
+
+		SpinLockInit(&slot->mutex);
+		LWLockInitialize(&slot->io_in_progress_lock,
+						 LWTRANCHE_REPLICATION_SLOT_IO_IN_PROGRESS);
+		ConditionVariableInit(&slot->active_cv);
+
+		YBC_LOG_INFO("Init all locks and cv");
+
+		/*
+		 * Dummy values to always stream from the start. This has to be updated
+		 * to support restarts.
+		 */
+		slot->data.catalog_xmin = 0;
+		slot->data.confirmed_flush = 0;
+		slot->data.xmin = 0;
+		slot->data.restart_lsn = 0;
+
+		YBC_LOG_INFO("set dummy values");
+
+		MyReplicationSlot = slot;
+		return;
+	}
+
 	/*
 	 * Search for the named slot and mark it active if we find it.  If the
 	 * slot is already active, we exit the loop with active_pid set to the PID

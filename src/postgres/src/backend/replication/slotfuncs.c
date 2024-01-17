@@ -188,7 +188,7 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 		ctx = CreateInitDecodingContext(NameStr(*plugin), NIL,
 										false,	/* do not build snapshot */
 										logical_read_local_xlog_page, NULL, NULL,
-										NULL);
+										NULL, NULL);
 
 		/* build initial snapshot, might take a while */
 		DecodingContextFindStartpoint(ctx);
@@ -492,7 +492,7 @@ pg_logical_replication_slot_advance(XLogRecPtr moveto)
 									NIL,
 									true,	/* fast_forward */
 									logical_read_local_xlog_page,
-									NULL, NULL, NULL);
+									NULL, NULL, NULL, NULL);
 
 		/*
 		 * Start reading at the slot's restart_lsn, which we know to point to

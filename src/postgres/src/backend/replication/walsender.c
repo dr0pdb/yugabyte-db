@@ -96,6 +96,8 @@
 
 /* YB includes. */
 #include "pg_yb_utils.h"
+#include "commands/ybccmds.h"
+#include "replication/yb_virtual_wal.h"
 
 /*
  * Maximum data payload in a WAL data message.  Must be >= XLOG_BLCKSZ.
@@ -204,6 +206,8 @@ static volatile sig_atomic_t replication_active = false;
 static LogicalDecodingContext *logical_decoding_ctx = NULL;
 static XLogRecPtr logical_startptr = InvalidXLogRecPtr;
 
+static List *yb_publications = NULL;
+
 /* A sample associating a WAL location with the time it was written. */
 typedef struct
 {
@@ -260,6 +264,7 @@ static bool TransactionIdInRecentPast(TransactionId xid, uint32 epoch);
 
 static void XLogRead(char *buf, XLogRecPtr startptr, Size count);
 
+static void YBWalSndInvalidatePublications(LogicalDecodingContext *ctx);
 
 /* Initialize walsender process before entering the main command loop */
 void
@@ -965,12 +970,11 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 
 		if (IsYugaByteEnabled())
 		{
-			if (cmd->plugin == NULL || 
-				strcmp(cmd->plugin, YB_OUTPUT_PLUGIN) != 0)
+			if (cmd->plugin == NULL)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("invalid output plugin"),
-						 errdetail("Only yboutput plugin is supported")));
+						 errdetail("No plugin name was provided")));
 
 			if (cmd->temporary)
 				ereport(ERROR,
@@ -998,8 +1002,9 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 			ctx = CreateInitDecodingContext(cmd->plugin, NIL, need_full_snapshot,
 								logical_read_xlog_page,
 								WalSndPrepareWrite, WalSndWriteData,
-								WalSndUpdateProgress);
-			
+								WalSndUpdateProgress,
+								YBWalSndInvalidatePublications);
+
 			/*
 			 * Signal that we don't need the timeout mechanism. We're just
 			 * creating the replication slot and don't yet accept feedback
@@ -1147,12 +1152,16 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 {
 	StringInfoData buf;
 
+	YBC_LOG_INFO("StartLogicalReplication");
+
 	/* make sure that our requirements are still fulfilled */
 	CheckLogicalDecodingRequirements();
 
 	Assert(!MyReplicationSlot);
 
 	ReplicationSlotAcquire(cmd->slotname, true);
+
+	YBC_LOG_INFO("Acquired the slot");
 
 	/*
 	 * Force a disconnect, so that the decoding code doesn't need to care
@@ -1176,8 +1185,8 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 		CreateDecodingContext(cmd->startpoint, cmd->options, false,
 							  logical_read_xlog_page,
 							  WalSndPrepareWrite, WalSndWriteData,
-							  WalSndUpdateProgress);
-
+							  WalSndUpdateProgress,
+							  YBWalSndInvalidatePublications);
 
 	WalSndSetState(WALSNDSTATE_CATCHUP);
 
@@ -1207,11 +1216,39 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 
 	SyncRepInitConfig();
 
+	if (IsYugaByteEnabled())
+	{
+		List	   *tables;
+
+		YBC_LOG_INFO("Getting all publications");
+		StartTransactionCommand();
+		yb_publications = YBGetPublicationsByNames(
+			logical_decoding_ctx->options.yb_publication_names,
+			false /* missing_ok */);
+
+		YBC_LOG_INFO("Getting all tables for all publications");
+		tables = yb_pg_get_publications_tables(yb_publications);
+
+		YBCInitVirtualWal(tables);
+
+		list_free(tables);
+		/* TODO: Uncomment after fixing the issue. */
+		// CommitTransactionCommand();
+	}
+
+	YBC_LOG_INFO("Starting main loop of walsender");
+
 	/* Main loop of walsender */
 	WalSndLoop(XLogSendLogical);
 
 	FreeDecodingContext(logical_decoding_ctx);
 	ReplicationSlotRelease();
+
+	if (IsYugaByteEnabled())
+	{
+		YBCDestroyVirtualWal();
+		CommitTransactionCommand();
+	}
 
 	replication_active = false;
 	if (got_STOPPING)
@@ -1370,6 +1407,16 @@ WalSndUpdateProgress(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId 
 
 	LagTrackerWrite(lsn, now);
 	sendTime = now;
+}
+
+/*
+ * LogicalDecodingContext 'yb_update_publications' callback.
+ *
+ * Update the Walsender that the publications have been changed.
+ */
+static void
+YBWalSndInvalidatePublications(LogicalDecodingContext *ctx)
+{
 }
 
 /*
@@ -1658,11 +1705,7 @@ exec_replication_command(const char *cmd_string)
 
 		case T_StartReplicationCmd:
 			{
-				if (IsYugaByteEnabled())
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("Consuming changes via Walsender is not yet"
-									" supported")));
+				// TODO: Disable via GFlag.
 
 				StartReplicationCmd *cmd = (StartReplicationCmd *) cmd_node;
 
@@ -2891,6 +2934,10 @@ XLogSendLogical(void)
 	XLogRecord *record;
 	char	   *errm;
 
+	YBCPgVirtualWalRecord *yb_record;
+
+	YBC_LOG_INFO("XLogSendLogical");
+
 	/*
 	 * Don't know whether we've caught up yet. We'll set WalSndCaughtUp to
 	 * true in WalSndWaitForWal, if we're actually waiting. We also set to
@@ -2899,17 +2946,28 @@ XLogSendLogical(void)
 	 */
 	WalSndCaughtUp = false;
 
-	record = XLogReadRecord(logical_decoding_ctx->reader, logical_startptr, &errm);
+	if (IsYugaByteEnabled())
+	{
+		yb_record = YBCReadRecord(logical_decoding_ctx,
+								  logical_decoding_ctx->reader,
+								  logical_startptr, &errm);
+	}
+	else
+	{
+		record = XLogReadRecord(logical_decoding_ctx->reader, logical_startptr,
+								&errm);
+	}
 	logical_startptr = InvalidXLogRecPtr;
 
 	/* xlog record was invalid */
 	if (errm != NULL)
 		elog(ERROR, "%s", errm);
 
-	if (record != NULL)
+	if (record != NULL || (IsYugaByteEnabled() && yb_record != NULL))
 	{
 		/* XXX: Note that logical decoding cannot be used while in recovery */
-		XLogRecPtr	flushPtr = GetFlushRecPtr();
+		XLogRecPtr flushPtr = IsYugaByteEnabled() ? YBCGetFlushRecPtr() :
+													GetFlushRecPtr();
 
 		/*
 		 * Note the lack of any call to LagTrackerWrite() which is handled by
@@ -2933,7 +2991,8 @@ XLogSendLogical(void)
 		 * If the record we just wanted read is at or beyond the flushed
 		 * point, then we're caught up.
 		 */
-		if (logical_decoding_ctx->reader->EndRecPtr >= GetFlushRecPtr())
+		if (logical_decoding_ctx->reader->EndRecPtr >=
+			(IsYugaByteEnabled() ? YBCGetFlushRecPtr() : GetFlushRecPtr()))
 		{
 			WalSndCaughtUp = true;
 

@@ -17,6 +17,9 @@
 #include "storage/shmem.h"
 #include "storage/spin.h"
 
+/* YB includes. */
+#include "utils/uuid.h"
+
 /*
  * Behaviour of replication slots, upon release or crash.
  *
@@ -82,6 +85,8 @@ typedef struct ReplicationSlotPersistentData
 
 	/* plugin name */
 	NameData	plugin;
+
+	char yb_stream_id[33];
 } ReplicationSlotPersistentData;
 
 /*
