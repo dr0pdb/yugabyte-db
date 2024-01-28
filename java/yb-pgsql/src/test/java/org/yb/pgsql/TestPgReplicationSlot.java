@@ -55,19 +55,23 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   @Override
   protected Map<String, String> getTServerFlags() {
     Map<String, String> flagMap = super.getTServerFlags();
-    flagMap.put("allowed_preview_flags_csv", "ysql_yb_enable_replication_commands");
+    flagMap.put("allowed_preview_flags_csv",
+        "ysql_yb_enable_replication_commands,yb_enable_cdc_consistent_snapshot_streams");
     flagMap.put("ysql_yb_enable_replication_commands", "true");
     flagMap.put("ysql_TEST_enable_replication_slot_consumption", "true");
     flagMap.put("vmodule", "cdc_service=4,cdcsdk_producer=4");
+    flagMap.put("yb_enable_cdc_consistent_snapshot_streams", "true");
     return flagMap;
   }
 
   @Override
   protected Map<String, String> getMasterFlags() {
     Map<String, String> flagMap = super.getMasterFlags();
-    flagMap.put("allowed_preview_flags_csv", "ysql_yb_enable_replication_commands");
+    flagMap.put("allowed_preview_flags_csv",
+        "ysql_yb_enable_replication_commands,yb_enable_cdc_consistent_snapshot_streams");
     flagMap.put("ysql_yb_enable_replication_commands", "true");
     flagMap.put("ysql_TEST_enable_replication_slot_consumption", "true");
+    flagMap.put("yb_enable_cdc_consistent_snapshot_streams", "true");
     return flagMap;
   }
 

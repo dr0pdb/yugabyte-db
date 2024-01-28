@@ -838,11 +838,6 @@ parseCreateReplSlotOptions(CreateReplicationSlotCmd *cmd,
 		else
 			elog(ERROR, "unrecognized option: %s", defel->defname);
 	}
-
-	if (IsYugaByteEnabled() && snapshot_action_given &&
-		!YBEnableCDCConsistentSnapshotStreams())
-		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("Snapshot feature is not yet supported")));
 }
 
 /*
