@@ -58,11 +58,16 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     flagMap.put("allowed_preview_flags_csv", "ysql_yb_enable_replication_commands");
     flagMap.put("ysql_yb_enable_replication_commands", "true");
 <<<<<<< HEAD
+<<<<<<< HEAD
     flagMap.put("ysql_TEST_enable_replication_slot_consumption", "true");
     flagMap.put("vmodule", "cdc_service=4,cdcsdk_producer=4");
     flagMap.put("yb_enable_cdc_consistent_snapshot_streams", "true");
 =======
 >>>>>>> 81e79e9736 (Remove restriction of enabling consistent snapshot streams)
+=======
+    flagMap.put("ysql_TEST_enable_replication_slot_consumption", "true");
+    flagMap.put("vmodule", "cdc_service=4,cdcsdk_producer=4");
+>>>>>>> 9c106d26b2 (Introduce MVP support to consume changes via ReplicationSlot and Walsender)
     return flagMap;
   }
 
@@ -186,7 +191,11 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   @Test
   public void replicationConnectionConsumption() throws Exception {
     try (Statement stmt = connection.createStatement()) {
+<<<<<<< HEAD
       stmt.execute("CREATE TABLE t1 (a int primary key, b text, c bool) SPLIT INTO 1 TABLETS");
+=======
+      stmt.execute("CREATE TABLE t1 (a int primary key, b text) SPLIT INTO 1 TABLETS");
+>>>>>>> 9c106d26b2 (Introduce MVP support to consume changes via ReplicationSlot and Walsender)
       stmt.execute("CREATE PUBLICATION pub FOR ALL TABLES");
     }
 
@@ -201,11 +210,17 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
         .make();
 
     try (Statement stmt = connection.createStatement()) {
+<<<<<<< HEAD
       stmt.execute("INSERT INTO t1 VALUES(1, 'abcd', true)");
       stmt.execute("INSERT INTO t1 VALUES(2, 'defg', true)");
       stmt.execute("INSERT INTO t1 VALUES(3, 'hijk', false)");
       stmt.execute("UPDATE t1 SET b = 'updated_abcd' WHERE a = 1");
       stmt.execute("UPDATE t1 SET b = NULL, c = false WHERE a = 2");
+=======
+      stmt.execute("INSERT INTO t1 VALUES(1, 'abcd')");
+      stmt.execute("INSERT INTO t1 VALUES(2, 'defg')");
+      stmt.execute("INSERT INTO t1 VALUES(3, 'hijk')");
+>>>>>>> 9c106d26b2 (Introduce MVP support to consume changes via ReplicationSlot and Walsender)
     }
 
     PGReplicationStream stream = replConnection.replicationStream()
@@ -217,8 +232,13 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
                                      .start();
 
     List<PgOutputMessage> result = new ArrayList<PgOutputMessage>();
+<<<<<<< HEAD
     // 1 Relation, 3 * 3 (begin, insert and commit), 3 * 2 (begin, update and commit).
     result.addAll(receiveMessage(stream, 16));
+=======
+    // 1 Relation, 3 * 3 (begin, insert and commit).
+    result.addAll(receiveMessage(stream, 10));
+>>>>>>> 9c106d26b2 (Introduce MVP support to consume changes via ReplicationSlot and Walsender)
     for (PgOutputMessage res : result) {
       LOG.info("Row = {}", res);
     }
@@ -231,6 +251,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
         add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/4"), 1));
         add(PgOutputRelationMessage.CreateForComparison("public", "t1", 'd',
             Arrays.asList(PgOutputRelationMessageColumn.CreateForComparison("a", 23),
+<<<<<<< HEAD
                 PgOutputRelationMessageColumn.CreateForComparison("b", 25),
                 PgOutputRelationMessageColumn.CreateForComparison("c", 16))));
         add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 3,
@@ -238,19 +259,34 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
                 new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "1"),
                 new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "abcd"),
                 new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "t")))));
+=======
+                PgOutputRelationMessageColumn.CreateForComparison("b", 25))));
+        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 2,
+            Arrays.asList(
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "1"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "abcd")))));
+>>>>>>> 9c106d26b2 (Introduce MVP support to consume changes via ReplicationSlot and Walsender)
         add(PgOutputCommitMessage.CreateForComparison(
             LogSequenceNumber.valueOf("0/4"), LogSequenceNumber.valueOf("0/5")));
 
         add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/7"), 1));
+<<<<<<< HEAD
         add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 3,
             Arrays.asList(
                 new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "2"),
                 new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "defg"),
                 new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "t")))));
+=======
+        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 2,
+            Arrays.asList(
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "2"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "defg")))));
+>>>>>>> 9c106d26b2 (Introduce MVP support to consume changes via ReplicationSlot and Walsender)
         add(PgOutputCommitMessage.CreateForComparison(
             LogSequenceNumber.valueOf("0/7"), LogSequenceNumber.valueOf("0/8")));
 
         add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/A"), 1));
+<<<<<<< HEAD
         add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 3,
             Arrays.asList(
                 new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "3"),
@@ -459,6 +495,14 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
                     NOT_NULL, NOT_TOASTED, "[2024-01-01,2024-12-31)")))));
         add(PgOutputCommitMessage.CreateForComparison(
             LogSequenceNumber.valueOf("0/4"), LogSequenceNumber.valueOf("0/5")));
+=======
+        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 2,
+            Arrays.asList(
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "3"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "hijk")))));
+        add(PgOutputCommitMessage.CreateForComparison(
+            LogSequenceNumber.valueOf("0/A"), LogSequenceNumber.valueOf("0/B")));
+>>>>>>> 9c106d26b2 (Introduce MVP support to consume changes via ReplicationSlot and Walsender)
       }
     };
     assertEquals(expectedResult, result);
