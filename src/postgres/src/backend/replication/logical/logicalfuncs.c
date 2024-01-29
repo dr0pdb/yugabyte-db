@@ -48,6 +48,9 @@
 
 #include "storage/fd.h"
 
+/* YB includes. */
+#include "pg_yb_utils.h"
+
 /* private date for writing out data */
 typedef struct DecodingOutputState
 {
@@ -106,6 +109,16 @@ LogicalOutputWrite(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId xi
 }
 
 static void
+YBLogicalOutputInvalidatePublications(LogicalDecodingContext *ctx)
+{
+	/*
+	 * TODO(#20726): Refresh the list of tables according to the update
+	 * publications and notify the CDC service of the change. This should be
+	 * done once the GetChangesForSlot RPC is ready.
+	 */
+}
+
+static void
 check_permissions(void)
 {
 	if (!superuser() && !has_rolreplication(GetUserId()))
@@ -128,6 +141,14 @@ logical_read_local_xlog_page(XLogReaderState *state, XLogRecPtr targetPagePtr,
 static Datum
 pg_logical_slot_get_changes_guts(FunctionCallInfo fcinfo, bool confirm, bool binary)
 {
+	if (IsYugaByteEnabled()
+		&& !yb_enable_replication_slot_consumption)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("Getting logical slot changes is unavailable"),
+				 errdetail("yb_enable_replication_slot_consumption "
+						   "is false.")));
+
 	Name		name;
 	XLogRecPtr	upto_lsn;
 	int32		upto_nchanges;
@@ -254,7 +275,8 @@ pg_logical_slot_get_changes_guts(FunctionCallInfo fcinfo, bool confirm, bool bin
 									false,
 									logical_read_local_xlog_page,
 									LogicalOutputPrepareWrite,
-									LogicalOutputWrite, NULL);
+									LogicalOutputWrite, NULL,
+									YBLogicalOutputInvalidatePublications);
 
 		MemoryContextSwitchTo(oldcontext);
 

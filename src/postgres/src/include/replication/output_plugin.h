@@ -27,6 +27,8 @@ typedef struct OutputPluginOptions
 {
 	OutputPluginOutputType output_type;
 	bool		receive_rewrites;
+
+	List	   *yb_publication_names;
 } OutputPluginOptions;
 
 /*
@@ -118,5 +120,7 @@ typedef struct OutputPluginCallbacks
 extern void OutputPluginPrepareWrite(struct LogicalDecodingContext *ctx, bool last_write);
 extern void OutputPluginWrite(struct LogicalDecodingContext *ctx, bool last_write);
 extern void OutputPluginUpdateProgress(struct LogicalDecodingContext *ctx);
+
+extern void YBOutputPluginInvalidatePublications(struct LogicalDecodingContext *ctx);
 
 #endif							/* OUTPUT_PLUGIN_H */
