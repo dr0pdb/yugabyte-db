@@ -46,6 +46,10 @@
 
 #include "storage/standby.h"
 
+/* YB includes. */
+#include "pg_yb_utils.h"
+#include "replication/yb_decode.h"
+
 typedef struct XLogRecordBuffer
 {
 	XLogRecPtr	origptr;
@@ -96,6 +100,12 @@ static void DecodeXLogTuple(char *data, Size len, ReorderBufferTupleBuf *tup);
 void
 LogicalDecodingProcessRecord(LogicalDecodingContext *ctx, XLogReaderState *record)
 {
+	if (IsYugaByteEnabled())
+	{
+		YBLogicalDecodingProcessRecord(ctx, record);
+		return;
+	}
+
 	XLogRecordBuffer buf;
 
 	buf.origptr = ctx->reader->ReadRecPtr;

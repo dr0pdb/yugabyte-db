@@ -17,6 +17,9 @@
 #include "storage/shmem.h"
 #include "storage/spin.h"
 
+/* YB includes. */
+#include "utils/uuid.h"
+
 /*
  * Behaviour of replication slots, upon release or crash.
  *
@@ -82,6 +85,9 @@ typedef struct ReplicationSlotPersistentData
 
 	/* plugin name */
 	NameData	plugin;
+
+	/* The CDC stream_id (32 bytes + 1 for null terminator) */
+	char yb_stream_id[33];
 } ReplicationSlotPersistentData;
 
 /*
@@ -175,7 +181,7 @@ extern PGDLLIMPORT ReplicationSlot *MyReplicationSlot;
 /* GUCs */
 extern PGDLLIMPORT int max_replication_slots;
 
-extern PGDLLIMPORT const char *YB_OUTPUT_PLUGIN;
+extern PGDLLIMPORT const char *PG_OUTPUT_PLUGIN;
 
 /* shmem initialization functions */
 extern Size ReplicationSlotsShmemSize(void);

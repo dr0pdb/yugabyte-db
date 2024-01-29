@@ -606,6 +606,7 @@ message DatumMessagePB {
   oneof cdc_datum {
     PgDatumPB pg_value = 13;
     QLValuePB cql_value = 14;
+    QLValuePB pg_ql_value = 15;
   }
 }
 

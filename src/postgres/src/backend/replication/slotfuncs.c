@@ -149,12 +149,15 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 		 *
 		 * This is different from PG where the validation is done after creating
 		 * the replication slot on disk which is cleaned up in case of errors.
+		 *
+		 * TODO(#20756): Support other plugins such as test_decoding once we
+		 * store replication slot metadata in yb-master.
 		 */
-		if (plugin == NULL || strcmp(NameStr(*plugin), YB_OUTPUT_PLUGIN) != 0)
+		if (plugin == NULL || strcmp(NameStr(*plugin), PG_OUTPUT_PLUGIN) != 0)
 			ereport(ERROR, 
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("invalid output plugin"),
-					 errdetail("Only 'yboutput' plugin is supported")));
+					 errdetail("Only 'pgoutput' plugin is supported")));
 	}
 
 	check_permissions();
@@ -188,7 +191,7 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 		ctx = CreateInitDecodingContext(NameStr(*plugin), NIL,
 										false,	/* do not build snapshot */
 										logical_read_local_xlog_page, NULL, NULL,
-										NULL);
+										NULL, NULL);
 
 		/* build initial snapshot, might take a while */
 		DecodingContextFindStartpoint(ctx);
@@ -340,7 +343,7 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 
 			database = slot->database_oid;
 			namestrcpy(&slot_name, slot->slot_name);
-			namestrcpy(&plugin, YB_OUTPUT_PLUGIN);
+			namestrcpy(&plugin, PG_OUTPUT_PLUGIN);
 			yb_stream_id = slot->stream_id;
 			yb_stream_active = slot->active;
 
@@ -492,7 +495,7 @@ pg_logical_replication_slot_advance(XLogRecPtr moveto)
 									NIL,
 									true,	/* fast_forward */
 									logical_read_local_xlog_page,
-									NULL, NULL, NULL);
+									NULL, NULL, NULL, NULL);
 
 		/*
 		 * Start reading at the slot's restart_lsn, which we know to point to
