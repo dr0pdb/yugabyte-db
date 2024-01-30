@@ -31,8 +31,7 @@ public class TestPgRegressReplicationSlot extends BasePgSQLTest {
   @Override
   protected Map<String, String> getTServerFlags() {
     Map<String, String> flagMap = super.getTServerFlags();
-    flagMap.put("allowed_preview_flags_csv",
-        "ysql_yb_enable_replication_commands,yb_enable_cdc_consistent_snapshot_streams");
+    flagMap.put("allowed_preview_flags_csv", "ysql_yb_enable_replication_commands");
     flagMap.put("ysql_yb_enable_replication_commands", "true");
     return flagMap;
   }
@@ -40,8 +39,7 @@ public class TestPgRegressReplicationSlot extends BasePgSQLTest {
   @Override
   protected Map<String, String> getMasterFlags() {
     Map<String, String> flagMap = super.getMasterFlags();
-    flagMap.put("allowed_preview_flags_csv",
-        "ysql_yb_enable_replication_commands,yb_enable_cdc_consistent_snapshot_streams");
+    flagMap.put("allowed_preview_flags_csv", "ysql_yb_enable_replication_commands");
     flagMap.put("ysql_yb_enable_replication_commands", "true");
     return flagMap;
   }
