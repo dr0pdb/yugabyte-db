@@ -2010,10 +2010,9 @@ YBCStatus YBCPgGetTabletListToPollForStreamAndTable(const char *stream_id,
   }
 
   *DCHECK_NOTNULL(tablet_checkpoints) = NULL;
-  DCHECK_NOTNULL(numtablets);
 
   const auto& tablet_checkpoint_pairs = result.get().tablet_checkpoint_pairs();
-  *numtablets = tablet_checkpoint_pairs.size();
+  *DCHECK_NOTNULL(numtablets) = tablet_checkpoint_pairs.size();
   if (!tablet_checkpoint_pairs.empty()) {
     *tablet_checkpoints = static_cast<YBCPgTabletCheckpoint *>(
         YBCPAlloc(sizeof(YBCPgTabletCheckpoint) * tablet_checkpoint_pairs.size()));
