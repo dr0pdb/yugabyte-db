@@ -155,9 +155,4 @@ extern bool YBColocateDatabaseByDefault();
  */
 extern bool YBEnableAsh();
 
-/**
- * Returns true if CDC consistent snapshot streams should be enabled.
- */
-extern bool YBEnableCDCConsistentSnapshotStreams();
-
 #endif /* PG_YB_COMMON_H */

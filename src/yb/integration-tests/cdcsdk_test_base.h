@@ -45,7 +45,6 @@ DECLARE_uint32(max_replication_slots);
 DECLARE_bool(ysql_yb_enable_replication_commands);
 DECLARE_uint32(cdcsdk_retention_barrier_no_revision_interval_secs);
 DECLARE_int32(cleanup_split_tablets_interval_sec);
-DECLARE_bool(yb_enable_cdc_consistent_snapshot_streams);
 
 namespace yb {
 using client::YBClient;
@@ -124,7 +123,6 @@ class CDCSDKTestBase : public YBTest {
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_flush_rocksdb_on_shutdown) = false;
 
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_replication_commands) = true;
-    ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_cdc_consistent_snapshot_streams) = true;
 
     ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdcsdk_retention_barrier_no_revision_interval_secs) = 0;
 

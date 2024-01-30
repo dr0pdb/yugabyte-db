@@ -239,19 +239,3 @@ YBEnableAsh()
 
 	return cached_value;
 }
-
-bool
-YBEnableCDCConsistentSnapshotStreams()
-{
-	static int cached_value = -1;
-	if (cached_value == -1)
-	{
-		/*
-		 * The default value must be in sync with that of
-		 * FLAGS_yb_enable_cdc_consistent_snapshot_streams.
-		 */
-		cached_value = YBCIsEnvVarTrueWithDefault("FLAGS_yb_enable_cdc_consistent_snapshot_streams",
-												  false /* default_value */);
-	}
-	return cached_value;
-}

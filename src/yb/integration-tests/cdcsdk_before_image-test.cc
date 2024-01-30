@@ -1661,6 +1661,7 @@ TEST_F(
 }
 
 TEST_F(CDCSDKBeforeImageTest, TestCompactionWithConsistentSnapshotAndNoBeforeImage) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_cdc_consistent_snapshot_streams) = true;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_update_min_cdc_indices_interval_secs) = 1;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_checkpoint_update_interval_ms) = 0;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_snapshot_batch_size) = 50;
@@ -1723,6 +1724,7 @@ TEST_F(CDCSDKBeforeImageTest, TestCompactionWithConsistentSnapshotAndNoBeforeIma
 }
 
 TEST_F(CDCSDKBeforeImageTest, TestCompactionWithConsistentSnapshotAndBeforeImage) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_cdc_consistent_snapshot_streams) = true;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_update_min_cdc_indices_interval_secs) = 1;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_checkpoint_update_interval_ms) = 0;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_snapshot_batch_size) = 50;
@@ -1786,6 +1788,7 @@ TEST_F(CDCSDKBeforeImageTest, TestCompactionWithConsistentSnapshotAndBeforeImage
 }
 
 TEST_F(CDCSDKBeforeImageTest, TestHistoryRetentionWithNoExportConsistentSnapshotAndBeforeImage) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_cdc_consistent_snapshot_streams) = true;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_update_min_cdc_indices_interval_secs) = 1;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_state_checkpoint_update_interval_ms) = 0;
   auto tablets = ASSERT_RESULT(SetUpCluster());
