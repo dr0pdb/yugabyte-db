@@ -81,13 +81,13 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     Connection conn2 = getConnectionBuilder().withTServer(1).connect();
 
     try (Statement statement = conn1.createStatement()) {
-      statement.execute("select pg_create_logical_replication_slot('test_slot', 'yboutput')");
+      statement.execute("select pg_create_logical_replication_slot('test_slot', 'pgoutput')");
     }
     try (Statement statement = conn2.createStatement()) {
       statement.execute("select pg_drop_replication_slot('test_slot')");
     }
     try (Statement statement = conn1.createStatement()) {
-      statement.execute("select pg_create_logical_replication_slot('test_slot', 'yboutput')");
+      statement.execute("select pg_create_logical_replication_slot('test_slot', 'pgoutput')");
     }
     try (Statement statement = conn2.createStatement()) {
       statement.execute("select pg_drop_replication_slot('test_slot')");
