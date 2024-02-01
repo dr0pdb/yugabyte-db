@@ -133,8 +133,7 @@ StartupDecodingContext(List *output_plugin_options,
 					   XLogPageReadCB read_page,
 					   LogicalOutputPluginWriterPrepareWrite prepare_write,
 					   LogicalOutputPluginWriterWrite do_write,
-					   LogicalOutputPluginWriterUpdateProgress update_progress,
-					   YBLogicalOutputPluginWriterInvalidatePublications yb_invalidate_publications)
+					   LogicalOutputPluginWriterUpdateProgress update_progress)
 {
 	ReplicationSlot *slot;
 	MemoryContext context,
@@ -211,9 +210,6 @@ StartupDecodingContext(List *output_plugin_options,
 
 	ctx->fast_forward = fast_forward;
 
-	if (IsYugaByteEnabled())
-		ctx->yb_invalidate_publications = yb_invalidate_publications;
-
 	MemoryContextSwitchTo(old_context);
 
 	return ctx;
@@ -242,8 +238,7 @@ CreateInitDecodingContext(char *plugin,
 						  XLogPageReadCB read_page,
 						  LogicalOutputPluginWriterPrepareWrite prepare_write,
 						  LogicalOutputPluginWriterWrite do_write,
-						  LogicalOutputPluginWriterUpdateProgress update_progress,
-						  YBLogicalOutputPluginWriterInvalidatePublications yb_invalidate_publications)
+						  LogicalOutputPluginWriterUpdateProgress update_progress)
 {
 	TransactionId xmin_horizon = InvalidTransactionId;
 	ReplicationSlot *slot;
@@ -331,8 +326,7 @@ CreateInitDecodingContext(char *plugin,
 	ctx = StartupDecodingContext(NIL, InvalidXLogRecPtr, xmin_horizon,
 								 need_full_snapshot, false,
 								 read_page, prepare_write, do_write,
-								 update_progress,
-								 yb_invalidate_publications);
+								 update_progress);
 
 	/* call output plugin initialization callback */
 	old_context = MemoryContextSwitchTo(ctx->context);
@@ -379,8 +373,7 @@ CreateDecodingContext(XLogRecPtr start_lsn,
 					  XLogPageReadCB read_page,
 					  LogicalOutputPluginWriterPrepareWrite prepare_write,
 					  LogicalOutputPluginWriterWrite do_write,
-					  LogicalOutputPluginWriterUpdateProgress update_progress,
-					  YBLogicalOutputPluginWriterInvalidatePublications yb_invalidate_publications)
+					  LogicalOutputPluginWriterUpdateProgress update_progress)
 {
 	LogicalDecodingContext *ctx;
 	ReplicationSlot *slot;
@@ -431,8 +424,7 @@ CreateDecodingContext(XLogRecPtr start_lsn,
 	ctx = StartupDecodingContext(output_plugin_options,
 								 start_lsn, InvalidTransactionId, false,
 								 fast_forward, read_page, prepare_write,
-								 do_write, update_progress,
-								 yb_invalidate_publications);
+								 do_write, update_progress);
 
 	/* call output plugin initialization callback */
 	old_context = MemoryContextSwitchTo(ctx->context);
@@ -560,15 +552,6 @@ OutputPluginUpdateProgress(struct LogicalDecodingContext *ctx)
 		return;
 
 	ctx->update_progress(ctx, ctx->write_location, ctx->write_xid);
-}
-
-void
-YBOutputPluginInvalidatePublications(struct LogicalDecodingContext *ctx)
-{
-	if (!ctx->yb_invalidate_publications)
-		return;
-
-	ctx->yb_invalidate_publications(ctx);
 }
 
 /*

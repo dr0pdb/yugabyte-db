@@ -133,8 +133,8 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("Could not find column with name %s"
-							" in tuple descriptor",
-							col->column_name)));
+							" in tuple descriptor for table %d",
+							col->column_name, yb_record->table_oid)));
 			continue;
 		}
 

@@ -1577,8 +1577,12 @@ ReorderBufferCommit(ReorderBuffer *rb, TransactionId xid,
 										 MAIN_FORKNUM));
 
 					/*
-					 * YB note: WAL levels are not applicable to YSQL as we have
+					 * YB note: We disable this check here since:
+					 * 1. WAL levels are not applicable to YSQL as we have
 					 * a separate WAL.
+					 * 2. We are guaranteed to not get entries for catalog
+					 * tables here since the slot creation itself skips
+					 * catalog tables.
 					 */
 					if (!IsYugaByteEnabled() && !RelationIsLogicallyLogged(relation))
 						goto change_done;

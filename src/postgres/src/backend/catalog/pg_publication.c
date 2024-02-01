@@ -393,7 +393,7 @@ YBGetPublicationsByNames(List *pubnames, bool missing_ok)
 	{
 		char	   *pubname = (char *) lfirst(lc);
 
-		Publication *pub = GetPublicationByName(pubname, false);
+		Publication *pub = GetPublicationByName(pubname, missing_ok);
 		result = lappend(result, pub);
 	}
 
@@ -572,8 +572,9 @@ yb_pg_get_publications_tables(List *publications)
 		List		*pub_tables;
 		ListCell	*lc_tables;
 		Publication *pub = (Publication *) lfirst(lc);
+		bool		has_alltables = pub->alltables;
 
-		if (pub->alltables)
+		if (has_alltables)
 			pub_tables = GetAllTablesPublicationRelations();
 		else
 			pub_tables = GetPublicationRelations(pub->oid);
@@ -589,6 +590,14 @@ yb_pg_get_publications_tables(List *publications)
 		}
 
 		list_free(pub_tables);
+
+		/*
+		 * Once we have processed a publication with alltables, we have found
+		 * all tables of the database. So, we don't need to process other
+		 * publications.
+		 */
+		if (has_alltables)
+			break;
 	}
 
 	hash_destroy(seen_tables);

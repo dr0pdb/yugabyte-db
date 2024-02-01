@@ -1250,7 +1250,7 @@ void CDCServiceImpl::GetTabletListToPollForCDC(
     const GetTabletListToPollForCDCRequestPB* req,
     GetTabletListToPollForCDCResponsePB* resp,
     RpcContext context) {
-  LOG(INFO) << "Received GetTabletListToPollForCDC request " << req->ShortDebugString();
+  VLOG(1) << "Received GetTabletListToPollForCDC request " << req->ShortDebugString();
 
   RPC_CHECK_AND_RETURN_ERROR(
       !(req->has_table_info() && req->table_info().table_id().empty() &&
