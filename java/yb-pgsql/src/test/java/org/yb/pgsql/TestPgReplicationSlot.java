@@ -103,7 +103,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     replConnection.createReplicationSlot()
         .logical()
         .withSlotName("test_slot_repl_conn")
-        .withOutputPlugin("yboutput")
+        .withOutputPlugin("pgoutput")
         .make();
     replConnection.dropReplicationSlot("test_slot_repl_conn");
   }
@@ -120,7 +120,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
       replConnection.createReplicationSlot()
           .logical()
           .withSlotName("test_slot_repl_conn_temporary")
-          .withOutputPlugin("yboutput")
+          .withOutputPlugin("pgoutput")
           .withTemporaryOption()
           .make();
     } catch (PSQLException e) {
