@@ -2944,6 +2944,12 @@ XLogSendLogical(void)
 	{
 		yb_record = YBCReadRecord(logical_decoding_ctx->reader, logical_startptr,
 								  &errm);
+
+		/*
+		 * Explicitly set record to NULL so that the NULL check below is only
+		 * dependant on yb_record.
+		 */
+		record = NULL;
 	}
 	else
 	{

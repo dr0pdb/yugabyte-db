@@ -72,6 +72,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     Map<String, String> flagMap = super.getMasterFlags();
     flagMap.put("allowed_preview_flags_csv", "ysql_yb_enable_replication_commands");
     flagMap.put("ysql_yb_enable_replication_commands", "true");
+    flagMap.put("ysql_TEST_enable_replication_slot_consumption", "true");
     return flagMap;
   }
 
@@ -247,7 +248,180 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
+  public void replicationConnectionConsumptionAllDataTypes() throws Exception {
+    String create_stmt = "CREATE TABLE test_table ( "
+        + "a INT PRIMARY KEY, "
+        + "col_bit BIT(6), "
+        + "col_boolean BOOLEAN, "
+        + "col_box BOX, "
+        + "col_bytea BYTEA, "
+        + "col_cidr CIDR, "
+        + "col_circle CIRCLE, "
+        + "col_date DATE, "
+        + "col_float FLOAT, "
+        + "col_double DOUBLE PRECISION, "
+        + "col_inet INET, "
+        + "col_int INT, "
+        + "col_json JSON, "
+        + "col_jsonb JSONB, "
+        + "col_line LINE, "
+        + "col_lseg LSEG, "
+        + "col_macaddr8 MACADDR8, "
+        + "col_macaddr MACADDR, "
+        + "col_money MONEY, "
+        + "col_numeric NUMERIC, "
+        + "col_path PATH, "
+        + "col_point POINT, "
+        + "col_polygon POLYGON, "
+        + "col_text TEXT, "
+        + "col_time TIME, "
+        + "col_timestamp TIMESTAMP, "
+        + "col_timetz TIMETZ, "
+        + "col_uuid UUID, "
+        + "col_varbit VARBIT(10), "
+        + "col_timestamptz TIMESTAMPTZ, "
+        + "col_int4range INT4RANGE, "
+        + "col_int8range INT8RANGE, "
+        + "col_tsrange TSRANGE, "
+        + "col_tstzrange TSTZRANGE, "
+        + "col_daterange DATERANGE) SPLIT INTO 1 TABLETS";
+
+    try (Statement stmt = connection.createStatement()) {
+      stmt.execute(create_stmt);
+      stmt.execute("CREATE PUBLICATION pub FOR ALL TABLES");
+    }
+
+    Connection conn =
+        getConnectionBuilder().withTServer(0).replicationConnect();
+    PGReplicationConnection replConnection = conn.unwrap(PGConnection.class).getReplicationAPI();
+
+    replConnection.createReplicationSlot()
+        .logical()
+        .withSlotName("test_slot_repl_conn_all_data_types")
+        .withOutputPlugin("pgoutput")
+        .make();
+
+    try (Statement stmt = connection.createStatement()) {
+      stmt.execute("INSERT INTO test_table VALUES ("
+          + "1, B'110110', TRUE, '((0,0),(1,1))', E'\\\\x012345', '127.0.0.1', '((0,0),1)', "
+          + "'2024-02-01', 1.201, 3.14, '127.0.0.1', 42, "
+          + "'{\"key\": \"value\"}', '{\"key\": \"value\"}', "
+          + "'{1,2,3}', '((0,0),(1,1))', '00:11:22:33:44:55:66:77', '00:11:22:33:44:55', 100.50, "
+          + "123.456, '((0,0),(1,1))', '(0,0)', '((0,0),(1,1))', 'Sample Text', '12:34:56', "
+          + "'2024-02-01 12:34:56', '2024-02-01 12:34:56+00:00', "
+          + "'550e8400-e29b-41d4-a716-446655440000', B'101010', '2024-02-01 12:34:56+00:00', "
+          + "'[1,10)', '[100,1000)', '[2024-01-01, 2024-12-31)', "
+          + "'[2024-01-01 00:00:00+00:00, 2024-12-31 23:59:59+00:00)', "
+          + "'[2024-01-01, 2024-12-31)');");
+    }
+
+    PGReplicationStream stream = replConnection.replicationStream()
+                                     .logical()
+                                     .withSlotName("test_slot_repl_conn_all_data_types")
+                                     .withStartPosition(LogSequenceNumber.valueOf(0L))
+                                     .withSlotOption("proto_version", 1)
+                                     .withSlotOption("publication_names", "pub")
+                                     .start();
+
+    List<PgOutputMessage> result = new ArrayList<PgOutputMessage>();
+    // 1 Relation, begin, insert and commit record.
+    result.addAll(receiveMessage(stream, 4));
+    for (PgOutputMessage res : result) {
+      LOG.info("Row = {}", res);
+    }
+
+    List<PgOutputMessage> expectedResult = new ArrayList<PgOutputMessage>() {
+      {
+        add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/4"), 1));
+        add(PgOutputRelationMessage.CreateForComparison("public", "test_table", 'd',
+            Arrays.asList(
+                PgOutputRelationMessageColumn.CreateForComparison("a", 23),
+                PgOutputRelationMessageColumn.CreateForComparison("col_bit", 1560),
+                PgOutputRelationMessageColumn.CreateForComparison("col_boolean", 16),
+                PgOutputRelationMessageColumn.CreateForComparison("col_box", 603),
+                PgOutputRelationMessageColumn.CreateForComparison("col_bytea", 17),
+                PgOutputRelationMessageColumn.CreateForComparison("col_cidr", 650),
+                PgOutputRelationMessageColumn.CreateForComparison("col_circle", 718),
+                PgOutputRelationMessageColumn.CreateForComparison("col_date", 1082),
+                PgOutputRelationMessageColumn.CreateForComparison("col_float", 701),
+                PgOutputRelationMessageColumn.CreateForComparison("col_double", 701),
+                PgOutputRelationMessageColumn.CreateForComparison("col_inet", 869),
+                PgOutputRelationMessageColumn.CreateForComparison("col_int", 23),
+                PgOutputRelationMessageColumn.CreateForComparison("col_json", 114),
+                PgOutputRelationMessageColumn.CreateForComparison("col_jsonb", 3802),
+                PgOutputRelationMessageColumn.CreateForComparison("col_line", 628),
+                PgOutputRelationMessageColumn.CreateForComparison("col_lseg", 601),
+                PgOutputRelationMessageColumn.CreateForComparison("col_macaddr8", 774),
+                PgOutputRelationMessageColumn.CreateForComparison("col_macaddr", 829),
+                PgOutputRelationMessageColumn.CreateForComparison("col_money", 790),
+                PgOutputRelationMessageColumn.CreateForComparison("col_numeric", 1700),
+                PgOutputRelationMessageColumn.CreateForComparison("col_path", 602),
+                PgOutputRelationMessageColumn.CreateForComparison("col_point", 600),
+                PgOutputRelationMessageColumn.CreateForComparison("col_polygon", 604),
+                PgOutputRelationMessageColumn.CreateForComparison("col_text", 25),
+                PgOutputRelationMessageColumn.CreateForComparison("col_time", 1083),
+                PgOutputRelationMessageColumn.CreateForComparison("col_timestamp", 1114),
+                PgOutputRelationMessageColumn.CreateForComparison("col_timetz", 1266),
+                PgOutputRelationMessageColumn.CreateForComparison("col_uuid", 2950),
+                PgOutputRelationMessageColumn.CreateForComparison("col_varbit", 1562),
+                PgOutputRelationMessageColumn.CreateForComparison("col_timestamptz", 1184),
+                PgOutputRelationMessageColumn.CreateForComparison("col_int4range", 3904),
+                PgOutputRelationMessageColumn.CreateForComparison("col_int8range", 3926),
+                PgOutputRelationMessageColumn.CreateForComparison("col_tsrange", 3908),
+                PgOutputRelationMessageColumn.CreateForComparison("col_tstzrange", 3910),
+                PgOutputRelationMessageColumn.CreateForComparison("col_daterange", 3912))));
+        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 35,
+            Arrays.asList(new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "1"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "110110"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "t"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "(1,1),(0,0)"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "\\x012345"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "127.0.0.1/32"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "<(0,0),1>"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "2024-02-01"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "1.20100000000000007"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "3.14000000000000012"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "127.0.0.1"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "42"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "{\"key\": \"value\"}"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "{\"key\": \"value\"}"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "{1,2,3}"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "[(0,0),(1,1)]"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "00:11:22:33:44:55:66:77"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "00:11:22:33:44:55"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "$100.50"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "123.456"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "((0,0),(1,1))"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "(0,0)"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "((0,0),(1,1))"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "Sample Text"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "12:34:56"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "2024-02-01 12:34:56"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "12:34:56+00"),
+                new PgOutputMessageTupleColumn(
+                    NOT_NULL, NOT_TOASTED, "550e8400-e29b-41d4-a716-446655440000"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "101010"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "2024-02-01 18:04:56+05:30"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "[1,10)"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "[100,1000)"),
+                new PgOutputMessageTupleColumn(
+                    NOT_NULL, NOT_TOASTED, "[\"2024-01-01 00:00:00\",\"2024-12-31 00:00:00\")"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED,
+                    "[\"2024-01-01 05:30:00+05:30\",\"2025-01-01 05:29:59+05:30\")"),
+                new PgOutputMessageTupleColumn(
+                    NOT_NULL, NOT_TOASTED, "[2024-01-01,2024-12-31)")))));
+        add(PgOutputCommitMessage.CreateForComparison(
+            LogSequenceNumber.valueOf("0/4"), LogSequenceNumber.valueOf("0/5")));
+      }
+    };
+    assertEquals(expectedResult, result);
+
+    stream.close();
+  }
+
+  @Test
   public void replicationConnectionConsumptionDisabled() throws Exception {
+    markClusterNeedsRecreation();
     Map<String, String> tserverFlags = super.getTServerFlags();
     tserverFlags.put("ysql_TEST_enable_replication_slot_consumption", "false");
     restartClusterWithFlags(Collections.emptyMap(), tserverFlags);

@@ -112,8 +112,6 @@ Status PBToDatum(const YBCPgTypeEntity *type_entity,
   *is_null = false;
 
   switch (type_entity->yb_type) {
-    case YB_YQL_DATA_TYPE_GIN_NULL: FALLTHROUGH_INTENDED;
-    case YB_YQL_DATA_TYPE_BOOL: FALLTHROUGH_INTENDED;
     case YB_YQL_DATA_TYPE_INT8: {
       int8_t val = value.int8_value();
       *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
@@ -126,21 +124,26 @@ Status PBToDatum(const YBCPgTypeEntity *type_entity,
       break;
     }
 
-    case YB_YQL_DATA_TYPE_FLOAT: FALLTHROUGH_INTENDED;
-      // Float is represented using int32 in network byte order.
-    case YB_YQL_DATA_TYPE_UINT32: FALLTHROUGH_INTENDED;
     case YB_YQL_DATA_TYPE_INT32: {
       int32_t val = value.int32_value();
       *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
       break;
     }
 
-    case YB_YQL_DATA_TYPE_DOUBLE: FALLTHROUGH_INTENDED;
-      // Double is represented using int64 in network byte order.
-    case YB_YQL_DATA_TYPE_TIMESTAMP: FALLTHROUGH_INTENDED;
-    case YB_YQL_DATA_TYPE_UINT64: FALLTHROUGH_INTENDED;
     case YB_YQL_DATA_TYPE_INT64: {
       int64_t val = value.int64_value();
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_UINT32: {
+      int32_t val = value.uint32_value();
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_UINT64: {
+      int64_t val = value.uint64_value();
       *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
       break;
     }
@@ -151,9 +154,33 @@ Status PBToDatum(const YBCPgTypeEntity *type_entity,
       break;
     }
 
+    case YB_YQL_DATA_TYPE_BOOL: {
+      auto val = value.bool_value();
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_FLOAT: {
+      auto val = value.float_value();
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_DOUBLE: {
+      auto val = value.double_value();
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
+      break;
+    }
+
     case YB_YQL_DATA_TYPE_BINARY: {
       auto str = value.binary_value();
       *datum = type_entity->yb_to_datum(str.data(), str.size(), &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_TIMESTAMP: {
+      auto val = value.int64_value();
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
       break;
     }
 
@@ -169,6 +196,12 @@ Status PBToDatum(const YBCPgTypeEntity *type_entity,
       *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(val),
                                         plaintext.size(),
                                         &type_attrs);
+      break;
+    }
+
+    case YB_YQL_DATA_TYPE_GIN_NULL: {
+      auto val = value.gin_null_value();
+      *datum = type_entity->yb_to_datum(reinterpret_cast<uint8_t *>(&val), 0, &type_attrs);
       break;
     }
 
