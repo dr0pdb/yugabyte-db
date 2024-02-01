@@ -262,7 +262,6 @@ static bool TransactionIdInRecentPast(TransactionId xid, uint32 epoch);
 
 static void XLogRead(char *buf, XLogRecPtr startptr, Size count);
 
-static void YBWalSndInvalidatePublications(LogicalDecodingContext *ctx);
 
 /* Initialize walsender process before entering the main command loop */
 void
@@ -1011,8 +1010,7 @@ CreateReplicationSlot(CreateReplicationSlotCmd *cmd)
 			ctx = CreateInitDecodingContext(cmd->plugin, NIL, need_full_snapshot,
 								logical_read_xlog_page,
 								WalSndPrepareWrite, WalSndWriteData,
-								WalSndUpdateProgress,
-								YBWalSndInvalidatePublications);
+								WalSndUpdateProgress);
 
 			/*
 			 * Signal that we don't need the timeout mechanism. We're just
@@ -1192,8 +1190,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 		CreateDecodingContext(cmd->startpoint, cmd->options, false,
 							  logical_read_xlog_page,
 							  WalSndPrepareWrite, WalSndWriteData,
-							  WalSndUpdateProgress,
-							  YBWalSndInvalidatePublications);
+							  WalSndUpdateProgress);
 
 	WalSndSetState(WALSNDSTATE_CATCHUP);
 
@@ -1392,21 +1389,6 @@ WalSndUpdateProgress(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId 
 
 	LagTrackerWrite(lsn, now);
 	sendTime = now;
-}
-
-/*
- * LogicalDecodingContext 'yb_update_publications' callback.
- *
- * Update the Walsender that the publications have been changed.
- */
-static void
-YBWalSndInvalidatePublications(LogicalDecodingContext *ctx)
-{
-	/*
-	 * TODO(#20726): Refresh the list of tables according to the update
-	 * publications and notify the CDC service of the change. This should be
-	 * done once the GetChangesForSlot RPC is ready.
-	 */
 }
 
 /*
@@ -2944,6 +2926,12 @@ XLogSendLogical(void)
 	{
 		yb_record = YBCReadRecord(logical_decoding_ctx->reader, logical_startptr,
 								  &errm);
+
+		/*
+		 * Explicitly set record to NULL so that the NULL check below is only
+		 * dependent on yb_record.
+		 */
+		record = NULL;
 	}
 	else
 	{
@@ -2956,7 +2944,7 @@ XLogSendLogical(void)
 	if (errm != NULL)
 		elog(ERROR, "%s", errm);
 
-	if (record != NULL || (IsYugaByteEnabled() && yb_record != NULL))
+	if ((IsYugaByteEnabled() && yb_record != NULL) || record != NULL)
 	{
 		/* XXX: Note that logical decoding cannot be used while in recovery */
 		XLogRecPtr flushPtr = IsYugaByteEnabled() ? YBCGetFlushRecPtr() :

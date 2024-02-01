@@ -32,10 +32,6 @@ typedef void (*LogicalOutputPluginWriterUpdateProgress) (
 														 TransactionId xid
 );
 
-typedef void (*YBLogicalOutputPluginWriterInvalidatePublications) (
-														 struct LogicalDecodingContext *lr
-);
-
 typedef struct LogicalDecodingContext
 {
 	/* memory context this is all allocated in */
@@ -71,8 +67,6 @@ typedef struct LogicalDecodingContext
 	LogicalOutputPluginWriterWrite write;
 	LogicalOutputPluginWriterUpdateProgress update_progress;
 
-	YBLogicalOutputPluginWriterInvalidatePublications yb_invalidate_publications;
-
 	/*
 	 * Output buffer.
 	 */
@@ -106,8 +100,7 @@ extern LogicalDecodingContext *CreateInitDecodingContext(char *plugin,
 						  XLogPageReadCB read_page,
 						  LogicalOutputPluginWriterPrepareWrite prepare_write,
 						  LogicalOutputPluginWriterWrite do_write,
-						  LogicalOutputPluginWriterUpdateProgress update_progress,
-						  YBLogicalOutputPluginWriterInvalidatePublications yb_invalidate_publications);
+						  LogicalOutputPluginWriterUpdateProgress update_progress);
 extern LogicalDecodingContext *CreateDecodingContext(
 					  XLogRecPtr start_lsn,
 					  List *output_plugin_options,
@@ -115,8 +108,7 @@ extern LogicalDecodingContext *CreateDecodingContext(
 					  XLogPageReadCB read_page,
 					  LogicalOutputPluginWriterPrepareWrite prepare_write,
 					  LogicalOutputPluginWriterWrite do_write,
-					  LogicalOutputPluginWriterUpdateProgress update_progress,
-					  YBLogicalOutputPluginWriterInvalidatePublications yb_invalidate_publications);
+					  LogicalOutputPluginWriterUpdateProgress update_progress);
 extern void DecodingContextFindStartpoint(LogicalDecodingContext *ctx);
 extern bool DecodingContextReady(LogicalDecodingContext *ctx);
 extern void FreeDecodingContext(LogicalDecodingContext *ctx);
