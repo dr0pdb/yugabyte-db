@@ -16,6 +16,7 @@
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_type.h"
 #include "libpq/pqformat.h"
+#include "pg_yb_utils.h"
 #include "replication/logicalproto.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
