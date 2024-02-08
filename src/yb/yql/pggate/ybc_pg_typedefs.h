@@ -549,23 +549,6 @@ typedef struct PgReplicationSlotDescriptor {
   bool active;
 } YBCReplicationSlotDescriptor;
 
-typedef struct PgCDCSDKCheckpoint {
-  int64_t term;
-  int64_t index;
-  const char *key;
-  int32_t write_id;
-} YBCPgCDCSDKCheckpoint;
-
-typedef struct PgTabletLocationsDescriptor {
-  const char *tablet_id;
-} YBCPgTabletLocationsDescriptor;
-
-typedef struct PgTabletCheckpoint {
-  YBCPgTabletLocationsDescriptor *location;
-  YBCPgCDCSDKCheckpoint *checkpoint;
-  YBCPgOid table_oid;
-} YBCPgTabletCheckpoint;
-
 typedef struct PgDatumMessage {
   const char* column_name;
 
@@ -595,13 +578,13 @@ typedef struct PgRowMessage {
   YBCPgDatumMessage* cols;
   uint64_t commit_time;
   YBCPgRowMessageAction action;
+  const char *table_name;
+  int lsn;
 } YBCPgRowMessage;
 
 typedef struct PgChangeRecordBatch {
   int row_count;
   YBCPgRowMessage* rows;
-  YBCPgCDCSDKCheckpoint* checkpoint;
-  YBCPgOid table_oid;
 } YBCPgChangeRecordBatch;
 
 // A struct to store ASH metadata in PG's procarray

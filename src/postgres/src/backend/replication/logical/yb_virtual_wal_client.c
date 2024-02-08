@@ -27,12 +27,10 @@
 #include "commands/ybccmds.h"
 #include "replication/slot.h"
 #include "replication/yb_virtual_wal_client.h"
+#include "utils/lsyscache.h"
 #include "utils/memutils.h"
 
 static MemoryContext virtual_wal_context = NULL;
-
-/* Checkpoint per tablet. */
-static List *tablet_checkpoints = NIL;
 
 /* Cached records received from the CDC service. */
 static YBCPgChangeRecordBatch *cached_records = NULL;
@@ -42,15 +40,12 @@ static size_t cached_records_last_sent_row_idx = 0;
 static XLogRecPtr yb_last_lsn = InvalidXLogRecPtr;
 
 static List *YBCGetTables(List *publication_names);
-static void YBCGetTabletCheckpoints(List *tables);
-static void YBCSetInitialTabletCheckpoints();
-static XLogRecPtr YBCGenerateLSN();
+static void InitVirtualWal(List *publication_names);
 
 void
 YBCInitVirtualWal(List *yb_publication_names)
 {
 	MemoryContext	caller_context;
-	List			*tables;
 
 	YBC_LOG_INFO("YBCInitVirtualWal");
 
@@ -65,16 +60,8 @@ YBCInitVirtualWal(List *yb_publication_names)
 	/* Persist the tablet checkpoints outside of the transaction context. */
 	MemoryContextSwitchTo(virtual_wal_context);
 
-	tables = YBCGetTables(yb_publication_names);
+	InitVirtualWal(yb_publication_names);
 
-	/*
-	 * TODO(#20726): Replace these two calls with a call to InitVirtualWal in
-	 * the CDC service once it is ready.
-	 */
-	YBCGetTabletCheckpoints(tables);
-	YBCSetInitialTabletCheckpoints();
-
-	list_free(tables);
 	AbortCurrentTransaction();
 	MemoryContextSwitchTo(caller_context);
 
@@ -102,54 +89,30 @@ YBCGetTables(List *publication_names)
 }
 
 static void
-YBCGetTabletCheckpoints(List *tables)
+InitVirtualWal(List *publication_names)
 {
+	List		*tables;
+	Oid			*table_oids;
+
+	tables = YBCGetTables(publication_names);
+
+	table_oids = palloc(sizeof(Oid) * list_length(tables));
 	ListCell *lc;
+	size_t table_idx = 0;
 	foreach (lc, tables)
-	{
-		YBCPgTabletCheckpoint	*checkpoints;
-		size_t 					numtablets;
-		Oid						table_oid = lfirst_oid(lc);
+		table_oids[table_idx++] = lfirst_oid(lc);
 
-		YBCGetTabletListToPollForStreamAndTable(
-			MyReplicationSlot->data.yb_stream_id, table_oid, &checkpoints,
-			&numtablets);
+	YBCInitVirtualWalForCDC(MyReplicationSlot->data.yb_stream_id, table_oids,
+							list_length(tables));
 
-		for (size_t i = 0; i < numtablets; i++)
-		{
-			checkpoints[i].table_oid = table_oid;
-			tablet_checkpoints = lappend(tablet_checkpoints, &checkpoints[i]);
-		}
-	}
-}
-
-static void
-YBCSetInitialTabletCheckpoints()
-{
-	ListCell *lc;
-	foreach (lc, tablet_checkpoints)
-	{
-		YBCPgTabletCheckpoint *tc = (YBCPgTabletCheckpoint *) lfirst(lc);
-		YBCPgCDCSDKCheckpoint *new_checkpoint;
-
-		new_checkpoint = palloc(sizeof(YBCPgCDCSDKCheckpoint));
-		new_checkpoint->index = 0;
-		new_checkpoint->term = 0;
-
-		YBCSetCDCTabletCheckpoint(MyReplicationSlot->data.yb_stream_id,
-								  tc->location->tablet_id, new_checkpoint, 0,
-								  true);
-
-		tc->checkpoint->index = 0;
-		tc->checkpoint->term = 0;
-	}
+	pfree(table_oids);
+	list_free(tables);
 }
 
 YBCPgVirtualWalRecord *
 YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr, char **errormsg)
 {
 	MemoryContext			caller_context;
-	XLogRecPtr				record_lsn = InvalidXLogRecPtr;
 	YBCPgVirtualWalRecord	*record = NULL;
 
 	YBC_LOG_INFO("YBCReadRecord");
@@ -168,31 +131,12 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr, char **errormsg)
 	{
 		YBC_LOG_INFO("YBCReadRecord: Fetching a fresh batch of changes.");
 
-		/*
-		 * TODO(#20726): The below code assumes that the number of tablets in 1.
-		 * Support more than one tablets once the VirtualWAL component is ready
-		 * in CDC service.
-		 */
-		Assert(list_length(tablet_checkpoints) <= 1);
-		ListCell *lc;
-		foreach (lc, tablet_checkpoints)
-		{
-			YBCPgTabletCheckpoint *tc = (YBCPgTabletCheckpoint *) lfirst(lc);
+		/* We no longer need the earlier record batch. */
+		if (cached_records)
+			pfree(cached_records);
 
-			/* We no longer need the earlier record batch. */
-			if (cached_records)
-				pfree(cached_records);
-
-			YBCGetCDCChanges(MyReplicationSlot->data.yb_stream_id,
-							 tc->location->tablet_id, tc->checkpoint,
-							 &cached_records);
-
-			if (tc->checkpoint)
-				pfree(tc->checkpoint);
-
-			tc->checkpoint = cached_records->checkpoint;
-			cached_records->table_oid = tc->table_oid;
-		}
+		YBCGetCDCConsistentChanges(MyReplicationSlot->data.yb_stream_id,
+								   &cached_records);
 
 		cached_records_last_sent_row_idx = 0;
 	}
@@ -207,20 +151,18 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr, char **errormsg)
 		return NULL;
 	}
 
-	/* Get an LSN from the generator. */
-	record_lsn = YBCGenerateLSN();
-
 	record = palloc(sizeof(YBCPgVirtualWalRecord));
 	record->data = &cached_records->rows[cached_records_last_sent_row_idx++];
-	record->table_oid = cached_records->table_oid;
-	record->lsn = record_lsn;
+	record->table_oid =
+		get_relname_relid(record->data->table_name, MyDatabaseId);
+
 	/*
 	 * TODO(#20726): Remove this hardcoded value once the Virtual WAL component
 	 * is ready in CDC service. It will return the xid in the response.
 	 */
 	record->xid = 1;
 
-	state->ReadRecPtr = record_lsn;
+	state->ReadRecPtr = record->data->lsn;
 
 	if (state->yb_virtual_wal_record)
 		pfree(state->yb_virtual_wal_record);
@@ -247,10 +189,4 @@ YBCGetFlushRecPtr(void)
 	 * CDC service.
 	 */
 	return PG_UINT64_MAX;
-}
-
-static XLogRecPtr
-YBCGenerateLSN()
-{
-	return ++yb_last_lsn;
 }

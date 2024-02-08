@@ -2002,55 +2002,17 @@ void YBCStoreTServerAshSamples(
   }
 }
 
-YBCStatus YBCPgGetTabletListToPollForStreamAndTable(const char *stream_id,
-                                                    const YBCPgOid database_oid,
-                                                    const YBCPgOid table_oid,
-                                                    YBCPgTabletCheckpoint **tablet_checkpoints,
-                                                    size_t *numtablets) {
-  const PgObjectId pg_table_id(database_oid, table_oid);
-  const auto result = pgapi->GetTabletListToPollForCDC(std::string(stream_id), pg_table_id);
-  if (!result.ok()) {
-    return ToYBCStatus(result.status());
+YBCStatus YBCPgInitVirtualWalForCDC(
+    const char *stream_id, const YBCPgOid database_oid, YBCPgOid *relations, size_t num_relations) {
+  std::vector<PgObjectId> tables;
+  tables.reserve(num_relations);
+
+  for (size_t i = 0; i < num_relations; i++) {
+    PgObjectId table_id(database_oid, relations[i]);
+    tables.push_back(std::move(table_id));
   }
 
-  *DCHECK_NOTNULL(tablet_checkpoints) = NULL;
-  DCHECK_NOTNULL(numtablets);
-
-  const auto& tablet_checkpoint_pairs = result.get().tablet_checkpoint_pairs();
-  *numtablets = tablet_checkpoint_pairs.size();
-  if (!tablet_checkpoint_pairs.empty()) {
-    *tablet_checkpoints = static_cast<YBCPgTabletCheckpoint *>(
-        YBCPAlloc(sizeof(YBCPgTabletCheckpoint) * tablet_checkpoint_pairs.size()));
-    YBCPgTabletCheckpoint *dest = *tablet_checkpoints;
-    for (const auto &tablet_checkpoint : tablet_checkpoint_pairs) {
-      auto location = static_cast<YBCPgTabletLocationsDescriptor *>(
-          YBCPAlloc(sizeof(YBCPgTabletLocationsDescriptor)));
-      location->tablet_id = YBCPAllocStdString(tablet_checkpoint.tablet_locations().tablet_id());
-
-      auto checkpoint_pb = tablet_checkpoint.cdc_sdk_checkpoint();
-      auto checkpoint = static_cast<YBCPgCDCSDKCheckpoint *>(
-          YBCPAlloc(sizeof(YBCPgCDCSDKCheckpoint)));
-      checkpoint->term = checkpoint_pb.term();
-      checkpoint->index = checkpoint_pb.index();
-      checkpoint->key = YBCPAllocStdString(checkpoint_pb.key());
-      checkpoint->write_id = checkpoint_pb.write_id();
-
-      new (dest) YBCPgTabletCheckpoint{
-        .location = location,
-        .checkpoint = checkpoint
-      };
-      ++dest;
-    }
-  }
-
-  return YBCStatusOK();
-}
-
-YBCStatus YBCPgSetCDCTabletCheckpoint(
-    const char *stream_id, const char *tablet_id, const YBCPgCDCSDKCheckpoint *checkpoint,
-    uint64_t safe_time, bool is_initial_checkpoint) {
-  const auto result = pgapi->SetCDCTabletCheckpoint(
-      std::string(stream_id), std::string(tablet_id), checkpoint, safe_time, is_initial_checkpoint);
+  const auto result = pgapi->InitVirtualWALForCDC(std::string(stream_id), tables);
   if (!result.ok()) {
     return ToYBCStatus(result.status());
   }
@@ -2077,11 +2039,9 @@ YBCPgRowMessageAction GetRowMessageAction(yb::cdc::RowMessage row_message_pb) {
   }
 }
 
-YBCStatus YBCPgGetCDCChanges(
-    const char *stream_id, const char *tablet_id, const YBCPgCDCSDKCheckpoint *checkpoint,
-    YBCPgChangeRecordBatch **record_batch) {
-  const auto result =
-      pgapi->GetCDCChanges(std::string(stream_id), std::string(tablet_id), checkpoint);
+YBCStatus YBCPgGetCDCConsistentChanges(
+    const char *stream_id, YBCPgChangeRecordBatch **record_batch) {
+  const auto result = pgapi->GetConsistentChangesForCDC(std::string(stream_id));
   if (!result.ok()) {
     return ToYBCStatus(result.status());
   }
@@ -2091,22 +2051,13 @@ YBCStatus YBCPgGetCDCChanges(
   LOG(INFO) << "Response from CDC service: " << resp.DebugString();
   auto row_count = resp.cdc_sdk_proto_records_size();
 
-  auto resp_checkpoint_pb = resp.cdc_sdk_checkpoint();
-  auto resp_checkpoint =
-      static_cast<YBCPgCDCSDKCheckpoint *>(YBCPAlloc(sizeof(YBCPgCDCSDKCheckpoint)));
-  new (resp_checkpoint) YBCPgCDCSDKCheckpoint{
-      .term = resp_checkpoint_pb.term(),
-      .index = resp_checkpoint_pb.index(),
-      .key = YBCPAllocStdString(resp_checkpoint_pb.key()),
-      .write_id = resp_checkpoint_pb.write_id(),
-  };
-
   auto resp_rows_pb = resp.cdc_sdk_proto_records();
   auto resp_rows = static_cast<YBCPgRowMessage *>(YBCPAlloc(sizeof(YBCPgRowMessage) * row_count));
   size_t row_idx = 0;
   for (const auto& row_pb : resp_rows_pb) {
     auto row_message_pb = row_pb.row_message();
     auto commit_time = row_message_pb.commit_time();
+    auto table_name = row_message_pb.table();
 
     // column_name -> (index in old tuples, index in new tuples). -1 indicates omission.
     std::unordered_map<std::string, std::pair<int, int>> col_values;
@@ -2186,6 +2137,8 @@ YBCStatus YBCPgGetCDCChanges(
         .cols = cols,
         .commit_time = commit_time,
         .action = GetRowMessageAction(row_message_pb),
+        .table_name = YBCPAllocStdString(table_name),
+        .lsn = narrow_cast<int>(row_message_pb.lsn())
     };
     row_idx++;
   }
@@ -2194,207 +2147,6 @@ YBCStatus YBCPgGetCDCChanges(
   new (*record_batch) YBCPgChangeRecordBatch{
       .row_count = row_count,
       .rows = resp_rows,
-      .checkpoint = resp_checkpoint,
-  };
-
-  LOG(INFO) << "Done with get changes";
-
-  return YBCStatusOK();
-}
-
-YBCStatus YBCPgGetTabletListToPollForStreamAndTable(const char *stream_id,
-                                                    const YBCPgOid database_oid,
-                                                    const YBCPgOid table_oid,
-                                                    YBCPgTabletCheckpoint **tablet_checkpoints,
-                                                    size_t *numtablets) {
-  const PgObjectId pg_table_id(database_oid, table_oid);
-  const auto result = pgapi->GetTabletListToPollForCDC(std::string(stream_id), pg_table_id);
-  if (!result.ok()) {
-    return ToYBCStatus(result.status());
-  }
-
-  *DCHECK_NOTNULL(tablet_checkpoints) = NULL;
-  DCHECK_NOTNULL(numtablets);
-
-  const auto& tablet_checkpoint_pairs = result.get().tablet_checkpoint_pairs();
-  *numtablets = tablet_checkpoint_pairs.size();
-  if (!tablet_checkpoint_pairs.empty()) {
-    *tablet_checkpoints = static_cast<YBCPgTabletCheckpoint *>(
-        YBCPAlloc(sizeof(YBCPgTabletCheckpoint) * tablet_checkpoint_pairs.size()));
-    YBCPgTabletCheckpoint *dest = *tablet_checkpoints;
-    for (const auto &tablet_checkpoint : tablet_checkpoint_pairs) {
-      auto location = static_cast<YBCPgTabletLocationsDescriptor *>(
-          YBCPAlloc(sizeof(YBCPgTabletLocationsDescriptor)));
-      location->tablet_id = YBCPAllocStdString(tablet_checkpoint.tablet_locations().tablet_id());
-
-      auto checkpoint_pb = tablet_checkpoint.cdc_sdk_checkpoint();
-      auto checkpoint = static_cast<YBCPgCDCSDKCheckpoint *>(
-          YBCPAlloc(sizeof(YBCPgCDCSDKCheckpoint)));
-      checkpoint->term = checkpoint_pb.term();
-      checkpoint->index = checkpoint_pb.index();
-      checkpoint->key = YBCPAllocStdString(checkpoint_pb.key());
-      checkpoint->write_id = checkpoint_pb.write_id();
-
-      new (dest) YBCPgTabletCheckpoint{
-        .location = location,
-        .checkpoint = checkpoint
-      };
-      ++dest;
-    }
-  }
-
-  return YBCStatusOK();
-}
-
-YBCStatus YBCPgSetCDCTabletCheckpoint(
-    const char *stream_id, const char *tablet_id, const YBCPgCDCSDKCheckpoint *checkpoint,
-    uint64_t safe_time, bool is_initial_checkpoint) {
-  const auto result = pgapi->SetCDCTabletCheckpoint(
-      std::string(stream_id), std::string(tablet_id), checkpoint, safe_time, is_initial_checkpoint);
-  if (!result.ok()) {
-    return ToYBCStatus(result.status());
-  }
-
-  return YBCStatusOK();
-}
-
-YBCPgRowMessageAction GetRowMessageAction(yb::cdc::RowMessage row_message_pb) {
-  switch (row_message_pb.op()) {
-    case cdc::RowMessage_Op_BEGIN:
-      return YB_PG_ROW_MESSAGE_ACTION_BEGIN;
-    case cdc::RowMessage_Op_COMMIT:
-      return YB_PG_ROW_MESSAGE_ACTION_COMMIT;
-    case cdc::RowMessage_Op_INSERT:
-      return YB_PG_ROW_MESSAGE_ACTION_INSERT;
-    case cdc::RowMessage_Op_UPDATE:
-      return YB_PG_ROW_MESSAGE_ACTION_UPDATE;
-    case cdc::RowMessage_Op_DELETE:
-      return YB_PG_ROW_MESSAGE_ACTION_DELETE;
-    case cdc::RowMessage_Op_DDL:
-      return YB_PG_ROW_MESSAGE_ACTION_DDL;
-    default:
-      return YB_PG_ROW_MESSAGE_ACTION_UNKNOWN;
-  }
-}
-
-YBCStatus YBCPgGetCDCChanges(
-    const char *stream_id, const char *tablet_id, const YBCPgCDCSDKCheckpoint *checkpoint,
-    YBCPgChangeRecordBatch **record_batch) {
-  const auto result =
-      pgapi->GetCDCChanges(std::string(stream_id), std::string(tablet_id), checkpoint);
-  if (!result.ok()) {
-    return ToYBCStatus(result.status());
-  }
-
-  *DCHECK_NOTNULL(record_batch) = NULL;
-  const auto resp = result.get();
-  LOG(INFO) << "Response from CDC service: " << resp.DebugString();
-  auto row_count = resp.cdc_sdk_proto_records_size();
-
-  auto resp_checkpoint_pb = resp.cdc_sdk_checkpoint();
-  auto resp_checkpoint =
-      static_cast<YBCPgCDCSDKCheckpoint *>(YBCPAlloc(sizeof(YBCPgCDCSDKCheckpoint)));
-  new (resp_checkpoint) YBCPgCDCSDKCheckpoint{
-      .term = resp_checkpoint_pb.term(),
-      .index = resp_checkpoint_pb.index(),
-      .key = YBCPAllocStdString(resp_checkpoint_pb.key()),
-      .write_id = resp_checkpoint_pb.write_id(),
-  };
-
-  auto resp_rows_pb = resp.cdc_sdk_proto_records();
-  auto resp_rows = static_cast<YBCPgRowMessage *>(YBCPAlloc(sizeof(YBCPgRowMessage) * row_count));
-  size_t row_idx = 0;
-  for (const auto& row_pb : resp_rows_pb) {
-    auto row_message_pb = row_pb.row_message();
-    auto commit_time = row_message_pb.commit_time();
-
-    // column_name -> (index in old tuples, index in new tuples). -1 indicates omission.
-    std::unordered_map<std::string, std::pair<int, int>> col_values;
-    int new_tuple_idx = 0;
-    for (auto &new_tuple : row_message_pb.new_tuple()) {
-      if (new_tuple.has_column_name()) {
-        col_values.emplace(new_tuple.column_name(), std::make_pair(-1, new_tuple_idx));
-      }
-      new_tuple_idx++;
-    }
-    int old_tuple_idx = 0;
-    for (auto& old_tuple : row_message_pb.old_tuple()) {
-      if (old_tuple.has_column_name()) {
-        auto itr = col_values.find(old_tuple.column_name());
-        if (itr != col_values.end()) {
-          itr->second.first = old_tuple_idx;
-        } else {
-          col_values.emplace(old_tuple.column_name(), std::make_pair(old_tuple_idx, -1));
-        }
-      }
-      old_tuple_idx++;
-    }
-
-    int col_count = narrow_cast<int>(col_values.size());
-    YBCPgDatumMessage *cols = nullptr;
-    if (col_count > 0) {
-      cols = static_cast<YBCPgDatumMessage *>(YBCPAlloc(sizeof(YBCPgDatumMessage) * col_count));
-
-      int tuple_idx = 0;
-      for (const auto& col_value : col_values) {
-        YBCPgTypeAttrs type_attrs{-1 /* typmod */};
-        const auto& column_name = col_value.first;
-
-        // Old value.
-        uint64 old_datum = 0;
-        bool old_is_null = true;
-        bool old_is_omitted = col_value.second.first == -1;
-        if (!old_is_omitted) {
-          const auto old_tuple = &row_message_pb.old_tuple(col_value.second.first);
-          const auto *type_entity =
-              pgapi->FindTypeEntity(static_cast<int>(old_tuple->column_type()));
-          auto s = PBToDatum(
-              type_entity, type_attrs, old_tuple->pg_ql_value(), &old_datum, &old_is_null);
-          if (!s.ok()) {
-            return ToYBCStatus(s);
-          }
-        }
-
-        // New value.
-        uint64 new_datum = 0;
-        bool new_is_null = true;
-        bool new_is_omitted = col_value.second.second == -1;
-        if (!new_is_omitted) {
-          const auto new_tuple = &row_message_pb.new_tuple(col_value.second.second);
-          const auto *type_entity =
-              pgapi->FindTypeEntity(static_cast<int>(new_tuple->column_type()));
-          auto s = PBToDatum(
-              type_entity, type_attrs, new_tuple->pg_ql_value(), &new_datum, &new_is_null);
-          if (!s.ok()) {
-            return ToYBCStatus(s);
-          }
-        }
-
-        auto col = &cols[tuple_idx++];
-        col->column_name = YBCPAllocStdString(column_name);
-        col->new_datum = new_datum;
-        col->new_is_null = new_is_null;
-        col->new_is_omitted = new_is_omitted;
-        col->old_datum = old_datum;
-        col->old_is_null = old_is_null;
-        col->old_is_omitted = old_is_omitted;
-      }
-    }
-
-    new (&resp_rows[row_idx]) YBCPgRowMessage{
-        .col_count = col_count,
-        .cols = cols,
-        .commit_time = commit_time,
-        .action = GetRowMessageAction(row_message_pb),
-    };
-    row_idx++;
-  }
-
-  *record_batch = static_cast<YBCPgChangeRecordBatch *>(YBCPAlloc(sizeof(YBCPgChangeRecordBatch)));
-  new (*record_batch) YBCPgChangeRecordBatch{
-      .row_count = row_count,
-      .rows = resp_rows,
-      .checkpoint = resp_checkpoint,
   };
 
   LOG(INFO) << "Done with get changes";

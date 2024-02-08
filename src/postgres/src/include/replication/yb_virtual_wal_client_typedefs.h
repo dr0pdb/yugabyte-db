@@ -30,7 +30,6 @@
 typedef struct PgVirtualWalRecord
 {
 	YBCPgRowMessage *data;
-	XLogRecPtr lsn;
 	TransactionId xid;
 	Oid table_oid;
 } YBCPgVirtualWalRecord;

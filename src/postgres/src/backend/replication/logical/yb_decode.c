@@ -111,8 +111,8 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 	ReorderBufferTupleBuf	*tuple_buf;
 
 	change->action = REORDER_BUFFER_CHANGE_INSERT;
-	change->lsn = yb_record->lsn;
-	change->origin_id = yb_record->lsn;
+	change->lsn = yb_record->data->lsn;
+	change->origin_id = yb_record->data->lsn;
 
 	ReorderBufferProcessXid(ctx->reorder, yb_record->xid,
 							ctx->reader->ReadRecPtr);
@@ -189,8 +189,8 @@ YBDecodeUpdate(LogicalDecodingContext *ctx, XLogReaderState *record)
 	YBC_LOG_INFO("YBDecodeUpdate");
 
 	change->action = REORDER_BUFFER_CHANGE_UPDATE;
-	change->lsn = yb_record->lsn;
-	change->origin_id = yb_record->lsn;
+	change->lsn = yb_record->data->lsn;
+	change->origin_id = yb_record->data->lsn;
 
 	/*
 	 * TODO(#20726): This is the schema of the relation at the streaming time.
@@ -276,9 +276,9 @@ static void
 YBDecodeCommit(LogicalDecodingContext *ctx, XLogReaderState *record)
 {
 	YBCPgVirtualWalRecord	*yb_record = record->yb_virtual_wal_record;
-	XLogRecPtr				commit_lsn = yb_record->lsn;
-	XLogRecPtr				end_lsn = yb_record->lsn + 1;
-	XLogRecPtr				origin_lsn = yb_record->lsn;
+	XLogRecPtr				commit_lsn = yb_record->data->lsn;
+	XLogRecPtr				end_lsn = yb_record->data->lsn + 1;
+	XLogRecPtr				origin_lsn = yb_record->data->lsn;
 	/*
 	 * We do not send the replication origin information. So any dummy value is
 	 * sufficient here.

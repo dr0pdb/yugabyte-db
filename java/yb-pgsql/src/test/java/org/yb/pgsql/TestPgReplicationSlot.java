@@ -60,6 +60,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
 <<<<<<< HEAD
 <<<<<<< HEAD
     flagMap.put("ysql_TEST_enable_replication_slot_consumption", "true");
+    flagMap.put("yb_enable_cdc_consistent_snapshot_streams", "true");
     flagMap.put("vmodule", "cdc_service=4,cdcsdk_producer=4");
     flagMap.put("yb_enable_cdc_consistent_snapshot_streams", "true");
 =======
@@ -77,10 +78,14 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     flagMap.put("allowed_preview_flags_csv", "ysql_yb_enable_replication_commands");
     flagMap.put("ysql_yb_enable_replication_commands", "true");
 <<<<<<< HEAD
+<<<<<<< HEAD
     flagMap.put("ysql_TEST_enable_replication_slot_consumption", "true");
     flagMap.put("yb_enable_cdc_consistent_snapshot_streams", "true");
 =======
 >>>>>>> 81e79e9736 (Remove restriction of enabling consistent snapshot streams)
+=======
+    flagMap.put("yb_enable_cdc_consistent_snapshot_streams", "true");
+>>>>>>> 518671e594 (temp)
     return flagMap;
   }
 
