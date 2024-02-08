@@ -2181,7 +2181,7 @@ Status CatalogManager::GetCDCStream(
       auto replication_slot_name = ReplicationSlotName(req->cdcsdk_ysql_replication_slot_name());
         if (!cdcsdk_replication_slots_to_stream_map_.contains(replication_slot_name)) {
           return STATUS(
-              NotFound, "Could not find CDC stream", req->ShortDebugString(),
+              NotFound, "Could not find CDC stream from the slot name", req->ShortDebugString(),
               MasterError(MasterErrorPB::OBJECT_NOT_FOUND));
         }
         stream_id = cdcsdk_replication_slots_to_stream_map_.at(replication_slot_name);
@@ -2192,7 +2192,7 @@ Status CatalogManager::GetCDCStream(
 
   if (stream == nullptr || stream->LockForRead()->is_deleting()) {
     return STATUS(
-        NotFound, "Could not find CDC stream", req->ShortDebugString(),
+        NotFound, Format("Could not find CDC stream, deleting = $0", stream != nullptr), req->ShortDebugString(),
         MasterError(MasterErrorPB::OBJECT_NOT_FOUND));
   }
 

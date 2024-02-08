@@ -432,6 +432,8 @@ txid_current(PG_FUNCTION_ARGS)
 	txid		val;
 	TxidEpoch	state;
 
+	PG_RETURN_INT64(1);
+
 	if (IsYugaByteEnabled())
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),

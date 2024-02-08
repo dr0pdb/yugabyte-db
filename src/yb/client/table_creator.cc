@@ -315,6 +315,7 @@ Status YBTableCreator::Create() {
     req.set_ysql_ddl_rollback_enabled(FLAGS_ysql_ddl_rollback_enabled);
   }
 
+  num_tablets_ = 1;
   // Setup the number splits (i.e. number of splits).
   if (num_tablets_ > 0) {
     VLOG(1) << "num_tablets: number of tablets explicitly specified: " << num_tablets_;

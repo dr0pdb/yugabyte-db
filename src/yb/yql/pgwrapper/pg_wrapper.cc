@@ -444,6 +444,7 @@ Result<string> WritePostgresConfig(const PgProcessConf& conf) {
                            conf.cert_base_name));
     lines.push_back(Format("ssl_ca_file='$0/ca.crt'", conf.certs_for_client_dir));
   }
+  // lines.push_back("wal_level=logical");
 
   // Finally add gFlags.
   // If the file contains multiple entries for the same parameter, all but the last one are

@@ -1159,7 +1159,7 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 {
 	StringInfoData buf;
 
-	elog(DEBUG1, "StartLogicalReplication");
+	YBC_LOG_INFO("StartLogicalReplication");
 
 	/* make sure that our requirements are still fulfilled */
 	CheckLogicalDecodingRequirements();
@@ -2969,6 +2969,8 @@ XLogSendLogical(void)
 	}
 	else
 	{
+		YBC_LOG_INFO("Record was NULL!");
+
 		/*
 		 * If the record we just wanted read is at or beyond the flushed
 		 * point, then we're caught up.

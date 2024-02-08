@@ -1942,8 +1942,12 @@ YBCStatus YBCPgGetReplicationSlot(
   const auto replication_slot_name = ReplicationSlotName(std::string(slot_name));
   const auto result = pgapi->GetReplicationSlot(replication_slot_name);
   if (!result.ok()) {
+    LOG(INFO) << "GetReplicationSlot for name = " << replication_slot_name << " returned error "
+            << result.status().ToString();
     return ToYBCStatus(result.status());
   }
+  LOG(INFO) << "GetReplicationSlot for name = " << replication_slot_name << " returned "
+            << result->DebugString();
   const auto& slot_info = result.get().replication_slot_info();
 
   *replication_slot =

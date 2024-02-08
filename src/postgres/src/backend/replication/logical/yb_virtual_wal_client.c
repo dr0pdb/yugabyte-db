@@ -52,7 +52,7 @@ YBCInitVirtualWal(List *yb_publication_names)
 	MemoryContext	caller_context;
 	List			*tables;
 
-	elog(DEBUG1, "YBCInitVirtualWal");
+	YBC_LOG_INFO("YBCInitVirtualWal");
 
 	virtual_wal_context = AllocSetContextCreate(GetCurrentMemoryContext(),
 												"YB virtual WAL context",
@@ -152,7 +152,7 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr, char **errormsg)
 	XLogRecPtr				record_lsn = InvalidXLogRecPtr;
 	YBCPgVirtualWalRecord	*record = NULL;
 
-	elog(DEBUG4, "YBCReadRecord");
+	YBC_LOG_INFO("YBCReadRecord");
 
 	caller_context = MemoryContextSwitchTo(virtual_wal_context);
 
@@ -166,14 +166,14 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr, char **errormsg)
 	if (cached_records == NULL ||
 		cached_records_last_sent_row_idx >= cached_records->row_count)
 	{
-		elog(DEBUG5, "YBCReadRecord: Fetching a fresh batch of changes.");
+		YBC_LOG_INFO("YBCReadRecord: Fetching a fresh batch of changes.");
 
 		/*
 		 * TODO(#20726): The below code assumes that the number of tablets in 1.
 		 * Support more than one tablets once the VirtualWAL component is ready
 		 * in CDC service.
 		 */
-		Assert(list_length(tablet_checkpoints) == 1);
+		Assert(list_length(tablet_checkpoints) <= 1);
 		ListCell *lc;
 		foreach (lc, tablet_checkpoints)
 		{
@@ -196,13 +196,12 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr, char **errormsg)
 
 		cached_records_last_sent_row_idx = 0;
 	}
-	Assert(cached_records);
 
 	/*
 	 * We did not get any records from CDC service, return NULL and retry in the
 	 * next iteration.
 	 */
-	if (cached_records->row_count == 0)
+	if (!cached_records || cached_records->row_count == 0)
 	{
 		MemoryContextSwitchTo(caller_context);
 		return NULL;

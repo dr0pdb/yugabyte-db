@@ -356,9 +356,9 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 
 			/* Fill in the dummy values. */
 			xmin = InvalidXLogRecPtr;
-			catalog_xmin = InvalidXLogRecPtr;
-			restart_lsn = InvalidXLogRecPtr;
-			confirmed_flush_lsn = InvalidXLogRecPtr;
+			catalog_xmin = 1;
+			restart_lsn = 1;
+			confirmed_flush_lsn = 1;
 			active_pid = 0;
 			persistency = RS_PERSISTENT;
 		}

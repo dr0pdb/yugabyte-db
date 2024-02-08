@@ -344,7 +344,7 @@ pg_create_restore_point(PG_FUNCTION_ARGS)
 Datum
 pg_current_wal_lsn(PG_FUNCTION_ARGS)
 {
-	XLogRecPtr	current_recptr;
+	// XLogRecPtr	current_recptr;
 
 	if (RecoveryInProgress())
 		ereport(ERROR,
@@ -352,9 +352,9 @@ pg_current_wal_lsn(PG_FUNCTION_ARGS)
 				 errmsg("recovery is in progress"),
 				 errhint("WAL control functions cannot be executed during recovery.")));
 
-	current_recptr = GetXLogWriteRecPtr();
+	// current_recptr = GetXLogWriteRecPtr();
 
-	PG_RETURN_LSN(current_recptr);
+	PG_RETURN_LSN(1);
 }
 
 /*
