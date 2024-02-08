@@ -392,6 +392,10 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
       const int64 expected_total_records, bool explicit_checkpointing_enabled = false,
       std::map<TabletId, std::vector<CDCSDKProtoRecordPB>> records = {});
 
+  Result<int64> GetChangeRecordCount(
+      const xrepl::StreamId& stream_id, const std::vector<TableId> table_ids,
+      const int64 expected_total_records, bool should_retry);
+
   Result<SetCDCCheckpointResponsePB> SetCDCCheckpoint(
       const xrepl::StreamId& stream_id,
       const google::protobuf::RepeatedPtrField<master::TabletLocationsPB>& tablets,
@@ -565,7 +569,13 @@ class CDCSDKYsqlTest : public CDCSDKTestBase {
 
   void ValidateColumnCounts(const GetChangesResponsePB& resp, uint32_t excepted_column_counts);
 
+  void ValidateColumnCounts(
+      const GetConsistentChangesResponsePB& resp, uint32_t excepted_column_counts);
+
   void ValidateInsertCounts(const GetChangesResponsePB& resp, uint32_t excepted_insert_counts);
+
+  void ValidateInsertCounts(
+      const GetConsistentChangesResponsePB& resp, uint32_t excepted_insert_counts);
 
   void WaitUntilSplitIsSuccesful(
       const TabletId& tablet_id, const yb::client::YBTableName& table,
