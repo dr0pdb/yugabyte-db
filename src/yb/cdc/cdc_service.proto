@@ -242,9 +242,13 @@ message CDCCheckpointPB {
 }
 
 enum CDCSDKRequestSource {
+<<<<<<< HEAD
   // Debezium connector directly calling CDC Service.
   DEBEZIUM = 1;
   // Walsender calling CDC service.
+=======
+  DEBEZIUM = 1;
+>>>>>>> 59f90054d6 (virtual wal support)
   WALSENDER = 2;
 }
 
@@ -451,7 +455,11 @@ message RowMessage {
   optional yb.tserver.TruncateRequestPB truncate_request_info = 13;
   optional uint64 record_time = 14;
   optional uint64 pg_lsn = 15;
+<<<<<<< HEAD
   optional uint32 pg_transaction_id = 16;
+=======
+  optional uint64 pg_transaction_id = 16;
+>>>>>>> 0dd81280fa (virtual wal support)
 }
 
 message CDCSDKProtoRecordPB {
