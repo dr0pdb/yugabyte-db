@@ -242,13 +242,7 @@ message CDCCheckpointPB {
 }
 
 enum CDCSDKRequestSource {
-<<<<<<< HEAD
-  // Debezium connector directly calling CDC Service.
   DEBEZIUM = 1;
-  // Walsender calling CDC service.
-=======
-  DEBEZIUM = 1;
->>>>>>> 59f90054d6 (virtual wal support)
   WALSENDER = 2;
 }
 

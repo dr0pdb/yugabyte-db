@@ -2138,7 +2138,7 @@ YBCStatus YBCPgGetCDCConsistentChanges(
         .commit_time = commit_time,
         .action = GetRowMessageAction(row_message_pb),
         .table_name = YBCPAllocStdString(table_name),
-        .lsn = narrow_cast<int>(row_message_pb.lsn())
+        .lsn = narrow_cast<int>(row_message_pb.pg_lsn())
     };
     row_idx++;
   }
