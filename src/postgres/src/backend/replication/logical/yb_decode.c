@@ -47,7 +47,7 @@ YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 	elog(DEBUG4,
 		 "YBLogicalDecodingProcessRecord: Decoding record with action = %d.",
 		 record->yb_virtual_wal_record->data->action);
-	YBC_LOG_INFO("YBLogicalDecodingProcessRecord - %u", record->yb_virtual_wal_record->data->action);
+	YBC_LOG_INFO("YBLogicalDecodingProcessRecord: %u", record->yb_virtual_wal_record->data->action);
 	switch (record->yb_virtual_wal_record->data->action)
 	{
 		case YB_PG_ROW_MESSAGE_ACTION_UNKNOWN: switch_fallthrough();

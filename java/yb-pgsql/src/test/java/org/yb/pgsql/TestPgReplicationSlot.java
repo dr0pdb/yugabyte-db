@@ -212,6 +212,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
         .withOutputPlugin("pgoutput")
         .make();
 
+    Thread.sleep(2000);
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("INSERT INTO t1 VALUES(1, 'abcd', true)");
       stmt.execute("INSERT INTO t1 VALUES(2, 'defg', true)");
@@ -405,6 +406,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
         .withOutputPlugin("pgoutput")
         .make();
 
+    Thread.sleep(2000);
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("INSERT INTO test_table VALUES ("
           + "1, B'110110', TRUE, '((0,0),(1,1))', E'\\\\x012345', '127.0.0.1', '((0,0),1)', "

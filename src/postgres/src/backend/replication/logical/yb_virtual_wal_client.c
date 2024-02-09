@@ -153,8 +153,17 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr, char **errormsg)
 
 	record = palloc(sizeof(YBCPgVirtualWalRecord));
 	record->data = &cached_records->rows[cached_records_last_sent_row_idx++];
-	record->table_oid =
-		get_relname_relid(record->data->table_name, MyDatabaseId);
+
+	/* Start a transaction to be able to read the catalog tables. */
+	bool within_txn = IsTransactionState();
+	if (!within_txn)
+		StartTransactionCommand();
+	record->table_oid = 16384;
+	if (!within_txn)
+		AbortCurrentTransaction();
+	MemoryContextSwitchTo(virtual_wal_context);
+	YBC_LOG_INFO("The table name was: %s and oid is: %d, MyDatabaseId = %d",
+				 "yugabyte.t1", record->table_oid,  MyDatabaseId);
 
 	/*
 	 * TODO(#20726): Remove this hardcoded value once the Virtual WAL component

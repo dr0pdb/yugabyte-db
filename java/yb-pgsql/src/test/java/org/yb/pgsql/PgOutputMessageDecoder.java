@@ -385,8 +385,7 @@ public class PgOutputMessageDecoder {
     @Override
     public String toString() {
       String old_tuple_string = (this.old_tuple != null) ? old_tuple.toString() : "NULL";
-      return String.format(
-          "UPDATE: (old_tuple = %s, new_tuple = %s, oid = %s)", old_tuple_string, new_tuple, oid);
+      return String.format("UPDATE: (old_tuple = %s, new_tuple = %s)", old_tuple_string, new_tuple);
     }
   }
 

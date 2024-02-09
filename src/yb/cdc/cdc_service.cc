@@ -4565,6 +4565,8 @@ Status CDCServiceImpl::GetChangesInternal(
       for (const auto& record : resp.cdc_sdk_proto_records()) {
         tablet_queue.push_back(record);
       }
+    } else {
+      LOG(INFO) << "Did not find any cdc_sdk_proto_records";
     }
 
     RSTATUS_DCHECK(
