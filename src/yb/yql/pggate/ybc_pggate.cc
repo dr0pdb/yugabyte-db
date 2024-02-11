@@ -2006,9 +2006,10 @@ YBCStatus YBCPgGetTabletListToPollForStreamAndTable(const char *stream_id,
   }
 
   *DCHECK_NOTNULL(tablet_checkpoints) = NULL;
+  DCHECK_NOTNULL(numtablets);
 
   const auto& tablet_checkpoint_pairs = result.get().tablet_checkpoint_pairs();
-  *DCHECK_NOTNULL(numtablets) = tablet_checkpoint_pairs.size();
+  *numtablets = tablet_checkpoint_pairs.size();
   if (!tablet_checkpoint_pairs.empty()) {
     *tablet_checkpoints = static_cast<YBCPgTabletCheckpoint *>(
         YBCPAlloc(sizeof(YBCPgTabletCheckpoint) * tablet_checkpoint_pairs.size()));
@@ -2079,6 +2080,7 @@ YBCStatus YBCPgGetCDCChanges(
 
   *DCHECK_NOTNULL(record_batch) = NULL;
   const auto resp = result.get();
+  LOG(INFO) << "Response from CDC service: " << resp.DebugString();
   auto row_count = resp.cdc_sdk_proto_records_size();
 
   auto resp_checkpoint_pb = resp.cdc_sdk_checkpoint();
@@ -2096,30 +2098,78 @@ YBCStatus YBCPgGetCDCChanges(
   size_t row_idx = 0;
   for (const auto& row_pb : resp_rows_pb) {
     auto row_message_pb = row_pb.row_message();
-    auto col_count = row_message_pb.new_tuple_size();
     auto commit_time = row_message_pb.commit_time();
 
+    // column_name -> (index in old tuples, index in new tuples). -1 indicates omission.
+    std::unordered_map<std::string, std::pair<int, int>> col_values;
+    int new_tuple_idx = 0;
+    for (auto &new_tuple : row_message_pb.new_tuple()) {
+      if (new_tuple.has_column_name()) {
+        col_values.emplace(new_tuple.column_name(), std::make_pair(-1, new_tuple_idx));
+      }
+      new_tuple_idx++;
+    }
+    int old_tuple_idx = 0;
+    for (auto& old_tuple : row_message_pb.old_tuple()) {
+      if (old_tuple.has_column_name()) {
+        auto itr = col_values.find(old_tuple.column_name());
+        if (itr != col_values.end()) {
+          itr->second.first = old_tuple_idx;
+        } else {
+          col_values.emplace(old_tuple.column_name(), std::make_pair(old_tuple_idx, -1));
+        }
+      }
+      old_tuple_idx++;
+    }
+
+    int col_count = narrow_cast<int>(col_values.size());
     YBCPgDatumMessage *cols = nullptr;
     if (col_count > 0) {
       cols = static_cast<YBCPgDatumMessage *>(YBCPAlloc(sizeof(YBCPgDatumMessage) * col_count));
 
-      for (int tuple_idx = 0; tuple_idx < col_count; tuple_idx++) {
-        const auto& tuple = row_message_pb.new_tuple(tuple_idx);
-
-        const auto* type_entity = pgapi->FindTypeEntity(static_cast<int>(tuple.column_type()));
+      int tuple_idx = 0;
+      for (const auto& col_value : col_values) {
         YBCPgTypeAttrs type_attrs{-1 /* typmod */};
-        uint64 datum = 0;
-        bool is_null;
-        auto s = PBToDatum(type_entity, type_attrs, tuple.pg_ql_value(), &datum, &is_null);
-        if (!s.ok()) {
-          return ToYBCStatus(s);
+        const auto& column_name = col_value.first;
+
+        // Old value.
+        uint64 old_datum = 0;
+        bool old_is_null = true;
+        bool old_is_omitted = col_value.second.first == -1;
+        if (!old_is_omitted) {
+          const auto old_tuple = &row_message_pb.old_tuple(col_value.second.first);
+          const auto *type_entity =
+              pgapi->FindTypeEntity(static_cast<int>(old_tuple->column_type()));
+          auto s = PBToDatum(
+              type_entity, type_attrs, old_tuple->pg_ql_value(), &old_datum, &old_is_null);
+          if (!s.ok()) {
+            return ToYBCStatus(s);
+          }
         }
 
-        auto col = &cols[tuple_idx];
-        col->column_name = YBCPAllocStdString(tuple.column_name());
-        col->column_type = tuple.column_type();
-        col->datum = datum;
-        col->is_null = is_null;
+        // New value.
+        uint64 new_datum = 0;
+        bool new_is_null = true;
+        bool new_is_omitted = col_value.second.second == -1;
+        if (!new_is_omitted) {
+          const auto new_tuple = &row_message_pb.new_tuple(col_value.second.second);
+          const auto *type_entity =
+              pgapi->FindTypeEntity(static_cast<int>(new_tuple->column_type()));
+          auto s = PBToDatum(
+              type_entity, type_attrs, new_tuple->pg_ql_value(), &new_datum, &new_is_null);
+          if (!s.ok()) {
+            return ToYBCStatus(s);
+          }
+        }
+
+        auto col = &cols[tuple_idx++];
+        col->column_name = YBCPAllocStdString(column_name);
+        col->new_datum = new_datum;
+        col->new_is_null = new_is_null;
+        col->new_is_omitted = new_is_omitted;
+        col->old_datum = old_datum;
+        col->old_is_null = old_is_null;
+        col->old_is_omitted = old_is_omitted;
       }
     }
 
@@ -2138,6 +2188,8 @@ YBCStatus YBCPgGetCDCChanges(
       .rows = resp_rows,
       .checkpoint = resp_checkpoint,
   };
+
+  LOG(INFO) << "Done with get changes";
 
   return YBCStatusOK();
 }

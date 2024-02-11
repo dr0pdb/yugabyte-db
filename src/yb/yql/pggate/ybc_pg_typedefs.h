@@ -568,9 +568,16 @@ typedef struct PgTabletCheckpoint {
 
 typedef struct PgDatumMessage {
   const char* column_name;
-  uint64_t column_type;
-  uint64_t datum;
-  bool is_null;
+
+  // Null indicates that the value is explicitly null while Omitted indicates that the value is
+  // present but was just not sent from the CDC service due to the Replica Identity (CHANGE,
+  // MODIFIED_COLUMNS_OLD_AND_NEW_IMAGES).
+  uint64_t new_datum;
+  bool new_is_null;
+  bool new_is_omitted;
+  uint64_t old_datum;
+  bool old_is_null;
+  bool old_is_omitted;
 } YBCPgDatumMessage;
 
 typedef enum PgRowMessageAction {

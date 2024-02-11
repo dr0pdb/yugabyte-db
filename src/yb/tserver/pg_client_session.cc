@@ -703,7 +703,9 @@ Status PgClientSession::CreateReplicationSlot(
   // TODO(#19260): Support customizing the CDCRecordType.
   options.reserve(5);
   options.emplace(cdc::kIdType, cdc::kNamespaceId);
-  options.emplace(cdc::kRecordType, CDCRecordType_Name(cdc::CDCRecordType::CHANGE));
+  options.emplace(
+      cdc::kRecordType,
+      CDCRecordType_Name(cdc::CDCRecordType::MODIFIED_COLUMNS_OLD_AND_NEW_IMAGES));
   options.emplace(cdc::kRecordFormat, CDCRecordFormat_Name(cdc::CDCRecordFormat::PROTO));
   options.emplace(cdc::kSourceType, CDCRequestSource_Name(cdc::CDCRequestSource::CDCSDK));
   options.emplace(cdc::kCheckpointType, CDCCheckpointType_Name(cdc::CDCCheckpointType::EXPLICIT));

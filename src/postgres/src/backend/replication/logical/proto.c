@@ -21,6 +21,9 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 
+/* YB includes. */
+#include "pg_yb_utils.h"
+
 /*
  * Protocol message flags.
  */
@@ -31,7 +34,7 @@
 
 static void logicalrep_write_attrs(StringInfo out, Relation rel);
 static void logicalrep_write_tuple(StringInfo out, Relation rel,
-					   HeapTuple tuple);
+					   HeapTuple tuple, bool *yb_is_omitted);
 
 static void logicalrep_read_attrs(StringInfo in, LogicalRepRelation *rel);
 static void logicalrep_read_tuple(StringInfo in, LogicalRepTupleData *tuple);
@@ -151,7 +154,7 @@ logicalrep_write_insert(StringInfo out, Relation rel, HeapTuple newtuple)
 	pq_sendint32(out, RelationGetRelid(rel));
 
 	pq_sendbyte(out, 'N');		/* new tuple follows */
-	logicalrep_write_tuple(out, rel, newtuple);
+	logicalrep_write_tuple(out, rel, newtuple, NULL);
 }
 
 /*
@@ -183,7 +186,8 @@ logicalrep_read_insert(StringInfo in, LogicalRepTupleData *newtup)
  */
 void
 logicalrep_write_update(StringInfo out, Relation rel, HeapTuple oldtuple,
-						HeapTuple newtuple)
+						HeapTuple newtuple, bool *yb_old_is_omitted,
+						bool *yb_new_is_omitted)
 {
 	pq_sendbyte(out, 'U');		/* action UPDATE */
 
@@ -200,11 +204,11 @@ logicalrep_write_update(StringInfo out, Relation rel, HeapTuple oldtuple,
 			pq_sendbyte(out, 'O');	/* old tuple follows */
 		else
 			pq_sendbyte(out, 'K');	/* old key follows */
-		logicalrep_write_tuple(out, rel, oldtuple);
+		logicalrep_write_tuple(out, rel, oldtuple, yb_old_is_omitted);
 	}
 
 	pq_sendbyte(out, 'N');		/* new tuple follows */
-	logicalrep_write_tuple(out, rel, newtuple);
+	logicalrep_write_tuple(out, rel, newtuple, yb_new_is_omitted);
 }
 
 /*
@@ -268,7 +272,7 @@ logicalrep_write_delete(StringInfo out, Relation rel, HeapTuple oldtuple)
 	else
 		pq_sendbyte(out, 'K');	/* old key follows */
 
-	logicalrep_write_tuple(out, rel, oldtuple);
+	logicalrep_write_tuple(out, rel, oldtuple, NULL);
 }
 
 /*
@@ -441,7 +445,8 @@ logicalrep_read_typ(StringInfo in, LogicalRepTyp *ltyp)
  * Write a tuple to the outputstream, in the most efficient format possible.
  */
 static void
-logicalrep_write_tuple(StringInfo out, Relation rel, HeapTuple tuple)
+logicalrep_write_tuple(StringInfo out, Relation rel, HeapTuple tuple,
+					   bool *yb_is_omitted)
 {
 	TupleDesc	desc;
 	Datum		values[MaxTupleAttributeNumber];
@@ -476,6 +481,16 @@ logicalrep_write_tuple(StringInfo out, Relation rel, HeapTuple tuple)
 		/* skip dropped columns */
 		if (att->attisdropped)
 			continue;
+
+		if (IsYugaByteEnabled() && yb_is_omitted && yb_is_omitted[i])
+		{
+			/*
+			 * Treat omitted column as an unchanged toast column so that the
+			 * client will ignore it.
+			 */
+			pq_sendbyte(out, 'u'); /* unchanged toast column */
+			continue;
+		}
 
 		if (isnull[i])
 		{
