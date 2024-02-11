@@ -175,14 +175,6 @@ Status AddColumnToMap(
     }
 
     if (!IsNull(ql_value) && col_schema.pg_type_oid() != 0 /*kInvalidOid*/) {
-      // Send data as QLValuePB to Walsender.
-      if (request_source == CDCSDKRequestSource::WALSENDER) {
-        cdc_datum_message->set_column_type(col_schema.pg_type_oid());
-        cdc_datum_message->mutable_pg_ql_value()->CopyFrom(ql_value);
-        return Status::OK();
-      }
-
-    if (!IsNull(ql_value) && col_schema.pg_type_oid() != 0 /*kInvalidOid*/) {
       RETURN_NOT_OK(docdb::SetValueFromQLBinaryWrapper(
           ql_value, col_schema.pg_type_oid(), enum_oid_label_map, composite_atts_map,
           cdc_datum_message));
