@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import javax.annotation.Nullable;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,8 +33,9 @@ import org.slf4j.LoggerFactory;
  */
 public class PgOutputMessageDecoder {
   private static final Logger LOG = LoggerFactory.getLogger(PgOutputMessageDecoder.class);
+  public static final String IGNORED_EMPTY_STRING = "";
 
-  public enum PgOutputMessageType { RELATION, BEGIN, COMMIT, INSERT };
+  public enum PgOutputMessageType { RELATION, BEGIN, COMMIT, INSERT, UPDATE };
 
   public interface PgOutputMessage {
     PgOutputMessageType messageType();
@@ -304,11 +307,11 @@ public class PgOutputMessageDecoder {
     }
 
     public static PgOutputMessageTupleColumn NullValue() {
-      return new PgOutputMessageTupleColumn(true, false, null);
+      return new PgOutputMessageTupleColumn(true, false, IGNORED_EMPTY_STRING);
     }
 
     public static PgOutputMessageTupleColumn ToastedValue() {
-      return new PgOutputMessageTupleColumn(false, true, null);
+      return new PgOutputMessageTupleColumn(false, true, IGNORED_EMPTY_STRING);
     }
 
     public static PgOutputMessageTupleColumn TextValue(String text) {
@@ -339,6 +342,54 @@ public class PgOutputMessageDecoder {
       }
     }
   }
+
+  /*
+   * UPDATE message
+   */
+  protected static class PgOutputUpdateMessage implements PgOutputMessage {
+    final int oid;
+    @Nullable final PgOutputMessageTuple old_tuple;
+    final PgOutputMessageTuple new_tuple;
+
+    public PgOutputUpdateMessage(
+        int oid, @Nullable PgOutputMessageTuple old_tuple, PgOutputMessageTuple new_tuple) {
+      this.oid = oid;
+      this.old_tuple = old_tuple;
+      this.new_tuple = new_tuple;
+    }
+
+    public static PgOutputUpdateMessage CreateForComparison(
+        @Nullable PgOutputMessageTuple old_tuple, PgOutputMessageTuple new_tuple) {
+      return new PgOutputUpdateMessage(0, old_tuple, new_tuple);
+    }
+
+    @Override
+    public PgOutputMessageType messageType() {
+      return PgOutputMessageType.UPDATE;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+      if (this == other)
+        return true;
+
+      if (other == null || this.getClass() != other.getClass())
+        return false;
+
+      PgOutputUpdateMessage otherMessage = (PgOutputUpdateMessage) other;
+      return ((this.old_tuple == null) ? otherMessage.old_tuple == null
+                                       : this.old_tuple.equals(otherMessage.old_tuple))
+          && this.new_tuple.equals(otherMessage.new_tuple);
+    }
+
+    @Override
+    public String toString() {
+      String old_tuple_string = (this.old_tuple != null) ? old_tuple.toString() : "NULL";
+      return String.format(
+          "UPDATE: (old_tuple = %s, new_tuple = %s, oid = %s)", old_tuple_string, new_tuple, oid);
+    }
+  }
+
 
   /*
    * Decode the data passed as bytes into a PgOutputMessage.
@@ -391,6 +442,21 @@ public class PgOutputMessageDecoder {
         PgOutputMessageTuple tuple = decodePgOutputMessageTuple(buffer);
         PgOutputInsertMessage insertMessage = new PgOutputInsertMessage(oid, tuple);
         return insertMessage;
+
+      case 'U': // UPDATE
+        oid = buffer.getInt();
+        char oldOrNew = (char)buffer.get();
+
+        // 'K' or 'O' represents old tuple while 'N' represents new tuple
+        PgOutputMessageTuple old_tuple = null;
+        if (oldOrNew == 'K' || oldOrNew == 'O') {
+          old_tuple = decodePgOutputMessageTuple(buffer);
+          buffer.get(); // Always 'N'
+        }
+
+        PgOutputMessageTuple new_tuple = decodePgOutputMessageTuple(buffer);
+        PgOutputUpdateMessage updateMessage = new PgOutputUpdateMessage(oid, old_tuple, new_tuple);
+        return updateMessage;
     }
 
     LOG.info("Received unknown response, returning null");

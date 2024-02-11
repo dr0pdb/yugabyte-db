@@ -43,7 +43,9 @@ import com.yugabyte.util.PSQLException;
 public class TestPgReplicationSlot extends BasePgSQLTest {
   private static final Logger LOG = LoggerFactory.getLogger(TestPgReplicationSlot.class);
   private static final boolean NOT_NULL = false;
+  private static final boolean NULL = true;
   private static final boolean NOT_TOASTED = false;
+  private static final boolean TOASTED = true;
 
   @Override
   protected int getInitialNumTServers() {
@@ -176,7 +178,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   @Test
   public void replicationConnectionConsumption() throws Exception {
     try (Statement stmt = connection.createStatement()) {
-      stmt.execute("CREATE TABLE t1 (a int primary key, b text) SPLIT INTO 1 TABLETS");
+      stmt.execute("CREATE TABLE t1 (a int primary key, b text, c bool) SPLIT INTO 1 TABLETS");
       stmt.execute("CREATE PUBLICATION pub FOR ALL TABLES");
     }
 
@@ -191,9 +193,11 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
         .make();
 
     try (Statement stmt = connection.createStatement()) {
-      stmt.execute("INSERT INTO t1 VALUES(1, 'abcd')");
-      stmt.execute("INSERT INTO t1 VALUES(2, 'defg')");
-      stmt.execute("INSERT INTO t1 VALUES(3, 'hijk')");
+      stmt.execute("INSERT INTO t1 VALUES(1, 'abcd', true)");
+      stmt.execute("INSERT INTO t1 VALUES(2, 'defg', true)");
+      stmt.execute("INSERT INTO t1 VALUES(3, 'hijk', false)");
+      stmt.execute("UPDATE t1 SET b = 'updated_abcd' WHERE a = 1");
+      stmt.execute("UPDATE t1 SET b = NULL, c = false WHERE a = 2");
     }
 
     PGReplicationStream stream = replConnection.replicationStream()
@@ -205,8 +209,8 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
                                      .start();
 
     List<PgOutputMessage> result = new ArrayList<PgOutputMessage>();
-    // 1 Relation, 3 * 3 (begin, insert and commit).
-    result.addAll(receiveMessage(stream, 10));
+    // 1 Relation, 3 * 3 (begin, insert and commit), 3 * 2 (begin, update and commit).
+    result.addAll(receiveMessage(stream, 16));
     for (PgOutputMessage res : result) {
       LOG.info("Row = {}", res);
     }
@@ -219,29 +223,62 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
         add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/4"), 1));
         add(PgOutputRelationMessage.CreateForComparison("public", "t1", 'd',
             Arrays.asList(PgOutputRelationMessageColumn.CreateForComparison("a", 23),
-                PgOutputRelationMessageColumn.CreateForComparison("b", 25))));
-        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 2,
+                PgOutputRelationMessageColumn.CreateForComparison("b", 25),
+                PgOutputRelationMessageColumn.CreateForComparison("c", 16))));
+        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 3,
             Arrays.asList(
                 new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "1"),
-                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "abcd")))));
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "abcd"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "t")))));
         add(PgOutputCommitMessage.CreateForComparison(
             LogSequenceNumber.valueOf("0/4"), LogSequenceNumber.valueOf("0/5")));
 
         add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/7"), 1));
-        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 2,
+        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 3,
             Arrays.asList(
                 new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "2"),
-                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "defg")))));
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "defg"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "t")))));
         add(PgOutputCommitMessage.CreateForComparison(
             LogSequenceNumber.valueOf("0/7"), LogSequenceNumber.valueOf("0/8")));
 
         add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/A"), 1));
-        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 2,
+        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 3,
             Arrays.asList(
                 new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "3"),
-                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "hijk")))));
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "hijk"),
+                new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "f")))));
         add(PgOutputCommitMessage.CreateForComparison(
             LogSequenceNumber.valueOf("0/A"), LogSequenceNumber.valueOf("0/B")));
+
+        add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/D"), 1));
+        add(PgOutputUpdateMessage.CreateForComparison(
+            new PgOutputMessageTuple((short) 3,
+                Arrays.asList(new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "1"),
+                    new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "abcd"),
+                    new PgOutputMessageTupleColumn(
+                        NOT_NULL, TOASTED, PgOutputMessageDecoder.IGNORED_EMPTY_STRING))),
+            new PgOutputMessageTuple((short) 3,
+                Arrays.asList(new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "1"),
+                    new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "updated_abcd"),
+                    new PgOutputMessageTupleColumn(
+                        NOT_NULL, TOASTED, PgOutputMessageDecoder.IGNORED_EMPTY_STRING)))));
+        add(PgOutputCommitMessage.CreateForComparison(
+            LogSequenceNumber.valueOf("0/D"), LogSequenceNumber.valueOf("0/E")));
+
+        add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/10"), 1));
+        add(PgOutputUpdateMessage.CreateForComparison(
+            new PgOutputMessageTuple((short) 3,
+                Arrays.asList(new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "2"),
+                    new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "defg"),
+                    new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "t"))),
+            new PgOutputMessageTuple((short) 3,
+                Arrays.asList(new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "2"),
+                    new PgOutputMessageTupleColumn(
+                        NULL, NOT_TOASTED, PgOutputMessageDecoder.IGNORED_EMPTY_STRING),
+                    new PgOutputMessageTupleColumn(NOT_NULL, NOT_TOASTED, "f")))));
+        add(PgOutputCommitMessage.CreateForComparison(
+            LogSequenceNumber.valueOf("0/10"), LogSequenceNumber.valueOf("0/11")));
       }
     };
     assertEquals(expectedResult, result);
