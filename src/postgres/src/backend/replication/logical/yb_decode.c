@@ -121,10 +121,10 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 	 * TODO(#20726): This is the schema of the relation at the streaming time.
 	 * We need this to be the schema of the table at record commit time.
 	 */
-	relation = RelationIdGetRelation(yb_record->table_oid);
+	relation = RelationIdGetRelation(yb_record->data->table_oid);
 	if (!RelationIsValid(relation))
 		elog(ERROR, "could not open relation with OID %u",
-			 yb_record->table_oid);
+			 yb_record->data->table_oid);
 
 	tupdesc = RelationGetDescr(relation);
 	nattrs = tupdesc->natts;
@@ -159,7 +159,7 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 	tuple_buf->tuple = *tuple;
 	change->data.tp.newtuple = tuple_buf;
 	change->data.tp.oldtuple = NULL;
-	change->data.tp.yb_table_oid = yb_record->table_oid;
+	change->data.tp.yb_table_oid = yb_record->data->table_oid;
 
 	change->data.tp.clear_toast_afterwards = true;
 	ReorderBufferQueueChange(ctx->reorder, yb_record->xid,
@@ -196,10 +196,10 @@ YBDecodeUpdate(LogicalDecodingContext *ctx, XLogReaderState *record)
 	 * TODO(#20726): This is the schema of the relation at the streaming time.
 	 * We need this to be the schema of the table at record commit time.
 	 */
-	relation = RelationIdGetRelation(yb_record->table_oid);
+	relation = RelationIdGetRelation(yb_record->data->table_oid);
 	if (!RelationIsValid(relation))
 		elog(ERROR, "could not open relation with OID %u",
-			 yb_record->table_oid);
+			 yb_record->data->table_oid);
 
 	tupdesc = RelationGetDescr(relation);
 	nattrs = tupdesc->natts;
@@ -260,7 +260,7 @@ YBDecodeUpdate(LogicalDecodingContext *ctx, XLogReaderState *record)
 
 	change->data.tp.newtuple = new_tuple_buf;
 	change->data.tp.oldtuple = old_tuple_buf;
-	change->data.tp.yb_table_oid = yb_record->table_oid;
+	change->data.tp.yb_table_oid = yb_record->data->table_oid;
 
 	change->data.tp.clear_toast_afterwards = true;
 	ReorderBufferQueueChange(ctx->reorder, yb_record->xid,

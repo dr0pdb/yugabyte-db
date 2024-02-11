@@ -2057,7 +2057,6 @@ YBCStatus YBCPgGetCDCConsistentChanges(
   for (const auto& row_pb : resp_rows_pb) {
     auto row_message_pb = row_pb.row_message();
     auto commit_time = row_message_pb.commit_time();
-    auto table_name = row_message_pb.table();
 
     // column_name -> (index in old tuples, index in new tuples). -1 indicates omission.
     std::unordered_map<std::string, std::pair<int, int>> col_values;
@@ -2132,12 +2131,20 @@ YBCStatus YBCPgGetCDCConsistentChanges(
       }
     }
 
+
+    // Can be absent for BEGIN/COMMIT records.
+    YBCPgOid table_oid = kPgInvalidOid;
+    if (row_message_pb.has_table_id()) {
+      auto table_id = PgObjectId(row_message_pb.table_id());
+      table_oid = table_id.object_oid;
+    }
+
     new (&resp_rows[row_idx]) YBCPgRowMessage{
         .col_count = col_count,
         .cols = cols,
         .commit_time = commit_time,
         .action = GetRowMessageAction(row_message_pb),
-        .table_name = YBCPAllocStdString(table_name),
+        .table_oid = table_oid,
         .lsn = narrow_cast<int>(row_message_pb.pg_lsn())
     };
     row_idx++;

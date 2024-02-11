@@ -578,7 +578,8 @@ typedef struct PgRowMessage {
   YBCPgDatumMessage* cols;
   uint64_t commit_time;
   YBCPgRowMessageAction action;
-  const char *table_name;
+  // Valid for DMLs and kkPgInvalidOid for BEGIN/COMMIT records.
+  YBCPgOid table_oid;
   int lsn;
 } YBCPgRowMessage;
 

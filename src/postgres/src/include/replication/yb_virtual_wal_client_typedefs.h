@@ -31,7 +31,6 @@ typedef struct PgVirtualWalRecord
 {
 	YBCPgRowMessage *data;
 	TransactionId xid;
-	Oid table_oid;
 } YBCPgVirtualWalRecord;
 
 #endif

@@ -449,11 +449,9 @@ message RowMessage {
   optional yb.tserver.TruncateRequestPB truncate_request_info = 13;
   optional uint64 record_time = 14;
   optional uint64 pg_lsn = 15;
-<<<<<<< HEAD
-  optional uint32 pg_transaction_id = 16;
-=======
   optional uint64 pg_transaction_id = 16;
->>>>>>> 0dd81280fa (virtual wal support)
+
+  optional string table_id = 17;
 }
 
 message CDCSDKProtoRecordPB {
