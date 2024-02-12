@@ -1920,6 +1920,8 @@ YBCDropReplicationSlot(const char *slot_name)
 {
 	YBCPgStatement handle;
 
+	YBC_LOG_INFO_STACK_TRACE("Dropping replication slot %s", slot_name);
+
 	HandleYBStatus(YBCPgNewDropReplicationSlot(slot_name,
 											   &handle));
 

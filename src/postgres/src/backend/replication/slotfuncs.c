@@ -240,6 +240,8 @@ pg_drop_replication_slot(PG_FUNCTION_ARGS)
 
 	Name		name = PG_GETARG_NAME(0);
 
+	YBC_LOG_INFO("pg_drop_replication_slot called for %s", name->data);
+
 	check_permissions();
 
 	CheckSlotRequirements();

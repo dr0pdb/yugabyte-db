@@ -22,6 +22,7 @@
  */
 
 #include "postgres.h"
+#include <unistd.h>
 
 #include "access/xact.h"
 #include "commands/ybccmds.h"
@@ -147,6 +148,8 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr, char **errormsg)
 	 */
 	if (!cached_records || cached_records->row_count == 0)
 	{
+		/* Sleep for 5 sec, to avoid log spam. */
+		usleep(5000000);
 		MemoryContextSwitchTo(caller_context);
 		return NULL;
 	}
