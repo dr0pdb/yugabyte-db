@@ -182,7 +182,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   @Test
   public void replicationConnectionConsumption() throws Exception {
     try (Statement stmt = connection.createStatement()) {
-      stmt.execute("CREATE TABLE t1 (a int primary key, b text, c bool) SPLIT INTO 1 TABLETS");
+      stmt.execute("CREATE TABLE t1 (a int primary key, b text, c bool)");
       stmt.execute("CREATE PUBLICATION pub FOR ALL TABLES");
     }
 
@@ -328,7 +328,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
         + "col_int8range INT8RANGE, "
         + "col_tsrange TSRANGE, "
         + "col_tstzrange TSTZRANGE, "
-        + "col_daterange DATERANGE) SPLIT INTO 1 TABLETS";
+        + "col_daterange DATERANGE)";
 
     try (Statement stmt = connection.createStatement()) {
       stmt.execute(create_stmt);
