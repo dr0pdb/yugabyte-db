@@ -443,7 +443,7 @@ Result<xrepl::StreamId> CDCSDKTestBase::CreateConsistentSnapshotStreamWithReplic
 
   auto slot_name = GenerateRandomReplicationSlotName();
   RETURN_NOT_OK(repl_conn.FetchFormat(
-      "CREATE_REPLICATION_SLOT $0 LOGICAL yboutput $1", slot_name, snapshot_action));
+      "CREATE_REPLICATION_SLOT $0 LOGICAL pgoutput $1", slot_name, snapshot_action));
 
   // TODO(#20816): Sleep for 1 second - temporary till sync implementation of CreateCDCStream.
   SleepFor(MonoDelta::FromSeconds(1));
