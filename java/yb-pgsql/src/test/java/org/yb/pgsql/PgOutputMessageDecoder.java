@@ -85,8 +85,8 @@ public class PgOutputMessageDecoder {
     @Override
     public String toString() {
       return String.format(
-          "RELATION: (name = %s, namespace = %s, replica_identity = %s, columns = %s, oid = %s)",
-          name, namespace, replicaIdentity, Arrays.toString(columns.toArray()), oid);
+          "RELATION: (name = %s, namespace = %s, replica_identity = %s, columns = %s)", name,
+          namespace, replicaIdentity, Arrays.toString(columns.toArray()));
     }
   }
 
@@ -168,8 +168,7 @@ public class PgOutputMessageDecoder {
 
     @Override
     public String toString() {
-      return String.format(
-          "BEGIN: (lsn = %s, xid = %s, commit_time = %s)", finalLSN, transactionId, commitTime);
+      return String.format("BEGIN: (lsn = %s, xid = %s)", finalLSN, transactionId);
     }
   }
 
@@ -215,8 +214,8 @@ public class PgOutputMessageDecoder {
 
     @Override
     public String toString() {
-      return String.format("COMMIT: (commit_lsn = %s, end_lsn = %s, flag = %s, commit_time = %s)",
-          commitLSN, endLSN, flag, commitTime);
+      return String.format(
+          "COMMIT: (commit_lsn = %s, end_lsn = %s, flag = %s)", commitLSN, endLSN, flag);
     }
   }
 
@@ -255,7 +254,7 @@ public class PgOutputMessageDecoder {
 
     @Override
     public String toString() {
-      return String.format("INSERT: (tuple = %s, oid = %s)", tuple, oid);
+      return String.format("INSERT: (tuple = %s)", tuple);
     }
   }
 
