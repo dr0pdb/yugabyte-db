@@ -173,9 +173,9 @@ Status OperationTracker::Add(OperationDriver* driver) {
     auto blocked_by = AsString(blocking_mem_tracker);
     auto operation_type = driver->operation_type();
     string msg = Substitute(
-        "Operation of type $0 failed, tablet $1 operation memory consumption ($2) "
-        "has exceeded the limit $3 of memory tracker ($4) while trying "
-        "to consume additional $5 bytes",
+        "Operation of type $0 failed: tablet $1 hit the limit $3 of memory tracker $4 "
+        "while trying to consume an additional $5 bytes; "
+        "the memory tracker had already given out $2 bytes.",
         AsString(operation_type), tablet ? tablet->tablet_id() : "(unknown)", consumption, limit,
         blocked_by, driver_mem_footprint);
 

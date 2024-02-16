@@ -203,18 +203,16 @@ static void CheckMetrics(const scoped_refptr<MetricEntity>& entity,
                          int expected_num_rejections) {
   ASSERT_EQ(
       expected_num_writes + expected_num_alters,
-      entity->FindOrNull<AtomicGauge<uint64_t>>(METRIC_all_operations_inflight).get()->value());
+      entity->FindOrNull<AtomicGauge<uint64_t>>(METRIC_all_operations_inflight)->value());
   ASSERT_EQ(
       expected_num_writes,
-      entity->FindOrNull<AtomicGauge<uint64_t>>(METRIC_write_operations_inflight).get()->value());
+      entity->FindOrNull<AtomicGauge<uint64_t>>(METRIC_write_operations_inflight)->value());
   ASSERT_EQ(
       expected_num_alters,
-      entity->FindOrNull<AtomicGauge<uint64_t>>(METRIC_alter_schema_operations_inflight)
-          .get()
-          ->value());
+      entity->FindOrNull<AtomicGauge<uint64_t>>(METRIC_alter_schema_operations_inflight)->value());
   ASSERT_EQ(
       expected_num_rejections,
-      entity->FindOrNull<Counter>(METRIC_operation_memory_pressure_rejections).get()->value());
+      entity->FindOrNull<Counter>(METRIC_operation_memory_pressure_rejections)->value());
 }
 
 // Basic testing for metrics. Note that the NoOpOperations we use in this
@@ -264,7 +262,7 @@ TEST_F(OperationTrackerTest, TestTooManyOperations) {
 
   LOG(INFO) << "Added " << drivers.size() << " drivers";
   ASSERT_TRUE(s.IsServiceUnavailable());
-  ASSERT_STR_CONTAINS(s.ToString(), "exceeded the limit");
+  ASSERT_STR_CONTAINS(s.ToString(), "hit the limit");
   ASSERT_NO_FATALS(CheckMetrics(entity_, narrow_cast<int>(drivers.size()), 0, 1));
   ASSERT_NO_FATALS(CheckMemTracker(t));
 
