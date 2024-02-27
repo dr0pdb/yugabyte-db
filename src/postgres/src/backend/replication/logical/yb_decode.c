@@ -108,13 +108,13 @@ static void
 YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 {
 	YBCPgVirtualWalRecord	*yb_record = record->yb_virtual_wal_record;
-	YBCPgRowMessage			*data = yb_record->data;
 	ReorderBufferChange		*change = ReorderBufferGetChange(ctx->reorder);
 	Relation				relation;
 	TupleDesc				tupdesc;
 	int						nattrs;
 	HeapTuple				tuple;
 	ReorderBufferTupleBuf	*tuple_buf;
+	YBCPgRowMessage			*data = yb_record->data;  /* Shorter lines. */
 
 	change->action = REORDER_BUFFER_CHANGE_INSERT;
 	change->lsn = data->lsn;
