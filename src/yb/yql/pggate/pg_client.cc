@@ -981,6 +981,17 @@ class PgClient::Impl : public BigDataFetcher {
     return resp;
   }
 
+  Result<cdc::DestroyVirtualWALForCDCResponsePB> DestroyVirtualWALForCDC() {
+    cdc::DestroyVirtualWALForCDCRequestPB req;
+    req.set_session_id(session_id_);
+
+    cdc::DestroyVirtualWALForCDCResponsePB resp;
+    RETURN_NOT_OK(
+        local_cdc_service_proxy_->DestroyVirtualWALForCDC(req, &resp, PrepareController()));
+    RETURN_NOT_OK(ResponseStatus(resp));
+    return resp;
+  }
+
   Result<cdc::GetConsistentChangesResponsePB> GetConsistentChangesForCDC(
       const std::string& stream_id) {
     cdc::GetConsistentChangesRequestPB req;
@@ -1291,6 +1302,10 @@ Result<tserver::PgActiveSessionHistoryResponsePB> PgClient::ActiveSessionHistory
 Result<cdc::InitVirtualWALForCDCResponsePB> PgClient::InitVirtualWALForCDC(
     const std::string& stream_id, const std::vector<PgObjectId>& table_ids) {
   return impl_->InitVirtualWALForCDC(stream_id, table_ids);
+}
+
+Result<cdc::DestroyVirtualWALForCDCResponsePB> PgClient::DestroyVirtualWALForCDC() {
+  return impl_->DestroyVirtualWALForCDC();
 }
 
 Result<cdc::GetConsistentChangesResponsePB> PgClient::GetConsistentChangesForCDC(

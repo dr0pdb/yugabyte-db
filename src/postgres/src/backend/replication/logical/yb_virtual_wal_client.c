@@ -68,10 +68,7 @@ YBCInitVirtualWal(List *yb_publication_names)
 void
 YBCDestroyVirtualWal()
 {
-	/*
-	 * TODO(#20726): Call the DestroyVirtualWAL RPC on the CDC service once it
-	 * is ready.
-	 */
+	YBCDestroyVirtualWalForCDC();
 
 	if (virtual_wal_context)
 		MemoryContextDelete(virtual_wal_context);

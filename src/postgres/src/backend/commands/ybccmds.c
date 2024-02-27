@@ -1935,6 +1935,12 @@ YBCInitVirtualWalForCDC(const char *stream_id, Oid *relations,
 }
 
 void
+YBCDestroyVirtualWalForCDC()
+{
+	HandleYBStatus(YBCPgDestroyVirtualWalForCDC());
+}
+
+void
 YBCGetCDCConsistentChanges(const char *stream_id,
 						   YBCPgChangeRecordBatch **record_batch)
 {

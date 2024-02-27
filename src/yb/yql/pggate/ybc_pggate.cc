@@ -2043,6 +2043,15 @@ YBCStatus YBCPgInitVirtualWalForCDC(
   return YBCStatusOK();
 }
 
+YBCStatus YBCPgDestroyVirtualWalForCDC() {
+  const auto result = pgapi->DestroyVirtualWALForCDC();
+  if (!result.ok()) {
+    return ToYBCStatus(result.status());
+  }
+
+  return YBCStatusOK();
+}
+
 YBCPgRowMessageAction GetRowMessageAction(yb::cdc::RowMessage row_message_pb) {
   switch (row_message_pb.op()) {
     case cdc::RowMessage_Op_BEGIN:
