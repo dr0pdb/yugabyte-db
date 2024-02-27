@@ -131,5 +131,7 @@ extern void YBCInitVirtualWalForCDC(const char *stream_id,
 									Oid *relations,
 									size_t numrelations);
 
+extern void YBCDestroyVirtualWalForCDC();
+
 extern void YBCGetCDCConsistentChanges(const char *stream_id,
 									   YBCPgChangeRecordBatch **record_batch);

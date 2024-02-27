@@ -2251,6 +2251,10 @@ Result<cdc::InitVirtualWALForCDCResponsePB> PgApiImpl::InitVirtualWALForCDC(
   return pg_session_->pg_client().InitVirtualWALForCDC(stream_id, table_ids);
 }
 
+Result<cdc::DestroyVirtualWALForCDCResponsePB> PgApiImpl::DestroyVirtualWALForCDC() {
+  return pg_session_->pg_client().DestroyVirtualWALForCDC();
+}
+
 Result<cdc::GetConsistentChangesResponsePB> PgApiImpl::GetConsistentChangesForCDC(
     const std::string &stream_id) {
   return pg_session_->pg_client().GetConsistentChangesForCDC(stream_id);

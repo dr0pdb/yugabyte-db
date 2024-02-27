@@ -585,7 +585,4 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
 
     stream.close();
   }
-
-  // TODO(#20726): Add a test case which verifies that operations with #changes > batch_size works
-  // fine. This should be done once we have moved to using the `GetConsistentChanges` RPC.
 }
