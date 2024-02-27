@@ -79,8 +79,8 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   void waitForSnapshotTimeToPass() throws Exception {
-    // When a slot (stream) is created, we choose the current time as the consistent snapshot time.
-    // To tackle clock skew, this time could be `max_clock_skew_usec` in the future. Any inserts
+    // When a slot (stream) is created, we choose the current time as the consistent snapshot time
+    // to tackle clock skew. This time could be `max_clock_skew_usec` in the future. Any inserts
     // done before this time could end up being part of the snapshot instead of the changes. This is
     // not a correctness issue and just an unintuitive behavior.
     //
