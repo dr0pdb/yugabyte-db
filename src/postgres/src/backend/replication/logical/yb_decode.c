@@ -108,6 +108,7 @@ static void
 YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 {
 	YBCPgVirtualWalRecord	*yb_record = record->yb_virtual_wal_record;
+	YBCPgRowMessage			*data = yb_record->data;
 	ReorderBufferChange		*change = ReorderBufferGetChange(ctx->reorder);
 	Relation				relation;
 	TupleDesc				tupdesc;
@@ -116,24 +117,24 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 	ReorderBufferTupleBuf	*tuple_buf;
 
 	change->action = REORDER_BUFFER_CHANGE_INSERT;
-	change->lsn = yb_record->lsn;
+	change->lsn = data->lsn;
 	/*
 	 * We do not send the replication origin information. So any dummy value is
 	 * sufficient here.
 	 */
 	change->origin_id = 1;
 
-	ReorderBufferProcessXid(ctx->reorder, yb_record->xid,
+	ReorderBufferProcessXid(ctx->reorder, data->xid,
 							ctx->reader->ReadRecPtr);
 
 	/*
 	 * TODO(#20726): This is the schema of the relation at the streaming time.
 	 * We need this to be the schema of the table at record commit time.
 	 */
-	relation = RelationIdGetRelation(yb_record->table_oid);
+	relation = RelationIdGetRelation(data->table_oid);
 	if (!RelationIsValid(relation))
 		elog(ERROR, "could not open relation with OID %u",
-			 yb_record->table_oid);
+			 data->table_oid);
 
 	tupdesc = RelationGetDescr(relation);
 	nattrs = tupdesc->natts;
@@ -144,7 +145,7 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 	memset(is_nulls, true, sizeof(is_nulls));
 	for (int col_idx = 0; col_idx < yb_record->data->col_count; col_idx++)
 	{
-		YBCPgDatumMessage *col = &yb_record->data->cols[col_idx];
+		YBCPgDatumMessage *col = &data->cols[col_idx];
 		int attr_idx = 0;
 		for (attr_idx = 0; attr_idx < nattrs; attr_idx++)
 		{
@@ -161,7 +162,7 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("Could not find column with name %s"
 							" in tuple descriptor for table %d",
-							col->column_name, yb_record->table_oid)));
+							col->column_name, data->table_oid)));
 			continue;
 		}
 
@@ -175,10 +176,10 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 	tuple_buf->tuple = *tuple;
 	change->data.tp.newtuple = tuple_buf;
 	change->data.tp.oldtuple = NULL;
-	change->data.tp.yb_table_oid = yb_record->table_oid;
+	change->data.tp.yb_table_oid = data->table_oid;
 
 	change->data.tp.clear_toast_afterwards = true;
-	ReorderBufferQueueChange(ctx->reorder, yb_record->xid,
+	ReorderBufferQueueChange(ctx->reorder, data->xid,
 							 ctx->reader->ReadRecPtr, change);
 
 	RelationClose(relation);
@@ -191,16 +192,17 @@ static void
 YBDecodeCommit(LogicalDecodingContext *ctx, XLogReaderState *record)
 {
 	YBCPgVirtualWalRecord	*yb_record = record->yb_virtual_wal_record;
-	XLogRecPtr				commit_lsn = yb_record->lsn;
-	XLogRecPtr				end_lsn = yb_record->lsn + 1;
-	XLogRecPtr				origin_lsn = yb_record->lsn;
+	
+	XLogRecPtr				commit_lsn = yb_record->data->lsn;
+	XLogRecPtr				end_lsn = yb_record->data->lsn + 1;
+	XLogRecPtr				origin_lsn = yb_record->data->lsn;
 	/*
 	 * We do not send the replication origin information. So any dummy value is
 	 * sufficient here.
 	 */
 	RepOriginId				origin_id = 1;
 
-	ReorderBufferCommit(ctx->reorder, yb_record->xid, commit_lsn,
+	ReorderBufferCommit(ctx->reorder, yb_record->data->xid, commit_lsn,
 						end_lsn, yb_record->data->commit_time, origin_id,
 						origin_lsn);
 }

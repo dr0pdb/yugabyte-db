@@ -262,7 +262,6 @@ static bool TransactionIdInRecentPast(TransactionId xid, uint32 epoch);
 
 static void XLogRead(char *buf, XLogRecPtr startptr, Size count);
 
-
 /* Initialize walsender process before entering the main command loop */
 void
 InitWalSender(void)
@@ -1203,7 +1202,6 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 							  logical_read_xlog_page,
 							  WalSndPrepareWrite, WalSndWriteData,
 							  WalSndUpdateProgress);
-
 
 	WalSndSetState(WALSNDSTATE_CATCHUP);
 
