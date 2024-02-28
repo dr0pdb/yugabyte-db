@@ -2141,6 +2141,17 @@ YBCStatus YBCPgGetCDCConsistentChanges(
   return YBCStatusOK();
 }
 
+YBCStatus YBCPgUpdateAndPersistLSN(
+    const char *stream_id, YBCPgXLogRecPtr restart_lsn, YBCPgXLogRecPtr confirmed_flush) {
+  const auto result =
+      pgapi->UpdateAndPersistLSN(std::string(stream_id), restart_lsn, confirmed_flush);
+  if (!result.ok()) {
+    return ToYBCStatus(result.status());
+  }
+
+  return YBCStatusOK();
+}
+
 } // extern "C"
 
 } // namespace yb::pggate

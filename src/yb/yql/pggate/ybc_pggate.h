@@ -802,6 +802,9 @@ YBCStatus YBCPgDestroyVirtualWalForCDC();
 YBCStatus YBCPgGetCDCConsistentChanges(const char *stream_id,
                                        YBCPgChangeRecordBatch **record_batch);
 
+YBCStatus YBCPgUpdateAndPersistLSN(
+    const char *stream_id, YBCPgXLogRecPtr restart_lsn, YBCPgXLogRecPtr confirmed_flush);
+
 // Get a new OID from the OID allocator of database db_oid.
 YBCStatus YBCGetNewObjectId(YBCPgOid db_oid, YBCPgOid* new_oid);
 

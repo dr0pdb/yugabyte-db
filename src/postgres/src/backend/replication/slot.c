@@ -388,6 +388,15 @@ retry:
 		slot->data.xmin = 0;
 		slot->data.restart_lsn = 0;
 
+		/*
+		 * Set fields which are not applicable to YSQL as Invalid so that we can
+		 * catch their usage in unexpected places.
+		 */
+		slot->candidate_catalog_xmin = InvalidTransactionId;
+		slot->candidate_xmin_lsn = InvalidXLogRecPtr;
+		slot->candidate_restart_lsn = InvalidXLogRecPtr;
+		slot->candidate_restart_valid = InvalidXLogRecPtr;
+
 		MyReplicationSlot = slot;
 		return;
 	}

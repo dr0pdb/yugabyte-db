@@ -109,6 +109,16 @@ LogicalOutputWrite(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId xi
 }
 
 static void
+YBLogicalOutputInvalidatePublications(LogicalDecodingContext *ctx)
+{
+	/*
+	 * TODO(#20726): Refresh the list of tables according to the update
+	 * publications and notify the CDC service of the change. This should be
+	 * done once the GetChangesForSlot RPC is ready.
+	 */
+}
+
+static void
 check_permissions(void)
 {
 	if (!superuser() && !has_rolreplication(GetUserId()))
@@ -265,7 +275,8 @@ pg_logical_slot_get_changes_guts(FunctionCallInfo fcinfo, bool confirm, bool bin
 									false,
 									logical_read_local_xlog_page,
 									LogicalOutputPrepareWrite,
-									LogicalOutputWrite, NULL);
+									LogicalOutputWrite, NULL,
+									YBLogicalOutputInvalidatePublications);
 
 		MemoryContextSwitchTo(oldcontext);
 

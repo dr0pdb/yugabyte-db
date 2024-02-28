@@ -262,6 +262,7 @@ static bool TransactionIdInRecentPast(TransactionId xid, uint32 epoch);
 
 static void XLogRead(char *buf, XLogRecPtr startptr, Size count);
 
+static void YBWalSndInvalidatePublications(LogicalDecodingContext *ctx);
 
 /* Initialize walsender process before entering the main command loop */
 void
@@ -1202,8 +1203,8 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 		CreateDecodingContext(cmd->startpoint, cmd->options, false,
 							  logical_read_xlog_page,
 							  WalSndPrepareWrite, WalSndWriteData,
-							  WalSndUpdateProgress);
-
+							  WalSndUpdateProgress,
+							  YBWalSndInvalidatePublications);
 
 	WalSndSetState(WALSNDSTATE_CATCHUP);
 
@@ -1402,6 +1403,21 @@ WalSndUpdateProgress(LogicalDecodingContext *ctx, XLogRecPtr lsn, TransactionId 
 
 	LagTrackerWrite(lsn, now);
 	sendTime = now;
+}
+
+/*
+ * LogicalDecodingContext 'yb_update_publications' callback.
+ *
+ * Update the Walsender that the publications have been changed.
+ */
+static void
+YBWalSndInvalidatePublications(LogicalDecodingContext *ctx)
+{
+	/*
+	 * TODO(#20726): Refresh the list of tables according to the update
+	 * publications and notify the CDC service of the change. This should be
+	 * done once the GetChangesForSlot RPC is ready.
+	 */
 }
 
 /*

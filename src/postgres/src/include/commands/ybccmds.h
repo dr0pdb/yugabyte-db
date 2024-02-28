@@ -135,3 +135,7 @@ extern void YBCDestroyVirtualWalForCDC();
 
 extern void YBCGetCDCConsistentChanges(const char *stream_id,
 									   YBCPgChangeRecordBatch **record_batch);
+
+extern void YBCUpdateAndPersistLSN(const char *stream_id,
+								   XLogRecPtr restart_lsn,
+								   XLogRecPtr confirmed_flush);

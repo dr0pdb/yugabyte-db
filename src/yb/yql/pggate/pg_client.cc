@@ -1304,15 +1304,26 @@ Result<cdc::InitVirtualWALForCDCResponsePB> PgClient::InitVirtualWALForCDC(
   return impl_->InitVirtualWALForCDC(stream_id, table_ids);
 }
 
+<<<<<<< HEAD
 Result<cdc::DestroyVirtualWALForCDCResponsePB> PgClient::DestroyVirtualWALForCDC() {
   return impl_->DestroyVirtualWALForCDC();
 }
 
+=======
+>>>>>>> 260bd98779 (Restart LSN calculation and propagation)
 Result<cdc::GetConsistentChangesResponsePB> PgClient::GetConsistentChangesForCDC(
     const std::string& stream_id) {
   return impl_->GetConsistentChangesForCDC(stream_id);
 }
 
+<<<<<<< HEAD
+=======
+Result<cdc::UpdateAndPersistLSNResponsePB> PgClient::UpdateAndPersistLSN(
+    const std::string& stream_id, YBCPgXLogRecPtr restart_lsn, YBCPgXLogRecPtr confirmed_flush) {
+
+}
+
+>>>>>>> 260bd98779 (Restart LSN calculation and propagation)
 void PerformExchangeFuture::wait() const {
   if (!value_) {
     value_ = MakePerformResult(data_.get(), data_->CompletePerform());

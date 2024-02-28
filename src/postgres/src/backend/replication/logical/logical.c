@@ -39,6 +39,7 @@
 #include "replication/origin.h"
 #include "replication/snapbuild.h"
 
+#include "replication/yb_virtual_wal_client.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
 
@@ -133,7 +134,8 @@ StartupDecodingContext(List *output_plugin_options,
 					   XLogPageReadCB read_page,
 					   LogicalOutputPluginWriterPrepareWrite prepare_write,
 					   LogicalOutputPluginWriterWrite do_write,
-					   LogicalOutputPluginWriterUpdateProgress update_progress)
+					   LogicalOutputPluginWriterUpdateProgress update_progress,
+					   YBLogicalOutputPluginWriterInvalidatePublications yb_invalidate_publications)
 {
 	ReplicationSlot *slot;
 	MemoryContext context,
@@ -210,6 +212,9 @@ StartupDecodingContext(List *output_plugin_options,
 
 	ctx->fast_forward = fast_forward;
 
+	if (IsYugaByteEnabled())
+		ctx->yb_invalidate_publications = yb_invalidate_publications;
+
 	MemoryContextSwitchTo(old_context);
 
 	return ctx;
@@ -238,7 +243,8 @@ CreateInitDecodingContext(char *plugin,
 						  XLogPageReadCB read_page,
 						  LogicalOutputPluginWriterPrepareWrite prepare_write,
 						  LogicalOutputPluginWriterWrite do_write,
-						  LogicalOutputPluginWriterUpdateProgress update_progress)
+						  LogicalOutputPluginWriterUpdateProgress update_progress,
+						  YBLogicalOutputPluginWriterInvalidatePublications yb_invalidate_publications)
 {
 	TransactionId xmin_horizon = InvalidTransactionId;
 	ReplicationSlot *slot;
@@ -326,7 +332,8 @@ CreateInitDecodingContext(char *plugin,
 	ctx = StartupDecodingContext(NIL, InvalidXLogRecPtr, xmin_horizon,
 								 need_full_snapshot, false,
 								 read_page, prepare_write, do_write,
-								 update_progress);
+								 update_progress,
+								 yb_invalidate_publications);
 
 	/* call output plugin initialization callback */
 	old_context = MemoryContextSwitchTo(ctx->context);
@@ -373,7 +380,8 @@ CreateDecodingContext(XLogRecPtr start_lsn,
 					  XLogPageReadCB read_page,
 					  LogicalOutputPluginWriterPrepareWrite prepare_write,
 					  LogicalOutputPluginWriterWrite do_write,
-					  LogicalOutputPluginWriterUpdateProgress update_progress)
+					  LogicalOutputPluginWriterUpdateProgress update_progress,
+					  YBLogicalOutputPluginWriterInvalidatePublications yb_invalidate_publications)
 {
 	LogicalDecodingContext *ctx;
 	ReplicationSlot *slot;
@@ -424,7 +432,8 @@ CreateDecodingContext(XLogRecPtr start_lsn,
 	ctx = StartupDecodingContext(output_plugin_options,
 								 start_lsn, InvalidTransactionId, false,
 								 fast_forward, read_page, prepare_write,
-								 do_write, update_progress);
+								 do_write, update_progress,
+								 yb_invalidate_publications);
 
 	/* call output plugin initialization callback */
 	old_context = MemoryContextSwitchTo(ctx->context);
@@ -552,6 +561,15 @@ OutputPluginUpdateProgress(struct LogicalDecodingContext *ctx)
 		return;
 
 	ctx->update_progress(ctx, ctx->write_location, ctx->write_xid);
+}
+
+void
+YBOutputPluginInvalidatePublications(struct LogicalDecodingContext *ctx)
+{
+	if (!ctx->yb_invalidate_publications)
+		return;
+
+	ctx->yb_invalidate_publications(ctx);
 }
 
 /*
@@ -1002,9 +1020,15 @@ LogicalConfirmReceivedLocation(XLogRecPtr lsn)
 {
 	Assert(lsn != InvalidXLogRecPtr);
 
+	/*
+	 * YB Note: The mechanism of updating restart lsn is different in YSQL. We
+	 * do not use candidate_xmin_lsn and candidate_restart_lsn. Hence, this
+	 * check is disabled.
+	 */
 	/* Do an unlocked check for candidate_lsn first. */
-	if (MyReplicationSlot->candidate_xmin_lsn != InvalidXLogRecPtr ||
-		MyReplicationSlot->candidate_restart_valid != InvalidXLogRecPtr)
+	if (!IsYugaByteEnabled() &&
+		(MyReplicationSlot->candidate_xmin_lsn != InvalidXLogRecPtr ||
+		 MyReplicationSlot->candidate_restart_valid != InvalidXLogRecPtr))
 	{
 		bool		updated_xmin = false;
 		bool		updated_restart = false;
@@ -1075,8 +1099,14 @@ LogicalConfirmReceivedLocation(XLogRecPtr lsn)
 	}
 	else
 	{
+		XLogRecPtr	yb_restart_lsn = InvalidXLogRecPtr;
+		if (IsYugaByteEnabled())
+			yb_restart_lsn = YBCPersistAndGetRestartLSN(lsn);
+
 		SpinLockAcquire(&MyReplicationSlot->mutex);
 		MyReplicationSlot->data.confirmed_flush = lsn;
+		if (IsYugaByteEnabled() && yb_restart_lsn != InvalidXLogRecPtr)
+			MyReplicationSlot->data.restart_lsn = yb_restart_lsn;
 		SpinLockRelease(&MyReplicationSlot->mutex);
 	}
 }

@@ -232,6 +232,12 @@ DEFINE_RUNTIME_PG_PREVIEW_FLAG(bool, yb_enable_replication_commands, false,
 DEFINE_RUNTIME_PG_PREVIEW_FLAG(int32, yb_parallel_range_rows, 0,
     "The number of rows to plan per parallel worker, zero disables the feature");
 
+DEFINE_RUNTIME_PG_FLAG(bool, TEST_enable_replication_slot_consumption, false,
+                       "Enable consumption of changes via replication slots."
+                       "Requires yb_enable_replication_commands to be true.");
+TAG_FLAG(ysql_TEST_enable_replication_slot_consumption, unsafe);
+TAG_FLAG(ysql_TEST_enable_replication_slot_consumption, hidden);
+
 static bool ValidateXclusterConsistencyLevel(const char* flagname, const std::string& value) {
   if (value != "database" && value != "tablet") {
     fprintf(

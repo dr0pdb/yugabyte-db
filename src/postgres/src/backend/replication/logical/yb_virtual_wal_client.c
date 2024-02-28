@@ -35,8 +35,42 @@ static MemoryContext virtual_wal_context = NULL;
 static YBCPgChangeRecordBatch *cached_records = NULL;
 static size_t cached_records_last_sent_row_idx = 0;
 
+typedef struct UnackedTransactionInfo {
+	TransactionId xid;
+	XLogRecPtr begin_lsn;
+	XLogRecPtr commit_lsn;
+} YBUnackedTransactionInfo;
+
+/*
+ * A List of YBUnackedTransactionInfo.
+ *
+ * Keeps tracked of the metadata of all transactions that are yet to be
+ * confirmed as flushed by the client. Used for the calculation of restart_lsn
+ * from the confirmed_flush_lsn sent by the client.
+ *
+ * Transactions are appended at the end of the list and removed from the start.
+ *
+ * Relies on the following guarantees:
+ * 1. No interleaved transactions sent from the GetConsistentChanges RPC
+ * 2. Only committed transactions are sent from the GetConsistentChanges RPC
+ * 3. The LSN values of transaction BEGIN/COMMIT are monotonically increasing
+ *    i.e. if commit_ht(t2) > commit_ht(t1), then:
+ *        a) begin_lsn(t2) > begin_lsn(t1)
+ *        b) commit_lsn(t2) > commit_lsn (t1).
+ *    Also note that begin_lsn(t2) > commit_lsn(t1) by the guarantee of no
+ *    interleaved transactions.
+ *
+ * The size of this list depends on how fast the client confirms the flush of
+ * the streamed changes.
+ */
+static List *unacked_transactions = NIL;
+
 static List *YBCGetTables(List *publication_names);
 static void InitVirtualWal(List *publication_names);
+
+static void TrackUnackedTransaction(YBCPgVirtualWalRecord *record);
+static XLogRecPtr CalculateRestartLSN(XLogRecPtr confirmed_flush);
+static void CleanupAckedTransactions(XLogRecPtr restart_lsn);
 
 void
 YBCInitVirtualWal(List *yb_publication_names)
@@ -63,6 +97,8 @@ YBCInitVirtualWal(List *yb_publication_names)
 
 	AbortCurrentTransaction();
 	MemoryContextSwitchTo(caller_context);
+
+	unacked_transactions = NIL;
 }
 
 void
@@ -164,8 +200,58 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr, char **errormsg)
 		pfree(state->yb_virtual_wal_record);
 	state->yb_virtual_wal_record = record;
 
+	TrackUnackedTransaction(record);
+
 	MemoryContextSwitchTo(caller_context);
 	return record;
+}
+
+static void
+TrackUnackedTransaction(YBCPgVirtualWalRecord *record)
+{
+	YBUnackedTransactionInfo *transaction = NULL;
+
+	switch (record->data->action)
+	{
+		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
+		{
+			transaction = palloc(sizeof(YBUnackedTransactionInfo));
+			transaction->xid = record->xid;
+			transaction->begin_lsn = record->data->lsn;
+			transaction->commit_lsn = InvalidXLogRecPtr;
+
+			unacked_transactions = lappend(unacked_transactions, transaction);
+			break;
+		}
+
+		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
+		{
+			YBUnackedTransactionInfo *txninfo = NULL;
+
+			/*
+			 * We should at least have one transaction which we appended while
+			 * handling the corresponding BEGIN record.
+			 */
+			Assert(list_length(unacked_transactions) > 0);
+
+			txninfo = (YBUnackedTransactionInfo *) lfirst(
+				list_tail((List *) unacked_transactions));
+			Assert(txninfo->xid == record->xid);
+			Assert(txninfo->begin_lsn != InvalidXLogRecPtr);
+			Assert(txninfo->commit_lsn == InvalidXLogRecPtr);
+
+			txninfo->commit_lsn = record->data->lsn;
+			break;
+		}
+
+		/* Not of interest here. */
+		case YB_PG_ROW_MESSAGE_ACTION_UNKNOWN: switch_fallthrough();
+		case YB_PG_ROW_MESSAGE_ACTION_INSERT: switch_fallthrough();
+		case YB_PG_ROW_MESSAGE_ACTION_UPDATE: switch_fallthrough();
+		case YB_PG_ROW_MESSAGE_ACTION_DELETE: switch_fallthrough();
+		case YB_PG_ROW_MESSAGE_ACTION_DDL:
+			return;
+	}
 }
 
 XLogRecPtr
@@ -185,4 +271,119 @@ YBCGetFlushRecPtr(void)
 	 * CDC service.
 	 */
 	return PG_UINT64_MAX;
+}
+
+XLogRecPtr
+YBCPersistAndGetRestartLSN(XLogRecPtr confirmed_flush)
+{
+	XLogRecPtr restart_lsn = CalculateRestartLSN(confirmed_flush);
+
+	/* There was nothing to ack, so we can return early. */
+	if (restart_lsn == InvalidXLogRecPtr)
+	{
+		elog(DEBUG4, "No unacked transaction were found, skipping the "
+					 "persistence of confirmed_flush and restart_lsn");
+		return restart_lsn;
+	}
+
+	YBCUpdateAndPersistLSN(MyReplicationSlot->data.yb_stream_id, restart_lsn,
+						   confirmed_flush);
+
+	CleanupAckedTransactions(restart_lsn);
+	return restart_lsn;
+}
+
+static XLogRecPtr
+CalculateRestartLSN(XLogRecPtr confirmed_flush)
+{
+	XLogRecPtr					restart_lsn = InvalidXLogRecPtr;
+	ListCell					*lc;
+	YBUnackedTransactionInfo	*txn;
+	int							numunacked = list_length(unacked_transactions);
+
+	if (numunacked == 0)
+		return InvalidXLogRecPtr;
+
+	foreach (lc, unacked_transactions)
+	{
+		txn = (YBUnackedTransactionInfo *) lfirst(lc);
+
+		/*
+		 * The previous transaction was fully flushed by the client but none of
+		 * the records of this transaction were flushed. So if we were to
+		 * restart at this point, streaming should start from the begin of this
+		 * transaction.
+		 *
+		 * Example: 3 unacked transactions with begin and commit lsn as follows
+		 * T1: [3, 5]
+		 * T2: [7, 10]
+		 * T3: [11, 14]
+		 * confirmed_flush = 5 or 6
+		 * The restart lsn should be 7 in this case.
+		 */
+		if (confirmed_flush < txn->begin_lsn)
+		{
+			restart_lsn = txn->begin_lsn;
+			break;
+		}
+		/*
+		 * The client has only flushed this transaction partially. If there
+		 * were to be any restart at this point, the streaming should start
+		 * from the beginning of this transaction as PG always streams all
+		 * contents of a transaction.
+		 */
+		else if (confirmed_flush < txn->commit_lsn)
+		{
+			restart_lsn = txn->begin_lsn;
+			break;
+		}
+
+		/*
+		 * The client has fully flushed this transaction. If there were to
+		 * be any restart at this point, the streaming should start from the
+		 * next unacked transaction onwards (if it exists).
+		 *
+		 * There are two cases here:
+		 * 1. There are more transactions in the unacked_transactions list after
+		 * this one: the next iteration of this 'for' loop will handle this
+		 * case.
+		 * 2. This is the last unacked transaction: The assignment of
+		 * restart_lsn below handles this case.
+		 *
+		 * In PG, the restart lsn would be set to commit_lsn + 1 since the next
+		 * record is guaranteed to start from commit_lsn + 1.
+		 *
+		 * In YB virtual WAL, even though this might be true practically, we
+		 * do not make the assumption that:
+		 *     begin_lsn of transaction = commit_lsn of previous txn + 1.
+		 *
+		 * So we set the restart_lsn to the commit_lsn itself and YB virtual
+		 * WAL remembers to start streaming from the next transaction if the
+		 * restart_lsn belongs to the commit_lsn of a transaction.
+		 */
+		restart_lsn = txn->commit_lsn;
+	}
+
+	return restart_lsn;
+}
+
+/*
+ * Delete all transactions which have been fully flushed by the client and will
+ * not be streamed again.
+ */
+static void
+CleanupAckedTransactions(XLogRecPtr restart_lsn)
+{
+	ListCell					*lc;
+	YBUnackedTransactionInfo	*txn;
+
+	foreach (lc, unacked_transactions)
+	{
+		txn = (YBUnackedTransactionInfo *) lfirst(lc);
+
+		if (txn->commit_lsn <= restart_lsn)
+			list_delete_cell(unacked_transactions, lc, NULL /* prev */);
+		else
+			break;
+	}
 }
