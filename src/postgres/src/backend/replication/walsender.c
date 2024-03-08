@@ -1236,6 +1236,15 @@ StartLogicalReplication(StartReplicationCmd *cmd)
 	if (IsYugaByteEnabled())
 		YBCInitVirtualWal(logical_decoding_ctx->options.yb_publication_names);
 
+	// char command[256];
+	// snprintf(command, sizeof(command),
+	// 		 "code --open-url "
+	// 		 "\"vscode://vadimcn.vscode-lldb/launch/"
+	// 		 "config?{'request':'attach','pid':%d}\"",
+	// 		 getpid());
+	// system(command);
+	// sleep(10); // Wait for debugger to attach
+
 	/* Main loop of walsender */
 	WalSndLoop(XLogSendLogical);
 

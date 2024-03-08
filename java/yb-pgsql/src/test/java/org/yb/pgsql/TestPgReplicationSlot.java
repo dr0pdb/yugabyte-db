@@ -164,6 +164,7 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     for (int index = 0; index < count; index++) {
       PgOutputMessage message = PgOutputMessageDecoder.DecodeBytes(stream.read());
       result.add(message);
+      LOG.info("Row = {}", message);
     }
 
     return result;
@@ -196,7 +197,23 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
       stmt.execute("INSERT INTO t1 VALUES(1, 'abcd')");
       stmt.execute("INSERT INTO t1 VALUES(2, 'defg')");
       stmt.execute("INSERT INTO t1 VALUES(3, 'hijk')");
+
+      stmt.execute("ALTER TABLE t1 DROP COLUMN b");
+      stmt.execute("INSERT INTO t1 VALUES(4)");
+
+      stmt.execute("ALTER TABLE t1 ADD COLUMN b int");
+      stmt.execute("INSERT INTO t1 VALUES(5, 5)");
+      stmt.execute("INSERT INTO t1 VALUES(6, 6)");
+
+      stmt.execute("ALTER TABLE t1 ADD COLUMN c int");
+      stmt.execute("INSERT INTO t1 VALUES(7, 7, 7)");
     }
+    conn.close();
+
+    // Fresh connection to ensure Walsender starts with the latest schema.
+    conn =
+        getConnectionBuilder().withTServer(0).replicationConnect();
+    replConnection = conn.unwrap(PGConnection.class).getReplicationAPI();
 
     PGReplicationStream stream = replConnection.replicationStream()
                                      .logical()
@@ -207,11 +224,8 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
                                      .start();
 
     List<PgOutputMessage> result = new ArrayList<PgOutputMessage>();
-    // 1 Relation, 3 * 3 (begin, insert and commit).
-    result.addAll(receiveMessage(stream, 10));
-    for (PgOutputMessage res : result) {
-      LOG.info("Row = {}", res);
-    }
+    // 1 Relation, 7 * 3 (begin, insert and commit).
+    result.addAll(receiveMessage(stream, 22));
 
     // TODO(#20726): Add comments on the choice of LSN values once we have integrated with
     // GetConsistentChanges RPC. This requires the implementation of the LSN generator to be

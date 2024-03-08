@@ -2116,6 +2116,7 @@ YBCStatus YBCPgGetCDCChanges(
 
   *DCHECK_NOTNULL(record_batch) = NULL;
   const auto resp = result.get();
+  LOG(INFO) << "The response from the cdc service: " << resp.DebugString();
   auto row_count = resp.cdc_sdk_proto_records_size();
 
   auto resp_checkpoint_pb = resp.cdc_sdk_checkpoint();

@@ -25,6 +25,7 @@
 
 #include "postgres.h"
 #include "access/xact.h"
+#include "pg_yb_utils.h"
 #include "replication/yb_decode.h"
 #include "utils/rel.h"
 
@@ -32,6 +33,8 @@ static void
 YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record);
 static void
 YBDecodeCommit(LogicalDecodingContext *ctx, XLogReaderState *record);
+
+static uint64_t record_read_ht = 0;
 
 /*
  * Take every record received from the YB VirtualWAL and perform the actions
@@ -61,10 +64,12 @@ YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 		 * relevant here. We won't receive it once we start using the
 		 * GetConsistentChanges RPC.
 		 */
-		case YB_PG_ROW_MESSAGE_ACTION_UNKNOWN: switch_fallthrough();
+		case YB_PG_ROW_MESSAGE_ACTION_UNKNOWN: break;
+
 		case YB_PG_ROW_MESSAGE_ACTION_DDL:
-			/* Ignore UNKNOWN/DDL records. */
-			return;
+		{
+			break;
+		}
 
 		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
 			/*
@@ -115,6 +120,8 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 	HeapTuple				tuple;
 	ReorderBufferTupleBuf	*tuple_buf;
 
+	YBC_LOG_INFO("DecodeInsert");
+
 	change->action = REORDER_BUFFER_CHANGE_INSERT;
 	change->lsn = yb_record->lsn;
 	/*
@@ -125,6 +132,15 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 
 	ReorderBufferProcessXid(ctx->reorder, yb_record->xid,
 							ctx->reader->ReadRecPtr);
+
+	record_read_ht = record->yb_virtual_wal_record->data->commit_time;
+	YBC_LOG_INFO("Updated record_read_ht to %llu", record_read_ht);
+
+	char read_time[50];
+	sprintf(read_time, "%llu ht", record_read_ht);
+	assign_yb_read_time(read_time, NULL);
+	YBC_LOG_INFO("Set yb_read_time to %s", read_time);
+	YbRelationCacheInvalidate();
 
 	/*
 	 * TODO(#20726): This is the schema of the relation at the streaming time.
@@ -137,6 +153,15 @@ YBDecodeInsert(LogicalDecodingContext *ctx, XLogReaderState *record)
 
 	tupdesc = RelationGetDescr(relation);
 	nattrs = tupdesc->natts;
+
+	YBC_LOG_INFO("Printing tuple descriptor...\n");
+	for (int attr_idx = 0; attr_idx < nattrs; attr_idx++)
+	{
+		YBC_LOG_INFO("Col %d: name = %s, dropped = %d, type = %d\n", attr_idx,
+						tupdesc->attrs[attr_idx].attname.data,
+						tupdesc->attrs[attr_idx].attisdropped,
+						tupdesc->attrs[attr_idx].atttypid);
+	}
 
 	Datum datums[nattrs];
 	bool is_nulls[nattrs];
@@ -199,6 +224,8 @@ YBDecodeCommit(LogicalDecodingContext *ctx, XLogReaderState *record)
 	 * sufficient here.
 	 */
 	RepOriginId				origin_id = 1;
+
+	YBC_LOG_INFO("DecodeCommit");
 
 	ReorderBufferCommit(ctx->reorder, yb_record->xid, commit_lsn,
 						end_lsn, yb_record->data->commit_time, origin_id,
