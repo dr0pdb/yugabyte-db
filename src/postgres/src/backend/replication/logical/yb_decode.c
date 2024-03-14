@@ -209,9 +209,9 @@ YBDecodeCommit(LogicalDecodingContext *ctx, XLogReaderState *record)
 		 * So this is sufficient to clean up the transaction along with its
 		 * subtransactions.
 		 */
-		YBC_LOG_INFO(
-			"YBDecodeCommit: Ignoring txn %d with commit_lsn = %lu as yb_start_decoding_at = %lu.",
-			yb_record->xid, commit_lsn, ctx->yb_start_decoding_at);
+		elog(DEBUG1,
+			 "YBDecodeCommit: Ignoring txn %d with commit_lsn = %lu as yb_start_decoding_at = %lu.",
+			 yb_record->xid, commit_lsn, ctx->yb_start_decoding_at);
 		ReorderBufferForget(ctx->reorder, yb_record->xid, commit_lsn);
 		return;
 	}
