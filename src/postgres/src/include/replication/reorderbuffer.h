@@ -328,6 +328,10 @@ typedef void (*ReorderBufferMessageCB) (
 										const char *prefix, Size sz,
 										const char *message);
 
+typedef void (*YBReorderBufferSchemaChangeCB) (
+											   ReorderBuffer *rb,
+											   Oid relid);
+
 struct ReorderBuffer
 {
 	/*
@@ -365,6 +369,8 @@ struct ReorderBuffer
 	ReorderBufferApplyTruncateCB apply_truncate;
 	ReorderBufferCommitCB commit;
 	ReorderBufferMessageCB message;
+
+	YBReorderBufferSchemaChangeCB yb_schema_change;
 
 	/*
 	 * Pointer that will be passed untouched to the callbacks.
@@ -443,5 +449,7 @@ TransactionId ReorderBufferGetOldestXmin(ReorderBuffer *rb);
 void		ReorderBufferSetRestartPoint(ReorderBuffer *, XLogRecPtr ptr);
 
 void		StartupReorderBuffer(void);
+
+void		YBReorderBufferSchemaChange(ReorderBuffer *, Oid relid);
 
 #endif

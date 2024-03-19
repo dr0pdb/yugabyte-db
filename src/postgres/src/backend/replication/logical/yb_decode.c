@@ -26,6 +26,7 @@
 #include "postgres.h"
 
 #include "access/xact.h"
+#include "pg_yb_utils.h"
 #include "replication/yb_decode.h"
 #include "utils/rel.h"
 #include "yb/yql/pggate/ybc_pg_typedefs.h"
@@ -42,6 +43,8 @@ YBGetHeapTuplesForRecord(const YBCPgVirtualWalRecord *yb_record,
 						 enum ReorderBufferChangeType change_type);
 static int
 YBFindAttributeIndexInDescriptor(TupleDesc tupdesc, const char *column_name);
+static void
+YBHandleRelcacheRefresh(LogicalDecodingContext *ctx, XLogReaderState *record);
 
 /*
  * Take every record received from the YB VirtualWAL and perform the actions
@@ -63,8 +66,17 @@ YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 	elog(DEBUG4,
 		 "YBLogicalDecodingProcessRecord: Decoding record with action = %d.",
 		 record->yb_virtual_wal_record->action);
+
+	/* Check if we need a relcache refresh. */
+	YBHandleRelcacheRefresh(ctx, record);
+
+	/* Now delegate to specific handlers depending on the action type. */
 	switch (record->yb_virtual_wal_record->action)
 	{
+		/* Nothing to handle here. */
+		case YB_PG_ROW_MESSAGE_ACTION_DDL:
+			break;
+
 		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:
 			/*
 			 * Start a transaction so that we can get the relation by oid in
@@ -235,10 +247,6 @@ YBGetHeapTuplesForRecord(const YBCPgVirtualWalRecord *yb_record,
 	int							nattrs;
 	HeapTuple					tuple;
 
-	/*
-	 * TODO(#20726): This is the schema of the relation at the streaming time.
-	 * We need this to be the schema of the table at record commit time.
-	 */
 	relation = RelationIdGetRelation(yb_record->table_oid);
 	if (!RelationIsValid(relation))
 		elog(ERROR, "could not open relation with OID %u",
@@ -246,6 +254,20 @@ YBGetHeapTuplesForRecord(const YBCPgVirtualWalRecord *yb_record,
 
 	tupdesc = RelationGetDescr(relation);
 	nattrs = tupdesc->natts;
+
+	/* Log tuple descriptor for DEBUG1 onwards. */
+	if (log_min_messages <= DEBUG1)
+	{
+		elog(DEBUG1, "Printing tuple descriptor for relation %d\n",
+			 yb_record->table_oid);
+		for (int attr_idx = 0; attr_idx < nattrs; attr_idx++)
+		{
+			elog(DEBUG1, "Col %d: name = %s, dropped = %d, type = %d\n",
+						 attr_idx, tupdesc->attrs[attr_idx].attname.data,
+						 tupdesc->attrs[attr_idx].attisdropped,
+						 tupdesc->attrs[attr_idx].atttypid);
+		}
+	}
 
 	Datum datums[nattrs];
 	bool is_nulls[nattrs];
@@ -295,4 +317,89 @@ YBFindAttributeIndexInDescriptor(TupleDesc tupdesc, const char *column_name)
 			 errmsg("Could not find column with name %s in tuple"
 					" descriptor", column_name)));
 	return -1;			/* keep compiler quiet */
+}
+
+static void
+YBHandleRelcacheRefresh(LogicalDecodingContext *ctx, XLogReaderState *record)
+{
+	Oid		table_oid = record->yb_virtual_wal_record->table_oid;
+
+	switch (record->yb_virtual_wal_record->action)
+	{
+		case YB_PG_ROW_MESSAGE_ACTION_DDL:
+		{
+			bool		found;
+
+			/*
+			 * Mark for relcache invalidation to be done on first DML by just
+			 * inserting an entry for the table_oid.
+			 */
+			hash_search(ctx->yb_needs_relcache_invalidation, &table_oid,
+						HASH_ENTER, &found);
+			break;
+		}
+
+		case YB_PG_ROW_MESSAGE_ACTION_INSERT: switch_fallthrough();
+		case YB_PG_ROW_MESSAGE_ACTION_UPDATE: switch_fallthrough();
+		case YB_PG_ROW_MESSAGE_ACTION_DELETE:
+		{
+			bool needs_invalidation =
+				ctx->yb_handle_relcache_invalidation_startup;
+			
+			if (!needs_invalidation)
+				hash_search(ctx->yb_needs_relcache_invalidation, &table_oid,
+							HASH_FIND, &needs_invalidation);
+
+			if (needs_invalidation)
+			{
+				uint64_t	read_time_ht;
+				char		read_time[50];
+				bool		for_startup;
+
+				for_startup = ctx->yb_handle_relcache_invalidation_startup;
+				if (for_startup)
+				{
+					/*
+					 * Use the record_commit_time we received from the
+					 * replication slot metadata (cdc state table).
+					 */
+					read_time_ht =
+						MyReplicationSlot->data.yb_initial_record_commit_time_ht;
+					ctx->yb_handle_relcache_invalidation_startup = false;
+				}
+				else
+				{
+					/* Use the commit_time of the DML. */
+					read_time_ht = record->yb_virtual_wal_record->commit_time;
+				}
+
+				sprintf(read_time, "%llu ht", read_time_ht);
+				elog(DEBUG1, "Setting yb_read_time to %s", read_time);
+				assign_yb_read_time(read_time, NULL);
+				YbRelationCacheInvalidate();
+
+				/*
+				 * Let the plugin know that the schema for this table has
+				 * changed, so it must send the new relation object to the
+				 * client.
+				 */
+				YBReorderBufferSchemaChange(ctx->reorder, table_oid);
+
+				if (!for_startup)
+				{
+					bool		found;
+					hash_search(ctx->yb_needs_relcache_invalidation, &table_oid,
+								HASH_REMOVE, &found);
+					Assert(found);
+				}
+			}
+			break;
+		}
+
+		/* Nothing to handle for these types. */
+		case YB_PG_ROW_MESSAGE_ACTION_UNKNOWN: switch_fallthrough();
+		case YB_PG_ROW_MESSAGE_ACTION_BEGIN:   switch_fallthrough();
+		case YB_PG_ROW_MESSAGE_ACTION_COMMIT:
+			return;
+	}
 }

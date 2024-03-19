@@ -2107,6 +2107,7 @@ YBCStatus YBCPgListReplicationSlots(
           .confirmed_flush = info.confirmed_flush_lsn(),
           .restart_lsn = info.restart_lsn(),
           .xmin = info.xmin(),
+          .record_id_commit_time_ht = info.record_id_commit_time_ht(),
       };
       ++dest;
     }
@@ -2121,6 +2122,10 @@ YBCStatus YBCPgGetReplicationSlot(
   if (!result.ok()) {
     return ToYBCStatus(result.status());
   }
+
+  VLOG(4) << "The GetReplicationSlot for slot_name = " << std::string(slot_name)
+          << " is: " << result->DebugString();
+
   const auto& slot_info = result.get().replication_slot_info();
 
   *replication_slot =
@@ -2133,7 +2138,8 @@ YBCStatus YBCPgGetReplicationSlot(
       .active = slot_info.replication_slot_status() == tserver::ReplicationSlotStatus::ACTIVE,
       .confirmed_flush = slot_info.confirmed_flush_lsn(),
       .restart_lsn = slot_info.restart_lsn(),
-      .xmin = slot_info.xmin()
+      .xmin = slot_info.xmin(),
+      .record_id_commit_time_ht = slot_info.record_id_commit_time_ht(),
   };
 
   return YBCStatusOK();
@@ -2205,6 +2211,8 @@ YBCPgRowMessageAction GetRowMessageAction(yb::cdc::RowMessage row_message_pb) {
       return YB_PG_ROW_MESSAGE_ACTION_UPDATE;
     case cdc::RowMessage_Op_DELETE:
       return YB_PG_ROW_MESSAGE_ACTION_DELETE;
+    case cdc::RowMessage_Op_DDL:
+      return YB_PG_ROW_MESSAGE_ACTION_DDL;
     default:
       LOG(FATAL) << Format("Received unexpected operation $0", row_message_pb.op());
       return YB_PG_ROW_MESSAGE_ACTION_UNKNOWN;

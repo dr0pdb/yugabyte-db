@@ -1563,11 +1563,6 @@ ReorderBufferCommit(ReorderBuffer *rb, TransactionId xid,
 							 relpathperm(change->data.tp.relnode,
 										 MAIN_FORKNUM));
 
-					/*
-					 * YB note: TODO(#20726) - This is the schema of the
-					 * relation at the streaming time. Needs to be updated to
-					 * fetch the schema at the time of commit.
-					 */
 					relation = RelationIdGetRelation(reloid);
 
 					if (relation == NULL)
@@ -3566,4 +3561,9 @@ restart:
 	if (cmax)
 		*cmax = ent->cmax;
 	return true;
+}
+
+void YBReorderBufferSchemaChange(ReorderBuffer *rb, Oid relid)
+{
+	rb->yb_schema_change(rb, relid);
 }

@@ -89,6 +89,14 @@ typedef struct ReplicationSlotPersistentData
 
 	/* The CDC stream_id (32 bytes + 1 for null terminator) */
 	char yb_stream_id[33];
+
+	/*
+	 * The record_commit_time of the replication slot as received at the time
+	 * this information was fetched from the CDC state table. This information
+	 * is not kept up to date, it should only be used at the start of streaming
+	 * right after fetching the replication slot information.
+	 */
+	uint64_t yb_initial_record_commit_time_ht;
 } ReplicationSlotPersistentData;
 
 /*
