@@ -1023,6 +1023,11 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
       stmt.execute("INSERT INTO test VALUES(6, 'lmn')");
       stmt.execute("INSERT INTO test VALUES(7, 'opq')");
       stmt.execute("COMMIT");
+
+      stmt.execute("BEGIN");
+      stmt.execute("INSERT INTO test VALUES(8, 'rst')");
+      stmt.execute("INSERT INTO test VALUES(9, 'uvw')");
+      stmt.execute("COMMIT");
     }
 
     // Start streaming with LSN "0/3" which is midway in the first transaction. So we should still
@@ -1085,6 +1090,29 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
     // Transaction 4 - 5 records (BEGIN, RELATION, INSERT, INSERT, COMMIT)
     List<PgOutputMessage> thirdPoll = new ArrayList<PgOutputMessage>();
     thirdPoll.addAll(receiveMessage(stream, 5));
+
+    stream.setFlushedLSN(stream.getLastReceiveLSN());
+    stream.forceUpdateStatus();
+    stream.close();
+
+    Connection conn4 =
+        getConnectionBuilder().withTServer(0).replicationConnect();
+    PGReplicationConnection replConnection4 = conn4.unwrap(PGConnection.class).getReplicationAPI();
+
+    stream = replConnection4.replicationStream()
+                 .logical()
+                 .withSlotName(slotName)
+                 // Ask for streaming to start from "0L" to replicate scenario where start_lsn <
+                 // confirmed_flush. The confirmed_flush takes precedence in these cases.
+                 .withStartPosition(LogSequenceNumber.valueOf(0L))
+                 .withSlotOption("proto_version", 1)
+                 .withSlotOption("publication_names", "pub")
+                 .start();
+
+    // Transaction 5 - 5 records (BEGIN, RELATION, INSERT, INSERT, COMMIT)
+    // Everything has been confirmed to be flushed.
+    List<PgOutputMessage> fourthPoll = new ArrayList<PgOutputMessage>();
+    fourthPoll.addAll(receiveMessage(stream, 5));
 
     List<PgOutputMessage> expectedFirstPoll = new ArrayList<PgOutputMessage>() {
       {
@@ -1153,6 +1181,26 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
       }
     };
     assertEquals(expectedThirdPoll, thirdPoll);
+
+    List<PgOutputMessage> expectedFourthPoll = new ArrayList<PgOutputMessage>() {
+      {
+        add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/14"), 6));
+        add(PgOutputRelationMessage.CreateForComparison("public", "test", 'c',
+            Arrays.asList(PgOutputRelationMessageColumn.CreateForComparison("a", 23),
+                PgOutputRelationMessageColumn.CreateForComparison("b", 25))));
+        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 2,
+            Arrays.asList(
+                new PgOutputMessageTupleColumnValue("8"),
+                new PgOutputMessageTupleColumnValue("rst")))));
+        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 2,
+            Arrays.asList(
+                new PgOutputMessageTupleColumnValue("9"),
+                new PgOutputMessageTupleColumnValue("uvw")))));
+        add(PgOutputCommitMessage.CreateForComparison(
+            LogSequenceNumber.valueOf("0/14"), LogSequenceNumber.valueOf("0/15")));
+      }
+    };
+    assertEquals(expectedFourthPoll, fourthPoll);
 
     stream.close();
     conn3.close();
