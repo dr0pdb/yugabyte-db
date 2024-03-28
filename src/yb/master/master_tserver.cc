@@ -19,6 +19,9 @@
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/stringize.hpp>
 
+#include "yb/cdc/cdc_service.h"
+#include "yb/cdc/cdc_service_context.h"
+
 #include "yb/common/pg_types.h"
 
 #include "yb/master/catalog_manager_if.h"
@@ -26,8 +29,10 @@
 #include "yb/master/scoped_leader_shared_lock.h"
 #include "yb/master/sys_catalog_constants.h"
 
+#include "yb/server/async_client_initializer.h"
 #include "yb/tablet/tablet_peer.h"
 
+#include "yb/tserver/ts_tablet_manager.h"
 #include "yb/tserver/tserver.pb.h"
 #include "yb/tserver/pg_client.pb.h"
 
@@ -43,8 +48,53 @@ namespace master {
 
 using consensus::StartRemoteBootstrapRequestPB;
 
-MasterTabletServer::MasterTabletServer(Master* master, scoped_refptr<MetricEntity> metric_entity)
-    : master_(master), metric_entity_(metric_entity) {
+class CDCServiceContextImpl : public cdc::CDCServiceContext {
+ public:
+  explicit CDCServiceContextImpl(Master* master, MasterTabletServer* tablet_server)
+      : master_(master), tablet_server_(*tablet_server) {}
+
+  tablet::TabletPeerPtr LookupTablet(const TabletId& tablet_id) const override {
+    auto serving_tablet_res = tablet_server_.GetServingTablet(tablet_id);
+    return serving_tablet_res.ok() ? *serving_tablet_res : nullptr;
+  }
+
+  Result<tablet::TabletPeerPtr> GetTablet(const TabletId& tablet_id) const override {
+    return tablet_server_.GetServingTablet(tablet_id);
+  }
+
+  Result<tablet::TabletPeerPtr> GetServingTablet(const TabletId& tablet_id) const override {
+    return tablet_server_.GetServingTablet(tablet_id);
+  }
+
+  const std::string& permanent_uuid() const override { return permanent_uuid_; }
+
+  std::unique_ptr<client::AsyncClientInitializer> MakeClientInitializer(
+      const std::string& client_name, MonoDelta default_timeout) const override {
+    return std::make_unique<client::AsyncClientInitializer>(
+        client_name, default_timeout, permanent_uuid_, &master_->options(),
+        tablet_server_.MetricEnt(), tablet_server_.mem_tracker(), master_->messenger());
+  }
+
+  Result<uint32> GetAutoFlagsConfigVersion() const override {
+    RSTATUS_DCHECK(
+        false, InternalError, "Unexpected call to GetAutoFlagsConfigVersion in master_tserver.");
+  }
+
+ private:
+  std::string permanent_uuid_ = "my_permanent_uuid";
+  Master* master_;
+  MasterTabletServer& tablet_server_;
+};
+
+MasterTabletServer::MasterTabletServer(
+    Master* master, scoped_refptr<MetricEntity> metric_entity, MetricRegistry* metric_registry)
+    : master_(master),
+      metric_entity_(metric_entity),
+      cdc_service_(std::make_shared<cdc::CDCServiceImpl>(
+          std::make_unique<CDCServiceContextImpl>(master, this), metric_entity, metric_registry)) {
+  // This should obviously be done upon the creation of the first CDC stream but for POC, we do it
+  // here.
+  cdc_service_->SetCDCServiceEnabled();
 }
 
 tserver::TSTabletManager* MasterTabletServer::tablet_manager() {

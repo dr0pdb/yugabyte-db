@@ -37,6 +37,9 @@
 #include <memory>
 #include <vector>
 
+#include "yb/cdc/cdc_service.h"
+#include "yb/cdc/cdc_service_context.h"
+
 #include "yb/master/master_auto_flags_manager.h"
 #include "yb/util/logging.h"
 
@@ -137,6 +140,10 @@ DEFINE_UNKNOWN_int32(master_remote_bootstrap_svc_queue_length, 50,
              "RPC queue length for master remote bootstrap service");
 TAG_FLAG(master_remote_bootstrap_svc_queue_length, advanced);
 
+DEFINE_NON_RUNTIME_int32(master_xrepl_svc_queue_length, 5000,
+                         "RPC queue length for the xrepl (xCluster, CDC) service");
+TAG_FLAG(master_xrepl_svc_queue_length, advanced);
+
 DEFINE_test_flag(string, master_extra_list_host_port, "",
                  "Additional host port used in list masters");
 
@@ -166,7 +173,7 @@ Master::Master(const MasterOptions& opts)
       maintenance_manager_(new MaintenanceManager(MaintenanceManager::DEFAULT_OPTIONS)),
       metric_entity_cluster_(
           METRIC_ENTITY_cluster.Instantiate(metric_registry_.get(), "yb.cluster")),
-      master_tablet_server_(new MasterTabletServer(this, metric_entity())) {
+      master_tablet_server_(new MasterTabletServer(this, metric_entity(), metric_registry())) {
   SetConnectionContextFactory(rpc::CreateConnectionContextFactory<rpc::YBInboundConnectionContext>(
       GetAtomicFlag(&FLAGS_inbound_rpc_memory_limit), mem_tracker()));
 
@@ -294,6 +301,9 @@ Status Master::RegisterServices() {
   RETURN_NOT_OK(RegisterService(
       FLAGS_master_tserver_svc_queue_length,
       std::make_shared<MasterTabletServiceImpl>(master_tablet_server_.get(), this)));
+
+  RETURN_NOT_OK(
+      RegisterService(FLAGS_master_xrepl_svc_queue_length, master_tablet_server_->GetCDCService()));
 
   RETURN_NOT_OK(RegisterService(
       FLAGS_master_consensus_svc_queue_length,

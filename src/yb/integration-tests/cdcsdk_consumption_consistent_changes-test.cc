@@ -71,6 +71,43 @@ TEST_F(CDCSDKConsumptionConsistentChangesTest, TestVirtualWAL) {
   ASSERT_NOK(GetConsistentChangesFromCDC(stream_id, {table.table_id()}, 3));
 }
 
+TEST_F(CDCSDKConsumptionConsistentChangesTest, TestMasterCDCService) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_cdc_consistent_snapshot_streams) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_TEST_enable_replication_slot_consumption) = true;
+  ASSERT_OK(SetUpWithParams(3, 1, false, true));
+  auto table = ASSERT_RESULT(CreateTable(&test_cluster_, kNamespaceName, kTableName, 3));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, nullptr));
+  ASSERT_EQ(tablets.size(), 3);
+  auto stream_id = ASSERT_RESULT(CreateConsistentSnapshotStream());
+
+  auto conn = ASSERT_RESULT(test_cluster_.ConnectToDB(kNamespaceName));
+  ASSERT_OK(conn.ExecuteFormat(
+      "INSERT INTO test_table ($0, $1) select i, i+1 from generate_series(1,50) as i",
+      kKeyColumnName, kValueColumnName));
+  ASSERT_OK(InitVirtualWAL(stream_id, {table.table_id()}, 1));
+
+  // Sending the same session_id should result in error because a corresponding VirtualWAL instance
+  // will already exist.
+  ASSERT_NOK(InitVirtualWAL(stream_id, {table.table_id()}, 1));
+
+  // Empty table list should succeed.
+  ASSERT_OK(InitVirtualWAL(stream_id, {}, 2));
+  ASSERT_OK(InitVirtualWAL(stream_id, {table.table_id()}, 3));
+
+  ASSERT_OK(DestroyVirtualWAL(2));
+  ASSERT_OK(DestroyVirtualWAL(3));
+
+  // Sending the same session_id should result in error because the corresponding VirtualWAL
+  // instance would have already been deleted.
+  ASSERT_NOK(DestroyVirtualWAL(3));
+
+  ASSERT_OK(GetConsistentChangesFromCDC(stream_id, {table.table_id()}, 1));
+
+  // Sending a different session_id for which VirtualWAL does not exist should result in error.
+  ASSERT_NOK(GetConsistentChangesFromCDC(stream_id, {table.table_id()}, 3));
+}
+
 TEST_F(CDCSDKConsumptionConsistentChangesTest, TestExplicitCheckpointForSingleShardTxn) {
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_TEST_enable_replication_slot_consumption) = true;
   ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_cdc_consistent_snapshot_streams) = true;

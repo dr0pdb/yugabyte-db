@@ -17,6 +17,7 @@
 
 #include "yb/tserver/tablet_peer_lookup.h"
 #include "yb/tserver/tablet_server_interface.h"
+#include "yb/util/metrics_fwd.h"
 
 namespace yb {
 namespace master {
@@ -29,7 +30,8 @@ class Master;
 class MasterTabletServer : public tserver::TabletServerIf,
                            public tserver::TabletPeerLookupIf {
  public:
-  MasterTabletServer(Master* master, scoped_refptr<MetricEntity> metric_entity);
+  MasterTabletServer(
+      Master* master, scoped_refptr<MetricEntity> metric_entity, MetricRegistry* metric_registry);
   tserver::TSTabletManager* tablet_manager() override;
   tserver::TabletPeerLookupIf* tablet_peer_lookup() override;
 
@@ -85,9 +87,7 @@ class MasterTabletServer : public tserver::TabletServerIf,
   rpc::Messenger* GetMessenger(ash::Component component) const override;
 
   std::shared_ptr<cdc::CDCServiceImpl> GetCDCService() const override {
-    // We don't have a CDC service on master, so return null from here.
-    // The caller is expected to do a null check.
-    return nullptr;
+    return cdc_service_;
   }
 
   void ClearAllMetaCachesOnServer() override;
@@ -98,6 +98,9 @@ class MasterTabletServer : public tserver::TabletServerIf,
  private:
   Master* master_ = nullptr;
   scoped_refptr<MetricEntity> metric_entity_;
+
+  // CDC service.
+  std::shared_ptr<cdc::CDCServiceImpl> cdc_service_;
 };
 
 } // namespace master
