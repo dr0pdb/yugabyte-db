@@ -841,6 +841,14 @@ Status CatalogManager::CreateNewCDCStreamForNamespace(
     RETURN_NOT_OK(BackfillMetadataForXRepl(table, epoch));
     table_ids.push_back(table->id());
   }
+
+  if (ns->database_type() == YQLDatabase::YQL_DATABASE_PGSQL) {
+    auto database_oid = VERIFY_RESULT(GetPgsqlDatabaseOid(namespace_id));
+    table_ids.push_back(GetPgsqlTableId(database_oid, kPgClassTableOid));
+    table_ids.push_back(GetPgsqlTableId(database_oid, kPgAttributeTableOid));
+    table_ids.push_back(GetPgsqlTableId(database_oid, kPgTypeTableOid));
+  }
+
   VLOG_WITH_FUNC(1) << Format("Creating CDCSDK stream for $0 tables", table_ids.size());
 
   return CreateNewCdcsdkStream(req, table_ids, ns->id(), resp, epoch, rpc);
