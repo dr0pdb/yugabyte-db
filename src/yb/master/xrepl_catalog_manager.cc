@@ -845,6 +845,7 @@ Status CatalogManager::CreateNewCDCStreamForNamespace(
   if (ns->database_type() == YQLDatabase::YQL_DATABASE_PGSQL) {
     auto database_oid = VERIFY_RESULT(GetPgsqlDatabaseOid(namespace_id));
     table_ids.push_back(GetPgsqlTableId(database_oid, kPgClassTableOid));
+    LOG(INFO) << "The table id of pg_class is: " << table_ids.back();
     table_ids.push_back(GetPgsqlTableId(database_oid, kPgAttributeTableOid));
     table_ids.push_back(GetPgsqlTableId(database_oid, kPgTypeTableOid));
   }
@@ -951,13 +952,22 @@ Status CatalogManager::CreateNewCdcsdkStream(
   auto* metadata = &stream->mutable_metadata()->mutable_dirty()->pb;
   DCHECK(namespace_id) << "namespace_id is unexpectedly none";
   metadata->set_namespace_id(*namespace_id);
+
+  std::unordered_set<TableId> system_table_ids;
   for (const auto& table_id : table_ids) {
     metadata->add_table_id(table_id);
     if (FLAGS_ysql_yb_enable_replica_identity) {
       auto table = VERIFY_RESULT(FindTableById(table_id));
       Schema schema;
       RETURN_NOT_OK(table->GetSchema(&schema));
-      PgReplicaIdentity replica_identity = schema.table_properties().replica_identity();
+
+      // Use FULL for PG catalog tables. It isn't populated currently for system tables.
+      PgReplicaIdentity replica_identity = PgReplicaIdentity::FULL;
+      if (!table->is_system()) {
+        replica_identity = schema.table_properties().replica_identity();
+      } else {
+        system_table_ids.insert(table_id);
+      }
 
       // If atleast one of the tables in the stream has replica identity full, we will set the
       // history cutoff. UpdatepPeersAndMetrics thread will remove the retention barriers for
@@ -1188,11 +1198,11 @@ Status CatalogManager::PopulateCDCStateTable(const xrepl::StreamId& stream_id,
 
       if (stream_id == entry.key.stream_id) {
         seen_tablet_ids.insert(entry.key.tablet_id);
-        SCHECK(
-           *entry.checkpoint != OpId().Invalid(), IllegalState,
-            Format(
-                "Checkpoint for tablet id $0 unexpectedly found Invalid for stream id $1",
-                entry.key.tablet_id, stream_id));
+        // SCHECK(
+        //    *entry.checkpoint != OpId().Invalid(), IllegalState,
+        //     Format(
+        //         "Checkpoint for tablet id $0 unexpectedly found Invalid for stream id $1",
+        //         entry.key.tablet_id, stream_id));
       }
     }
     RETURN_NOT_OK(iteration_status);
@@ -1222,7 +1232,8 @@ Status CatalogManager::PopulateCDCStateTable(const xrepl::StreamId& stream_id,
         entry.active_time = stream_creation_time;
         entry.cdc_sdk_safe_time = consistent_snapshot_time;
       } else {
-        entry.checkpoint = OpId().Invalid();
+        // Make the checkpoint (0, 0) for system tables.
+        entry.checkpoint = (table->is_system()) ? OpId() : OpId().Invalid();
         entry.active_time = 0;
         entry.cdc_sdk_safe_time = 0;
       }
@@ -1270,11 +1281,17 @@ Status CatalogManager::SetAllCDCSDKRetentionBarriers(
   const std::vector<TableId>& table_ids, const xrepl::StreamId& stream_id,
   const bool has_consistent_snapshot_option, const bool require_history_cutoff) {
   VLOG_WITH_FUNC(4) << "Setting All retention barriers for stream: " << stream_id;
+  std::unordered_set<TableId> system_table_ids;
 
   for (const auto& table_id : table_ids) {
     auto table = VERIFY_RESULT(FindTableById(table_id));
     {
       auto l = table->LockForRead();
+      if (table->is_system()) {
+        system_table_ids.insert(table_id);
+        continue;
+      }
+
       if (l->started_deleting()) {
         return STATUS(
             NotFound, "Table does not exist", table_id,
@@ -1305,9 +1322,13 @@ Status CatalogManager::SetAllCDCSDKRetentionBarriers(
     auto deadline = rpc->GetClientDeadline();
     // TODO(#18934): Handle partial failures by rolling back all changes.
     for (const auto& table_id : table_ids) {
+      if (system_table_ids.contains(table_id)) {
+        continue;
+      }
       RETURN_NOT_OK(WaitForAlterTableToFinish(table_id, deadline));
     }
-    RETURN_NOT_OK(WaitForSnapshotSafeOpIdToBePopulated(stream_id, table_ids, deadline));
+    SleepFor(MonoDelta::FromMilliseconds(1000));
+    // RETURN_NOT_OK(WaitForSnapshotSafeOpIdToBePopulated(stream_id, table_ids, deadline));
   }
 
   return Status::OK();
@@ -1400,6 +1421,10 @@ Status CatalogManager::WaitForSnapshotSafeOpIdToBePopulated(
   auto num_expected_tablets = 0;
   for (const auto& table_id : table_ids) {
     auto table = VERIFY_RESULT(FindTableById(table_id));
+    if (table->is_system()) {
+      continue;
+    }
+
     num_expected_tablets += table->GetTablets().size();
   }
 

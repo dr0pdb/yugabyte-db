@@ -19,6 +19,8 @@
 #include "yb/integration-tests/cdcsdk_test_base.h"
 #include "yb/integration-tests/cdcsdk_ysql_test_base.h"
 
+#include "yb/master/master_replication.proxy.h"
+#include "yb/master/sys_catalog_constants.h"
 #include "yb/master/tasks_tracker.h"
 
 #include "yb/tserver/tablet_server.h"
@@ -8311,6 +8313,50 @@ TEST_F(CDCSDKYsqlTest, TestTableIdAndPkInCDCRecordsOnNonColocatedTables) {
 
 TEST_F(CDCSDKYsqlTest, TestTableIdAndPkInCDCRecordsOnColocatedTables) {
   TestTableIdAndPkInCDCRecords(true);
+}
+
+TEST_F(CDCSDKYsqlTest, TestPollingPgCatalogTables) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_yb_enable_cdc_consistent_snapshot_streams) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_TEST_enable_replication_slot_consumption) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_enable_replica_identity) = false;
+
+  ASSERT_OK(SetUpWithParams(3, 1, false));
+  xrepl::StreamId stream_id = ASSERT_RESULT(
+      CreateConsistentSnapshotStreamWithReplicationSlot("test_poll_catalog_tables"));
+
+  GetChangesRequestPB change_req;
+  GetChangesResponsePB change_resp;
+  {
+    change_req.set_stream_id(stream_id.ToString());
+    change_req.set_tablet_id(master::kSysCatalogTabletId);
+    // pg_class.
+    change_req.set_table_id("000040000000300080000000000004eb");
+    // change_req.mutable_from_cdc_sdk_checkpoint()->set_index(index);
+    // change_req.mutable_from_cdc_sdk_checkpoint()->set_term(term);
+    // change_req.mutable_from_cdc_sdk_checkpoint()->set_key(key);
+    // change_req.mutable_from_cdc_sdk_checkpoint()->set_write_id(write_id);
+    // change_req.mutable_from_cdc_sdk_checkpoint()->set_snapshot_time(snapshot_time);
+    change_req.set_wal_segment_index(0);
+    change_req.set_safe_hybrid_time(-1);
+  }
+
+  auto conn = ASSERT_RESULT(test_cluster_.ConnectToDB(kNamespaceName));
+  ASSERT_OK(conn.Execute("CREATE TABLE test_1 (a int primary key, b text)"));
+
+  rpc::RpcController change_rpc;
+  change_rpc.set_timeout(MonoDelta::FromMilliseconds(FLAGS_cdc_write_rpc_timeout_ms));
+
+  // Just set the address as master.
+  cdc::CDCServiceProxy master_proxy_(
+      &test_client()->proxy_cache(),
+      ASSERT_RESULT(test_cluster_.mini_cluster_->GetLeaderMasterBoundRpcAddr()));
+  ASSERT_OK(master_proxy_.GetChanges(change_req, &change_resp, &change_rpc));
+  if (change_resp.has_error()) {
+    auto status = StatusFromPB(change_resp.error().status());
+    LOG(ERROR) << status;
+    // Just to fail the test.
+    ASSERT_EQ(change_resp.has_error(), false);
+  }
 }
 
 }  // namespace cdc
