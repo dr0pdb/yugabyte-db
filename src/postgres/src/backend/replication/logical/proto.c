@@ -961,8 +961,8 @@ logicalrep_write_attrs(StringInfo out, Relation rel, Bitmapset *columns)
 
 	/* fetch bitmap of REPLICATION IDENTITY attributes */
 	replidentfull = (rel->rd_rel->relreplident == REPLICA_IDENTITY_FULL);
-	if (!replidentfull)
-		idattrs = RelationGetIdentityKeyBitmap(rel);
+	// if (!replidentfull)
+	// 	idattrs = RelationGetIdentityKeyBitmap(rel);
 
 	/* send the attributes */
 	for (i = 0; i < desc->natts; i++)
@@ -977,7 +977,7 @@ logicalrep_write_attrs(StringInfo out, Relation rel, Bitmapset *columns)
 			continue;
 
 		/* REPLICA IDENTITY FULL means all columns are sent as part of key. */
-		if (replidentfull ||
+		if (replidentfull || true ||
 			bms_is_member(att->attnum - FirstLowInvalidHeapAttributeNumber,
 						  idattrs))
 			flags |= LOGICALREP_IS_REPLICA_IDENTITY;

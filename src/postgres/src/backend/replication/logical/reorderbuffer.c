@@ -2497,7 +2497,7 @@ ReorderBufferProcessTXN(ReorderBuffer *rb, ReorderBufferTXN *txn,
 		 */
 		if (streaming)
 			ReorderBufferSaveTXNSnapshot(rb, txn, snapshot_now, command_id);
-		else if (snapshot_now->copied)
+		else if (!IsYugaByteEnabled() && snapshot_now->copied)
 			ReorderBufferFreeSnap(rb, snapshot_now);
 
 		/* cleanup */

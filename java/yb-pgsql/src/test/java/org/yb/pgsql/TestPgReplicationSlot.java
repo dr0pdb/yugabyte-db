@@ -422,13 +422,11 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void replicationConnectionConsumption() throws Exception {
     testReplicationConnectionConsumption("test_repl_slot_consumption");
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void replicationConnectionConsumptionMultipleBatches() throws Exception {
     markClusterNeedsRecreation();
     Map<String, String> tserverFlags = super.getTServerFlags();
@@ -440,7 +438,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void replicationConnectionConsumptionAllDataTypes() throws Exception {
     String create_stmt = "CREATE TABLE test_table ( "
         + "a INT PRIMARY KEY, "
@@ -568,8 +565,8 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
                 new PgOutputMessageTupleColumnValue("127.0.0.1/32"),
                 new PgOutputMessageTupleColumnValue("<(0,0),1>"),
                 new PgOutputMessageTupleColumnValue("2024-02-01"),
-                new PgOutputMessageTupleColumnValue("1.20100000000000007"),
-                new PgOutputMessageTupleColumnValue("3.14000000000000012"),
+                new PgOutputMessageTupleColumnValue("1.201"),
+                new PgOutputMessageTupleColumnValue("3.14"),
                 new PgOutputMessageTupleColumnValue("127.0.0.1"),
                 new PgOutputMessageTupleColumnValue("42"),
                 new PgOutputMessageTupleColumnValue("{\"key\": \"value\"}"),
@@ -656,7 +653,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void replicationConnectionConsumptionAttributeDroppedRecreated() throws Exception {
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("CREATE TABLE t1 (a int primary key, b text)");
@@ -710,7 +706,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void testInnerLSNValues() throws Exception {
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("DROP TABLE IF EXISTS t1");
@@ -1010,7 +1005,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void testStartLsnValues() throws Exception {
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("DROP TABLE IF EXISTS test");
