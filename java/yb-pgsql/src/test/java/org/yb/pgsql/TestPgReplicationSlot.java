@@ -315,7 +315,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void consumptionOnSubsetOfColocatedTables() throws Exception {
     markClusterNeedsRecreation();
     Map<String, String> tserverFlags = super.getTServerFlags();
@@ -367,9 +366,9 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
 
     List<PgOutputMessage> result = new ArrayList<PgOutputMessage>();
     // 2 Relation (t1 & t2) + 3 records/txn (B+I+C) * 2 txns (performed on t1 & t2
-    // respectively) + 2 records/txn (B+C) * 1 txn (performed on t3) + 4 records/txn
-    // (B+I1+I2+C) * 1 multi-shard txn.
-    result.addAll(receiveMessage(stream, 14));
+    // respectively) + 4 records/txn (B+I1+I2+C) * 1 multi-shard txn.
+    // Note that empty transactions are skipped by pgoutput.
+    result.addAll(receiveMessage(stream, 12));
     for (PgOutputMessage res : result) {
       LOG.info("Row = {}", res);
     }
@@ -398,10 +397,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
         add(PgOutputCommitMessage.CreateForComparison(
             LogSequenceNumber.valueOf("0/7"), LogSequenceNumber.valueOf("0/8")));
 
-        add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/A"), 4));
-        add(PgOutputCommitMessage.CreateForComparison(
-            LogSequenceNumber.valueOf("0/A"), LogSequenceNumber.valueOf("0/B")));
-
         add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/F"), 5));
         add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 2,
             Arrays.asList(
@@ -422,13 +417,11 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void replicationConnectionConsumption() throws Exception {
     testReplicationConnectionConsumption("test_repl_slot_consumption");
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void replicationConnectionConsumptionMultipleBatches() throws Exception {
     markClusterNeedsRecreation();
     Map<String, String> tserverFlags = super.getTServerFlags();
@@ -440,7 +433,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void replicationConnectionConsumptionAllDataTypes() throws Exception {
     String create_stmt = "CREATE TABLE test_table ( "
         + "a INT PRIMARY KEY, "
@@ -568,8 +560,8 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
                 new PgOutputMessageTupleColumnValue("127.0.0.1/32"),
                 new PgOutputMessageTupleColumnValue("<(0,0),1>"),
                 new PgOutputMessageTupleColumnValue("2024-02-01"),
-                new PgOutputMessageTupleColumnValue("1.20100000000000007"),
-                new PgOutputMessageTupleColumnValue("3.14000000000000012"),
+                new PgOutputMessageTupleColumnValue("1.201"),
+                new PgOutputMessageTupleColumnValue("3.14"),
                 new PgOutputMessageTupleColumnValue("127.0.0.1"),
                 new PgOutputMessageTupleColumnValue("42"),
                 new PgOutputMessageTupleColumnValue("{\"key\": \"value\"}"),
@@ -656,7 +648,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void replicationConnectionConsumptionAttributeDroppedRecreated() throws Exception {
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("CREATE TABLE t1 (a int primary key, b text)");
@@ -710,7 +701,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void testInnerLSNValues() throws Exception {
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("DROP TABLE IF EXISTS t1");
@@ -777,7 +767,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void testReplicationConnectionUpdateRestartLSN() throws Exception {
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("DROP TABLE IF EXISTS test");
@@ -886,7 +875,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void testReplicationConnectionUpdateRestartLSNWithRestarts() throws Exception {
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("DROP TABLE IF EXISTS test");
@@ -1010,7 +998,6 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
   }
 
   @Test
-  @Ignore("YB_TODO(stiwary)")
   public void testStartLsnValues() throws Exception {
     try (Statement stmt = connection.createStatement()) {
       stmt.execute("DROP TABLE IF EXISTS test");
