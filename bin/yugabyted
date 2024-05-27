@@ -417,6 +417,10 @@ def find_binary_location(binary_name):
         os.path.join(YUGABYTE_DIR, "build", "latest", "bin"),
     ]
 
+    dir_candidates += [
+        os.path.join(YUGABYTE_DIR, "build", "latest", "debug-clang-dynamic-arm64-ninja", "bin"),
+    ]
+
     # Development environment for UI
     dir_candidates += [
         os.path.join(YUGABYTE_DIR, "build", "latest", "gobin"),

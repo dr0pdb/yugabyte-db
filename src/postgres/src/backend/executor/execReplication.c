@@ -13,6 +13,7 @@
  */
 
 #include "postgres.h"
+#include <unistd.h>
 
 #include "access/genam.h"
 #include "access/relscan.h"
@@ -581,6 +582,11 @@ CheckCmdReplicaIdentity(Relation rel, CmdType cmd)
 	/* We only need to do checks for UPDATE and DELETE. */
 	if (cmd != CMD_UPDATE && cmd != CMD_DELETE)
 		return;
+
+	char command[256];
+snprintf(command, sizeof(command), "code --open-url \"vscode://vadimcn.vscode-lldb/launch/config?{'request':'attach','pid':%d}\"", getpid());
+system(command);
+sleep(10); // Wait for debugger to attach
 
 	/*
 	 * It is only safe to execute UPDATE/DELETE when all columns, referenced

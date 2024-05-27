@@ -1980,4 +1980,98 @@ public class TestPgReplicationSlot extends BasePgSQLTest {
 
     stream.close();
   }
+
+  // TODO(#22526): Add tests cases with non-default values of replica identity.
+  @Test
+  public void testWithRowLevelFilterAndDefaultReplicaIdentity() throws Exception {
+    try (Statement stmt = connection.createStatement()) {
+      stmt.execute("DROP TABLE IF EXISTS t1");
+      stmt.execute("DROP TABLE IF EXISTS t2");
+      stmt.execute("DROP TABLE IF EXISTS t3");
+      stmt.execute("CREATE TABLE t1(a int, b int, c text, PRIMARY KEY(a,c))");
+      stmt.execute("CREATE TABLE t2(d int, e int, f int, PRIMARY KEY(d))");
+      stmt.execute("CREATE TABLE t3(g int, h int, i int, PRIMARY KEY(g))");
+
+      // DEFAULT is not the default replica identity in YSQL.
+      stmt.execute("ALTER TABLE t1 REPLICA IDENTITY DEFAULT");
+
+      stmt.execute("CREATE PUBLICATION p1 FOR TABLE t1 WHERE (a > 5 AND c = 'NSW')");
+      // stmt.execute("CREATE PUBLICATION p2 FOR TABLE t1, t2 WHERE (e = 99);");
+      // stmt.execute("CREATE PUBLICATION p3 FOR TABLE t2 WHERE (d = 10), t3 WHERE (g = 10);");
+    }
+
+    String slotName = "testWithRowLevelFilter";
+    Connection conn =
+        getConnectionBuilder().withTServer(0).replicationConnect();
+    PGReplicationConnection replConnection = conn.unwrap(PGConnection.class).getReplicationAPI();
+
+    createStreamAndWaitForSnapshotTimeToPass(replConnection, slotName);
+    try (Statement stmt = connection.createStatement()) {
+      stmt.execute("INSERT INTO t1 VALUES (2, 102, 'NSW')"); // Filtered
+      stmt.execute("INSERT INTO t1 VALUES (3, 103, 'QLD')"); // Filtered
+      stmt.execute("INSERT INTO t1 VALUES (4, 104, 'VIC')"); // Filtered
+      stmt.execute("INSERT INTO t1 VALUES (5, 105, 'ACT')"); // Filtered
+      stmt.execute("INSERT INTO t1 VALUES (6, 106, 'NSW')"); // Streamed
+      stmt.execute("INSERT INTO t1 VALUES (7, 107, 'NT')");  // Filtered
+      stmt.execute("INSERT INTO t1 VALUES (8, 108, 'QLD')"); // Filtered
+      stmt.execute("INSERT INTO t1 VALUES (9, 109, 'NSW')"); // Streamed
+
+      // Update row where the old and new row values both satisfy the t1 WHERE clause of publication
+      // p1. The UPDATE operation should be replication as normal.
+      stmt.execute("UPDATE t1 SET b = 999 WHERE a = 6");
+
+      // Update row where the old row values did not satisfy the t1 WHERE clause of publication p1,
+      // // but the new row values do satisfy it. The UPDATE should be transformed into an INSERT and
+      // // replicated.
+      // stmt.execute("UPDATE t1 SET a = 555 WHERE a = 2");
+
+      // // Update row where the old row values satisfied the t1 WHERE clause of publication p1, but
+      // // the new row values do not satisfy it. The UPDATE is transformed into a DELETE and the
+      // // change is replicated.
+      // stmt.execute("UPDATE t1 SET c = 'VIC' WHERE a = 9");
+    }
+
+    PGReplicationStream stream = replConnection.replicationStream()
+                                     .logical()
+                                     .withSlotName(slotName)
+                                     .withStartPosition(LogSequenceNumber.valueOf(0L))
+                                     .withSlotOption("proto_version", 1)
+                                     .withSlotOption("publication_names", "p1")
+                                     .start();
+
+    List<PgOutputMessage> result = new ArrayList<PgOutputMessage>();
+
+    // 1 RELATION, 2 * 3 (BEGIN, INSERT, COMMIT) for the inserts.
+    // 3 * 3 for the update operations.
+    result.addAll(receiveMessage(stream, 10));
+
+    List<PgOutputMessage> expectedResult = new ArrayList<PgOutputMessage>() {
+      {
+        add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/10"), 6));
+        add(PgOutputRelationMessage.CreateForComparison("public", "t1", 'c' /* replicaIdentity */,
+            Arrays.asList(
+                PgOutputRelationMessageColumn.CreateForComparison("a", 23),
+                PgOutputRelationMessageColumn.CreateForComparison("b", 23),
+                PgOutputRelationMessageColumn.CreateForComparison("c", 25))));
+        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 3,
+            Arrays.asList(
+                new PgOutputMessageTupleColumnValue("6"),
+                new PgOutputMessageTupleColumnValue("106"),
+                new PgOutputMessageTupleColumnValue("NSW")))));
+        add(PgOutputCommitMessage.CreateForComparison(
+            LogSequenceNumber.valueOf("0/10"), LogSequenceNumber.valueOf("0/11")));
+
+        add(PgOutputBeginMessage.CreateForComparison(LogSequenceNumber.valueOf("0/19"), 9));
+        add(PgOutputInsertMessage.CreateForComparison(new PgOutputMessageTuple((short) 3,
+            Arrays.asList(new PgOutputMessageTupleColumnValue("9"),
+                new PgOutputMessageTupleColumnValue("109"),
+                new PgOutputMessageTupleColumnValue("NSW")))));
+        add(PgOutputCommitMessage.CreateForComparison(
+            LogSequenceNumber.valueOf("0/19"), LogSequenceNumber.valueOf("0/1A")));
+      }
+    };
+    assertEquals(expectedResult, result);
+
+    stream.close();
+  }
 }
