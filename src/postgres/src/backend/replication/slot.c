@@ -604,8 +604,8 @@ ReplicationSlotRelease(void)
 		ConditionVariableBroadcast(&slot->active_cv);
 	}
 
-	if (IsYugaByteEnabled() && MyReplicationSlot->data.yb_replica_identities)
-		hash_destroy(MyReplicationSlot->data.yb_replica_identities);
+	// if (IsYugaByteEnabled() && MyReplicationSlot->data.yb_replica_identities)
+	// 	hash_destroy(MyReplicationSlot->data.yb_replica_identities);
 
 	MyReplicationSlot = NULL;
 

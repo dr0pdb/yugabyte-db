@@ -1,0 +1,3 @@
+# contrib/test_decoding/yb_schedule
+
+test: yb_slot

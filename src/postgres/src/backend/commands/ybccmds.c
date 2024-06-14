@@ -2010,6 +2010,8 @@ YBCUpdatePublicationTableList(const char *stream_id, Oid *relations,
 void
 YBCDestroyVirtualWalForCDC()
 {
+	YBC_LOG_INFO_STACK_TRACE("Destroying virtual WAL for CDC");
+
 	/*
 	 * This is executed as part of cleanup logic. So we just treat all errors as
 	 * warning. Even if this fails, the cleanup will be done once the session is

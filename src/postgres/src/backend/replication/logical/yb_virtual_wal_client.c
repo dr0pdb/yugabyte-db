@@ -99,6 +99,7 @@ void
 YBCInitVirtualWal(List *yb_publication_names)
 {
 	MemoryContext	caller_context;
+	bool			start_txn = !IsTransactionOrTransactionBlock();
 
 	elog(DEBUG1, "YBCInitVirtualWal");
 
@@ -125,7 +126,8 @@ YBCInitVirtualWal(List *yb_publication_names)
 	caller_context = GetCurrentMemoryContext();
 
 	/* Start a transaction to be able to read the catalog tables. */
-	StartTransactionCommand();
+	if (start_txn)
+		StartTransactionCommand();
 
 	/*
 	 * Allocate any data within the virtual wal context i.e. outside of the
@@ -135,13 +137,16 @@ YBCInitVirtualWal(List *yb_publication_names)
 
 	InitVirtualWal(yb_publication_names);
 
-	AbortCurrentTransaction();
+	if (start_txn)
+		AbortCurrentTransaction();
 	MemoryContextSwitchTo(caller_context);
 
 	unacked_transactions = NIL;
 	last_getconsistentchanges_response_empty = false;
 	last_getconsistentchanges_response_receipt_time = 0;
 	last_txn_begin_lsn = InvalidXLogRecPtr;
+	cached_records = NULL;
+	cached_records_last_sent_row_idx = 0;
 
 	needs_publication_table_list_refresh = false;
 }
@@ -230,7 +235,7 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr,
 	List					*tables;
 	Oid						*table_oids;
 
-	elog(DEBUG4, "YBCReadRecord");
+	elog(DEBUG2, "YBCReadRecord");
 
 	caller_context = MemoryContextSwitchTo(cached_records_context);
 
@@ -248,7 +253,14 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr,
 
 		if (needs_publication_table_list_refresh)
 		{
-			StartTransactionCommand();
+			bool			start_txn = !IsTransactionOrTransactionBlock();
+
+			elog(DEBUG2, "Handling the pub refresh event");
+
+			if (start_txn)
+				StartTransactionCommand();
+
+			elog(DEBUG2, "Started pub refresh txn");
 
 			Assert(yb_read_time < publication_refresh_time);
 
@@ -265,7 +277,8 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr,
 
 			pfree(table_oids);
 			list_free(tables);
-			AbortCurrentTransaction();
+			if (start_txn)
+				AbortCurrentTransaction();
 
 			// Refresh the replica identities.
 			YBCRefreshReplicaIdentities();
@@ -311,6 +324,7 @@ YBCReadRecord(XLogReaderState *state, XLogRecPtr RecPtr,
 	last_getconsistentchanges_response_empty = false;
 	record = &cached_records->rows[cached_records_last_sent_row_idx++];
 	state->ReadRecPtr = record->lsn;
+	state->EndRecPtr = record->lsn + 1;
 	state->yb_virtual_wal_record = record;
 
 	TrackUnackedTransaction(record);
@@ -362,20 +376,20 @@ PreProcessBeforeFetchingNextBatch()
 
 	if (last_getconsistentchanges_response_empty)
 	{
-		elog(DEBUG4, "YBCReadRecord: Sleeping for %d ms due to empty response.",
+		elog(DEBUG2, "YBCReadRecord: Sleeping for %d ms due to empty response.",
 			 yb_walsender_poll_sleep_duration_empty_ms);
 		pg_usleep(1000L * yb_walsender_poll_sleep_duration_empty_ms);
 	}
 	else
 	{
-		elog(DEBUG4,
+		elog(DEBUG2,
 			 "YBCReadRecord: Sleeping for %d ms as the last "
 			 "response was non-empty.",
 			 yb_walsender_poll_sleep_duration_nonempty_ms);
 		pg_usleep(1000L * yb_walsender_poll_sleep_duration_nonempty_ms);
 	}
 
-	elog(DEBUG5, "YBCReadRecord: Fetching a fresh batch of changes.");
+	elog(DEBUG2, "YBCReadRecord: Fetching a fresh batch of changes.");
 }
 
 static void
@@ -447,7 +461,7 @@ YBCCalculatePersistAndGetRestartLSN(XLogRecPtr confirmed_flush)
 	/* There was nothing to ack, so we can return early. */
 	if (restart_lsn_hint == InvalidXLogRecPtr)
 	{
-		elog(DEBUG4, "No unacked transaction were found, skipping the "
+		elog(DEBUG2, "No unacked transaction were found, skipping the "
 					 "persistence of confirmed_flush and restart_lsn_hint");
 		return restart_lsn_hint;
 	}
@@ -569,7 +583,8 @@ YBCRefreshReplicaIdentities()
 	YBCReplicationSlotDescriptor 	*yb_replication_slot;
 	int							 	replica_identity_idx = 0;
 
-	YBCGetReplicationSlot(MyReplicationSlot->data.name.data, &yb_replication_slot);
+	YBCGetReplicationSlot(MyReplicationSlot->data.name.data,
+						  &yb_replication_slot);
 
 	for (replica_identity_idx = 0;
 	 replica_identity_idx <

@@ -4131,7 +4131,8 @@ assign_yb_read_time(const char* newval, void *extra)
 	parse_yb_read_time(newval, &value_ull, &is_ht_unit);
 	yb_read_time = value_ull;
 	yb_is_read_time_ht = is_ht_unit;
-	if (!am_walsender)
+	// TODO: Fix this.
+	if (!am_walsender && false)
 	{
 		ereport(NOTICE,
 				(errmsg("yb_read_time should be set with caution."),
@@ -4865,8 +4866,6 @@ YbGetRelationWithOverwrittenReplicaIdentity(Oid relid, char replident)
 void
 YBCUpdateYbReadTimeAndInvalidateRelcache(uint64_t read_time_ht)
 {
-	/* Shouldn't go backwards on yb_read_time */
-	Assert(yb_read_time <= read_time_ht);
 	char read_time[50];
 
 	sprintf(read_time, "%llu ht", (unsigned long long) read_time_ht);

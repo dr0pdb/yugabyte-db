@@ -101,7 +101,10 @@ YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 			 * case of change operations. This transaction must be aborted
 			 * after processing the corresponding commit record.
 			 */
-			StartTransactionCommand();
+			if (am_walsender)
+				StartTransactionCommand();
+			else
+				BeginInternalSubTransaction("ybdecode_txn");
 			break;
 
 		case YB_PG_ROW_MESSAGE_ACTION_INSERT:
@@ -131,7 +134,12 @@ YBLogicalDecodingProcessRecord(LogicalDecodingContext *ctx,
 			 * message.
 			 */
 			AbortCurrentTransaction();
-			Assert(!IsTransactionState());
+
+			if (!am_walsender)
+				RollbackAndReleaseCurrentSubTransaction();
+
+			if (am_walsender)
+				Assert(!IsTransactionState());
 			break;
 		}
 

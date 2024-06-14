@@ -50,6 +50,7 @@
 
 /* YB includes. */
 #include "pg_yb_utils.h"
+#include "replication/yb_virtual_wal_client.h"
 
 /* private date for writing out data */
 typedef struct DecodingOutputState
@@ -255,6 +256,9 @@ pg_logical_slot_get_changes_guts(FunctionCallInfo fcinfo, bool confirm, bool bin
 	else
 		end_of_wal = GetXLogReplayRecPtr(&ThisTimeLineID);
 
+	if (IsYugaByteEnabled())
+		end_of_wal = YBCGetFlushRecPtr();
+
 	ReplicationSlotAcquire(NameStr(*name), true);
 
 	PG_TRY();
@@ -295,14 +299,46 @@ pg_logical_slot_get_changes_guts(FunctionCallInfo fcinfo, bool confirm, bool bin
 		/* invalidate non-timetravel entries */
 		InvalidateSystemCaches();
 
+		if (IsYugaByteEnabled())
+			YBCInitVirtualWal(ctx->options.yb_publication_names);
+
+		int iteration_count = 0;
+
 		/* Decode until we run out of records */
+		/*
+		 * YB NOTE: We have no deterministic way to check if we have run out of
+		 * records. So we use an empty response from the cdc service as a way to
+		 * stop.
+		 */
 		while ((startptr != InvalidXLogRecPtr && startptr < end_of_wal) ||
-			   (ctx->reader->EndRecPtr != InvalidXLogRecPtr && ctx->reader->EndRecPtr < end_of_wal))
+			   (ctx->reader->EndRecPtr != InvalidXLogRecPtr &&
+				ctx->reader->EndRecPtr < end_of_wal) ||
+			   IsYugaByteEnabled())
 		{
 			XLogRecord *record;
 			char	   *errm = NULL;
 
-			record = XLogReadRecord(ctx->reader, startptr, &errm);
+			YBCPgVirtualWalRecord *yb_record;
+
+			if (IsYugaByteEnabled())
+			{
+				yb_record = YBCReadRecord(ctx->reader, startptr,
+										  ctx->options.yb_publication_names,
+										  &errm);
+
+				/*
+				 * Explicitly set record to NULL so that the NULL check below is
+				 * only dependent on yb_record.
+				 */
+				record = NULL;
+
+				iteration_count++;
+			}
+			else
+			{
+				record = XLogReadRecord(ctx->reader, startptr, &errm);
+			}
+
 			if (errm)
 				elog(ERROR, "%s", errm);
 
@@ -316,7 +352,7 @@ pg_logical_slot_get_changes_guts(FunctionCallInfo fcinfo, bool confirm, bool bin
 			 * The {begin_txn,change,commit_txn}_wrapper callbacks above will
 			 * store the description into our tuplestore.
 			 */
-			if (record != NULL)
+			if ((IsYugaByteEnabled() && yb_record != NULL) || record != NULL)
 				LogicalDecodingProcessRecord(ctx, ctx->reader);
 
 			/* check limits */
@@ -325,6 +361,14 @@ pg_logical_slot_get_changes_guts(FunctionCallInfo fcinfo, bool confirm, bool bin
 				break;
 			if (upto_nchanges != 0 &&
 				upto_nchanges <= p->returned_rows)
+				break;
+
+			/*
+			 * This is super temporary. Ideally, we should pass a boolean
+			 * pointer to YBCReadRecord and it should tell us when to stop the
+			 * iteration.
+			 */
+			if (IsYugaByteEnabled() && iteration_count >= 30)
 				break;
 			CHECK_FOR_INTERRUPTS();
 		}
@@ -339,22 +383,22 @@ pg_logical_slot_get_changes_guts(FunctionCallInfo fcinfo, bool confirm, bool bin
 		 */
 		if (ctx->reader->EndRecPtr != InvalidXLogRecPtr && confirm)
 		{
-			LogicalConfirmReceivedLocation(ctx->reader->EndRecPtr);
+			// LogicalConfirmReceivedLocation(ctx->reader->EndRecPtr);
 
-			/*
-			 * If only the confirmed_flush_lsn has changed the slot won't get
-			 * marked as dirty by the above. Callers on the walsender
-			 * interface are expected to keep track of their own progress and
-			 * don't need it written out. But SQL-interface users cannot
-			 * specify their own start positions and it's harder for them to
-			 * keep track of their progress, so we should make more of an
-			 * effort to save it for them.
-			 *
-			 * Dirty the slot so it's written out at the next checkpoint.
-			 * We'll still lose its position on crash, as documented, but it's
-			 * better than always losing the position even on clean restart.
-			 */
-			ReplicationSlotMarkDirty();
+			// /*
+			//  * If only the confirmed_flush_lsn has changed the slot won't get
+			//  * marked as dirty by the above. Callers on the walsender
+			//  * interface are expected to keep track of their own progress and
+			//  * don't need it written out. But SQL-interface users cannot
+			//  * specify their own start positions and it's harder for them to
+			//  * keep track of their progress, so we should make more of an
+			//  * effort to save it for them.
+			//  *
+			//  * Dirty the slot so it's written out at the next checkpoint.
+			//  * We'll still lose its position on crash, as documented, but it's
+			//  * better than always losing the position even on clean restart.
+			//  */
+			// ReplicationSlotMarkDirty();
 		}
 
 		/* free context, call shutdown callback */
@@ -362,11 +406,17 @@ pg_logical_slot_get_changes_guts(FunctionCallInfo fcinfo, bool confirm, bool bin
 
 		ReplicationSlotRelease();
 		InvalidateSystemCaches();
+
+		if (IsYugaByteEnabled())
+			YBCDestroyVirtualWal();
 	}
 	PG_CATCH();
 	{
 		/* clear all timetravel entries */
 		InvalidateSystemCaches();
+
+		if (IsYugaByteEnabled())
+			YBCDestroyVirtualWal();
 
 		PG_RE_THROW();
 	}
