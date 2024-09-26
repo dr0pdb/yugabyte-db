@@ -977,10 +977,11 @@ YBInitPostgresBackend(
 		IpAddressToBytes(&ash_config);
 		YBCInitPgGate(type_table, count, callbacks, session_id, &ash_config);
 		YBCInstallTxnDdlHook();
-		if (yb_ash_enable_infra)
+		if (yb_ash_enable_infra && !YbAmAuthBackend())
 			YbAshInit();
 
-		if (YBIsEnabledInPostgresEnvVar() && YBIsQueryDiagnosticsEnabled())
+		if (YBIsEnabledInPostgresEnvVar() && YBIsQueryDiagnosticsEnabled() &&
+			!YbAmAuthBackend())
 			YbQueryDiagnosticsInstallHook();
 
 		/*
@@ -5516,6 +5517,11 @@ bool YbUseFastBackwardScan() {
 bool YbIsYsqlConnMgrWarmupModeEnabled()
 {
 	return strcmp(YBCGetGFlags()->TEST_ysql_conn_mgr_dowarmup_all_pools_mode, "none") != 0;
+}
+
+bool YbAmAuthBackend()
+{
+	return yb_am_auth_backend;
 }
 
 /* Used in YB to check if an attribute is a key column. */

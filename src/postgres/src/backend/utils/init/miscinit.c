@@ -777,10 +777,18 @@ InitializeSessionUserId(const char *rolename, Oid roleid)
 		 * ideally one should succeed and one fail.  Getting that to work
 		 * exactly seems more trouble than it is worth, however; instead we
 		 * just document that the connection limit is approximate.
+		 *
+		 * YB Note: For connection manager, the number of user connections is
+		 * calculated differently based on the number of logical and physical
+		 * connections.
+		 * The logic resides in the SetLogicalClientUserDetailsIfValid function
+		 * in yb_ysql_conn_mgr_helper.c. Hence, this check here is disabled for
+		 * auth-backend.
 		 */
 		if (rform->rolconnlimit >= 0 &&
 			!AuthenticatedUserIsSuperuser &&
-			CountUserBackends(roleid) > rform->rolconnlimit)
+			CountUserBackends(roleid) > rform->rolconnlimit &&
+			!YbAmAuthBackend())
 			ereport(FATAL,
 					(errcode(ERRCODE_TOO_MANY_CONNECTIONS),
 					 errmsg("too many connections for role \"%s\"",

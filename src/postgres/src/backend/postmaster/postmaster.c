@@ -142,6 +142,8 @@
 #include "utils/timestamp.h"
 #include "utils/varlena.h"
 
+/* YB includes. */
+#include "arpa/inet.h"
 #include "common/pg_yb_common.h"
 #include "pg_yb_utils.h"
 #include "yb_ash.h"
@@ -2087,6 +2089,10 @@ ProcessStartupPacket(Port *port, bool ssl_done, bool gss_done)
 	ProtocolVersion proto;
 	MemoryContext oldcontext;
 
+	char	   *yb_auth_backend_remote_host = NULL;
+	char		yb_logical_conn_type = 'U';
+	bool		yb_logical_conn_type_provided = false;
+
 	pq_startmsgread();
 
 	/*
@@ -2357,6 +2363,37 @@ retry1:
 									valptr),
 							 errhint("Valid values are: \"false\", 0, \"true\", 1, \"database\".")));
 			}
+			else if (YBIsEnabledInPostgresEnvVar()
+					 && strcmp(nameptr, "yb_authonly") == 0)
+			{
+				if (!parse_bool(valptr, &yb_am_auth_backend))
+					ereport(FATAL,
+							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+							 errmsg("invalid value for parameter \"%s\": \"%s\"",
+									"yb_authonly",
+									valptr),
+							 errhint("Valid values are: \"false\", 0, \"true\", 1.")));
+
+				yb_is_client_ysqlconnmgr = yb_am_auth_backend;
+			}
+			else if (YBIsEnabledInPostgresEnvVar()
+					 && strcmp(nameptr, "yb_auth_remote_host") == 0)
+				yb_auth_backend_remote_host = pstrdup(valptr);
+			else if (YBIsEnabledInPostgresEnvVar()
+					 && strcmp(nameptr, "yb_logical_conn_type") == 0)
+			{
+				if (strlen(valptr) != 1 ||
+					(valptr[0] != 'U' && valptr[0] != 'E'))
+					ereport(FATAL,
+							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+							 errmsg("invalid value for parameter \"%s\": \"%s\"",
+									"yb_logical_conn_type",
+									valptr),
+							 errhint("Valid values are: \"U\" or \"E\".")));
+
+				yb_logical_conn_type = *pstrdup(valptr);
+				yb_logical_conn_type_provided = true;
+			}
 			else if (strncmp(nameptr, "_pq_.", 5) == 0)
 			{
 				/*
@@ -2423,6 +2460,42 @@ retry1:
 		if (PG_PROTOCOL_MINOR(proto) > PG_PROTOCOL_MINOR(PG_PROTOCOL_LATEST) ||
 			unrecognized_protocol_options != NIL)
 			SendNegotiateProtocolVersion(unrecognized_protocol_options);
+	}
+
+	if (YBIsEnabledInPostgresEnvVar())
+	{
+		if (yb_auth_backend_remote_host != NULL)
+		{
+			if (!yb_am_auth_backend)
+				ereport(FATAL,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("yb_auth_remote_host must only be provided when"
+								" yb_authonly is true")));
+
+			/*
+			 * HARD Code connection type between client and ysql_conn_mgr to
+			 * AF_INET (only supported) for authentication.
+			 */
+			port->raddr.addr.ss_family = AF_INET;
+			port->remote_host = yb_auth_backend_remote_host;
+
+			struct sockaddr_in *ip_address_1;
+			ip_address_1 = (struct sockaddr_in *) (&MyProcPort->raddr.addr);
+			inet_pton(AF_INET, port->remote_host,
+					  &(ip_address_1->sin_addr));
+		}
+
+		if (yb_logical_conn_type_provided)
+		{
+			if (!yb_am_auth_backend)
+				ereport(FATAL,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("yb_logical_conn_type must only be provided "
+								"when the client is the connection manager")));
+
+			port->yb_is_ssl_enabled_in_logical_conn =
+				yb_logical_conn_type == 'E';
+		}
 	}
 
 	/* Check a user name was given. */
@@ -4841,7 +4914,7 @@ BackendInitialize(Port *port)
 
 	set_ps_display("initializing");
 
-	if (YBIsEnabledInPostgresEnvVar() && am_walsender)
+	if (YBIsEnabledInPostgresEnvVar())
 	{
 		char		remote_ps_data[NI_MAXHOST];
 
@@ -4850,8 +4923,10 @@ BackendInitialize(Port *port)
 		else
 			snprintf(remote_ps_data, sizeof(remote_ps_data), "%s(%s)", remote_host, remote_port);
 
-		YBC_LOG_INFO("Started Walsender backend with pid: %d, user_name: %s, "
+		YBC_LOG_INFO("Started %s backend with pid: %d, user_name: %s, "
 					 "remote_ps_data: %s",
+					 (am_walsender ? "walsender" :
+									 (yb_am_auth_backend ? "auth" : "regular")),
 					 getpid(), port->user_name, remote_ps_data);
 	}
 }
