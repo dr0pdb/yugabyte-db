@@ -841,12 +841,18 @@ yb_is_client_ysqlconnmgr_check_hook(bool *newval, void **extra,
 {
 	/* Allow setting yb_is_client_ysqlconnmgr as false */
 	/*
-	 * Parallel workers are created and maintained by postmaster. So physical connections
-	 * can never be of parallel worker type, therefore it makes no sense to restore
-	 * or even do check/assign hooks for ysql connection manager specific guc variables
-	 * on parallel worker process.
-	*/
-	if (!(*newval) || yb_is_parallel_worker == true)
+	 * Parallel workers are created and maintained by postmaster. So physical
+	 * connections can never be of parallel worker type, therefore it makes no
+	 * sense to restore or even do check/assign hooks for ysql connection
+	 * manager specific guc variables on parallel worker process.
+	 *
+	 * Connection manager will also be the client in case the backend is an
+	 * auth-backend. These checks are redundant because the auth method won't be
+	 * tserver-key and the even though the connection is via the unix socket, we
+	 * override the value of SOCKET in case of auth-backend. So we don't need
+	 * either of the checks.
+	 */
+	if (!(*newval) || yb_is_parallel_worker || yb_am_auth_backend)
 		return true;
 
 	/* Client needs to be connected on unix domain socket */
@@ -858,11 +864,11 @@ yb_is_client_ysqlconnmgr_check_hook(bool *newval, void **extra,
 							   "backend")));
 
 	/* Authentication method needs to be yb-tserver-key */
-	// if (!MyProcPort->yb_is_tserver_auth_method)
-	// 	ereport(FATAL,
-	// 			(errcode(ERRCODE_PROTOCOL_VIOLATION),
-	// 			 errmsg("yb_is_client_ysqlconnmgr can only be set "
-	// 					"if the authentication method was yb-tserver-key")));
+	if (!MyProcPort->yb_is_tserver_auth_method)
+		ereport(FATAL,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("yb_is_client_ysqlconnmgr can only be set "
+						"if the authentication method was yb-tserver-key")));
 
 	return true;
 }
