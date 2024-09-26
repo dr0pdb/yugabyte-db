@@ -291,7 +291,7 @@ public class TestDropAndRenameDb extends BaseYsqlConnMgr {
       // Connections to the renamed db sould succeed
       testConnectivityToDb(renamedDbName, true, true);
 
-      // The old connection should be us able
+      // The old connection should be usable
       executeQuery(oldConn, "SELECT 1", true);
       validateDbName(oldConn, renamedDbName);
     } catch (Exception e) {

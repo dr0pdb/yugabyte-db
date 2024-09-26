@@ -67,6 +67,7 @@
  */
 #define YB_CREATE_SHMEM_FLAG 0666 | IPC_EXCL | IPC_CREAT
 
+bool yb_is_auth_backend = false;
 bool yb_is_client_ysqlconnmgr = false;
 bool yb_is_parallel_worker = false;
 
@@ -740,6 +741,21 @@ send_oid_info(const char oid_type, const int oid)
 	CHECK_FOR_INTERRUPTS();
 }
 
+static void
+YbSendDatabaseOidAndSetupSharedMemory(Oid database_oid, Oid user, bool is_superuser)
+{
+	/* Send back the database oid */
+	send_oid_info('d', database_oid);
+
+	/* Create a shared memory block for a client connection */
+	int new_client_id =
+		yb_shmem_get(user, MyProcPort->user_name, is_superuser, database_oid);
+	if (new_client_id > 0)
+		ereport(WARNING, (errhint("shmkey=%d", new_client_id)));
+	else
+		ereport(FATAL, (errmsg("Unable to create the shared memory block")));
+}
+
 void
 YbCreateClientId(void)
 {
@@ -755,23 +771,25 @@ YbCreateClientId(void)
 
 	database = get_database_oid(MyProcPort->database_name, true);
 
-	/* Send back the database oid */
-	send_oid_info('d', database);
-	if (database == InvalidOid)
-	{
-		YbSendFatalForLogicalConnectionPacket();
-		ereport(WARNING,
-				(errmsg("database \"%s\" does not exist",
-						MyProcPort->database_name)));
-		return;
-	}
+	YbSendDatabaseOidAndSetupSharedMemory(database, user, is_superuser);
+}
 
-	/* Create a shared memory block for a client connection */
-	int new_client_id = yb_shmem_get(user, MyProcPort->user_name, is_superuser, database);
-	if (new_client_id > 0)
-		ereport(WARNING, (errhint("shmkey=%d", new_client_id)));
-	else
-		ereport(FATAL, (errmsg("Unable to create the shared memory block")));
+void
+YbCreateClientIdWithDatabaseOid(Oid database_oid)
+{
+	bool		is_superuser;
+	Oid			user;
+
+	Assert(database_oid != InvalidOid);
+
+	/* This feature is only for Ysql Connection Manager */
+	Assert(yb_is_client_ysqlconnmgr);
+
+	if (SetLogicalClientUserDetailsIfValid(MyProcPort->user_name, &is_superuser,
+										   &user) < 0)
+		return;
+
+	YbSendDatabaseOidAndSetupSharedMemory(database_oid, user, is_superuser);
 }
 
 /*
@@ -808,17 +826,19 @@ yb_is_client_ysqlconnmgr_check_hook(bool *newval, void **extra,
 		return true;
 
 	/* Client needs to be connected on unix domain socket */
-	if (!IS_AF_UNIX(MyProcPort->raddr.addr.ss_family))
+	if (!IS_AF_UNIX(MyProcPort->raddr.addr.ss_family) && !yb_is_auth_backend)
 		ereport(FATAL, (errcode(ERRCODE_PROTOCOL_VIOLATION),
 						errmsg("yb_is_client_ysqlconnmgr can only be set "
-							   "if the connection is made over unix domain socket")));
+							   "if the connection is made over unix domain "
+							   "socket or if the backend is an authentication "
+							   "backend")));
 
 	/* Authentication method needs to be yb-tserver-key */
-	if (!MyProcPort->yb_is_tserver_auth_method)
-		ereport(FATAL,
-				(errcode(ERRCODE_PROTOCOL_VIOLATION),
-				 errmsg("yb_is_client_ysqlconnmgr can only be set "
-						"if the authentication method was yb-tserver-key")));
+	// if (!MyProcPort->yb_is_tserver_auth_method)
+	// 	ereport(FATAL,
+	// 			(errcode(ERRCODE_PROTOCOL_VIOLATION),
+	// 			 errmsg("yb_is_client_ysqlconnmgr can only be set "
+	// 					"if the authentication method was yb-tserver-key")));
 
 	return true;
 }
@@ -833,7 +853,8 @@ yb_is_client_ysqlconnmgr_assign_hook(bool newval, void *extras)
 	 * can never be of parallel worker type, therefore it makes no sense to perform any
 	 * ysql connection manager specific operations on it.
 	*/
-	if (yb_is_client_ysqlconnmgr == true && !yb_is_parallel_worker)
+	if (yb_is_client_ysqlconnmgr == true && !yb_is_parallel_worker &&
+		!yb_is_auth_backend)
 		send_oid_info('d', get_database_oid(MyProcPort->database_name, false));
 }
 

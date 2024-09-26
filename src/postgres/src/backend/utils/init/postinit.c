@@ -678,7 +678,7 @@ InitPostgresImpl(const char *in_dbname, Oid dboid, const char *username,
 	InitCatalogCache();
 	InitPlanCache();
 
-	if (YBIsEnabledInPostgresEnvVar())
+	if (YBIsEnabledInPostgresEnvVar() && !yb_is_auth_backend)
 		YbInitPgInheritsCache();
 
 	/* Initialize portal manager */
@@ -702,7 +702,7 @@ InitPostgresImpl(const char *in_dbname, Oid dboid, const char *username,
 	else
 		YBInitPostgresBackend("postgres", in_dbname, username, session_id);
 
-	if (IsYugaByteEnabled() && !bootstrap)
+	if (IsYugaByteEnabled() && !bootstrap && !yb_is_auth_backend)
 	{
 		HandleYBStatus(YBCPgTableExists(TemplateDbOid,
 										YbRoleProfileRelationId,
@@ -738,6 +738,7 @@ InitPostgresImpl(const char *in_dbname, Oid dboid, const char *username,
 		 */
 		YbUpdateCatalogCacheVersion(YbGetMasterCatalogVersion());
 	}
+
 	/*
 	 * Load relcache entries for the shared system catalogs.  This must create
 	 * at least entries for pg_database and catalogs used for authentication.
@@ -785,7 +786,8 @@ InitPostgresImpl(const char *in_dbname, Oid dboid, const char *username,
 		 */
 		XactIsoLevel = XACT_READ_COMMITTED;
 
-		(void) GetTransactionSnapshot();
+		if (!yb_is_auth_backend)
+			(void) GetTransactionSnapshot();
 	}
 
 	/*
@@ -981,6 +983,32 @@ InitPostgresImpl(const char *in_dbname, Oid dboid, const char *username,
 			pgstat_bestart();
 			CommitTransactionCommand();
 		}
+		return;
+	}
+
+	/*
+	 * This must be done after the values of global variables such as
+	 * MyDatabaseId are set above, since YbCreateClientIdWithDatabaseOid relies
+	 * on it.
+	 */
+	if (yb_is_auth_backend)
+	{
+		/*
+		 * Initialize the client id and also send the db oid back to the
+		 * connection manager.
+		 */
+		YbCreateClientIdWithDatabaseOid(MyDatabaseId);
+
+		/*
+		 * Process any options passed in the startup packet. This is important
+		 * to do here since this is what sets the GUC values sent via the
+		 * startup packet.
+		 */
+		if (MyProcPort != NULL)
+			process_startup_options(MyProcPort, am_superuser);
+
+		/* close the transaction we started above */
+		CommitTransactionCommand();
 		return;
 	}
 

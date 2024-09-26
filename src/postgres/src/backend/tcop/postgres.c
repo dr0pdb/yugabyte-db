@@ -5175,6 +5175,24 @@ PostgresMain(int argc, char *argv[],
 	BeginReportingGUCOptions();
 
 	/*
+	 * The authentication backend is only responsible for authentication and
+	 * sending initial GUC options.
+	 */
+	if (IsYugaByteEnabled() && yb_is_auth_backend)
+	{
+		ReadyForQuery(whereToSendOutput);
+
+		/*
+		 * Reset whereToSendOutput to prevent ereport from attempting
+		 * to send any more messages to client.
+		 */
+		if (whereToSendOutput == DestRemote)
+			whereToSendOutput = DestNone;
+
+		proc_exit(0);
+	}
+
+	/*
 	 * Also set up handler to log session end; we have to wait till now to be
 	 * sure Log_disconnections has its final value.
 	 */

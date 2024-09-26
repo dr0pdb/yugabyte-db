@@ -393,6 +393,7 @@ public class BasePgSQLTest extends BaseMiniClusterTest {
     destroyMiniCluster();
 
     createMiniCluster(additionalMasterFlags, additionalTserverFlags);
+    Thread.sleep(20000);
     pgInitialized = false;
     initPostgresBefore();
   }
