@@ -2382,7 +2382,7 @@ check_hba(hbaPort *port)
 
 			/* Check SSL state */
 			if (YbIsClientYsqlConnMgr() && (port->yb_is_auth_passthrough_req ||
-											yb_am_auth_backend) ?
+											yb_is_auth_backend) ?
 					port->yb_is_ssl_enabled_in_logical_conn :
 					port->ssl_in_use)
 			{

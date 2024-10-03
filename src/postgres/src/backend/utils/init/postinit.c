@@ -847,13 +847,7 @@ InitPostgresImpl(const char *in_dbname, Oid dboid,
 	else
 		YBInitPostgresBackend("postgres", in_dbname, username, session_id);
 
-	/*
-	 * The prefetching below is disabled for auth-backend because it is only
-	 * responsible for the authentication of a single user, post which it shuts
-	 * down. It is equally efficient to just fetch and scan these tables during
-	 * the authentication process itself.
-	 */
-	if (IsYugaByteEnabled() && !bootstrap && !yb_am_auth_backend)
+	if (IsYugaByteEnabled() && !bootstrap)
 	{
 		HandleYBStatus(YBCPgTableExists(Template1DbOid,
 										YbRoleProfileRelationId,
@@ -889,7 +883,6 @@ InitPostgresImpl(const char *in_dbname, Oid dboid,
 		 */
 		YbUpdateCatalogCacheVersion(YbGetMasterCatalogVersion());
 	}
-
 	/*
 	 * Load relcache entries for the shared system catalogs.  This must create
 	 * at least entries for pg_database and catalogs used for authentication.
@@ -942,7 +935,7 @@ InitPostgresImpl(const char *in_dbname, Oid dboid,
 		 */
 		XactIsoLevel = XACT_READ_COMMITTED;
 
-		if (!yb_am_auth_backend)
+		if (!yb_is_auth_backend)
 			(void) GetTransactionSnapshot();
 	}
 
@@ -1134,7 +1127,7 @@ InitPostgresImpl(const char *in_dbname, Oid dboid,
 	 * This block of code must be after the values of global variables such as
 	 * MyDatabaseId are set, since YbCreateClientIdWithDatabaseOid relies on it.
 	 */
-	if (yb_am_auth_backend)
+	if (yb_is_auth_backend)
 	{
 		/*
 		 * Initialize the client id and also send the db oid back to the

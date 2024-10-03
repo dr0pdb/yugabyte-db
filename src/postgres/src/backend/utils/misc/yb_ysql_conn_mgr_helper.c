@@ -67,7 +67,7 @@
  */
 #define YB_CREATE_SHMEM_FLAG 0666 | IPC_EXCL | IPC_CREAT
 
-bool yb_am_auth_backend = false;
+bool yb_is_auth_backend = false;
 bool yb_is_client_ysqlconnmgr = false;
 bool yb_is_parallel_worker = false;
 
@@ -852,7 +852,7 @@ yb_is_client_ysqlconnmgr_check_hook(bool *newval, void **extra,
 	 * override the value of SOCKET in case of auth-backend. So we don't need
 	 * either of the checks.
 	 */
-	if (!(*newval) || yb_is_parallel_worker || yb_am_auth_backend)
+	if (!(*newval) || yb_is_parallel_worker || yb_is_auth_backend)
 		return true;
 
 	/* Client needs to be connected on unix domain socket */
@@ -884,7 +884,7 @@ yb_is_client_ysqlconnmgr_assign_hook(bool newval, void *extras)
 	 * ysql connection manager specific operations on it.
 	*/
 	if (yb_is_client_ysqlconnmgr == true && !yb_is_parallel_worker &&
-		!yb_am_auth_backend)
+		!yb_is_auth_backend)
 		send_oid_info('d', get_database_oid(MyProcPort->database_name, false));
 }
 

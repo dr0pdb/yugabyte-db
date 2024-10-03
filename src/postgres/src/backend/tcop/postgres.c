@@ -5527,7 +5527,7 @@ PostgresMain(const char *dbname, const char *username)
 	 * The authentication backend is only responsible for authentication and
 	 * sending initial GUC options.
 	 */
-	if (IsYugaByteEnabled() && yb_am_auth_backend)
+	if (IsYugaByteEnabled() && yb_is_auth_backend)
 	{
 		/*
 		 * Send a dummy READY_FOR_QUERY packet to the connection manager to

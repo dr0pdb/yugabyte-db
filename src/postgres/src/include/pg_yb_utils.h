@@ -1234,7 +1234,7 @@ extern bool YbUseFastBackwardScan();
 
 extern bool YbIsYsqlConnMgrWarmupModeEnabled();
 
-extern bool YbAmAuthBackend();
+extern bool YbIsAuthBackend();
 
 bool YbIsAttrPrimaryKeyColumn(Relation rel, AttrNumber attnum);
 

@@ -30,10 +30,10 @@
 #pragma once
 
 /*
- * `yb_am_auth_backend` is used to identify if the backend is spawned just for
+ * `yb_is_auth_backend` is used to identify if the backend is spawned just for
  * authentication purposes.
  */
-extern bool yb_am_auth_backend;
+extern bool yb_is_auth_backend;
 
 /*
  * `yb_is_client_ysqlconnmgr` is used to identify that the current connection is

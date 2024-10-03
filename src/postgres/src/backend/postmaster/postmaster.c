@@ -2366,7 +2366,7 @@ retry1:
 			else if (YBIsEnabledInPostgresEnvVar()
 					 && strcmp(nameptr, "yb_authonly") == 0)
 			{
-				if (!parse_bool(valptr, &yb_am_auth_backend))
+				if (!parse_bool(valptr, &yb_is_auth_backend))
 					ereport(FATAL,
 							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 							 errmsg("invalid value for parameter \"%s\": \"%s\"",
@@ -2382,7 +2382,7 @@ retry1:
 							   "if the connection is made over unix domain "
 							   "socket")));
 
-				yb_is_client_ysqlconnmgr = yb_am_auth_backend;
+				yb_is_client_ysqlconnmgr = yb_is_auth_backend;
 			}
 			else if (YBIsEnabledInPostgresEnvVar()
 					 && strcmp(nameptr, "yb_auth_remote_host") == 0)
@@ -2474,7 +2474,7 @@ retry1:
 	{
 		if (yb_auth_backend_remote_host != NULL)
 		{
-			if (!yb_am_auth_backend)
+			if (!yb_is_auth_backend)
 				ereport(FATAL,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
 						 errmsg("yb_auth_remote_host must only be provided when"
@@ -2495,7 +2495,7 @@ retry1:
 
 		if (yb_logical_conn_type_provided)
 		{
-			if (!yb_am_auth_backend)
+			if (!yb_is_auth_backend)
 				ereport(FATAL,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
 						 errmsg("yb_logical_conn_type must only be provided "
@@ -4934,7 +4934,7 @@ BackendInitialize(Port *port)
 		YBC_LOG_INFO("Started %s backend with pid: %d, user_name: %s, "
 					 "remote_ps_data: %s",
 					 (am_walsender ? "walsender" :
-									 (yb_am_auth_backend ? "auth" : "regular")),
+									 (yb_is_auth_backend ? "auth" : "regular")),
 					 getpid(), port->user_name, remote_ps_data);
 	}
 }
