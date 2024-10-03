@@ -2374,6 +2374,14 @@ retry1:
 									valptr),
 							 errhint("Valid values are: \"false\", 0, \"true\", 1.")));
 
+				/* Client needs to be connected on the unix domain socket */
+				if (!IS_AF_UNIX(port->raddr.addr.ss_family))
+					ereport(FATAL,
+							(errcode(ERRCODE_PROTOCOL_VIOLATION),
+							 errmsg("yb_authonly can only be set "
+							   "if the connection is made over unix domain "
+							   "socket")));
+
 				yb_is_client_ysqlconnmgr = yb_am_auth_backend;
 			}
 			else if (YBIsEnabledInPostgresEnvVar()
