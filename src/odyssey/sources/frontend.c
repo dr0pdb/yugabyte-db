@@ -2595,7 +2595,8 @@ int yb_execute_on_control_connection(od_client_t *client,
 	 * close the backend connection as we don't want to reuse machines in this
 	 * pool.
 	 */
-	od_router_close(router, control_conn_client);
+	server->offline = true;
+	od_router_detach(router, control_conn_client);
 	od_router_unroute(router, control_conn_client);
 	if (control_conn_client->io.io) {
 		machine_close(control_conn_client->io.io);
@@ -2647,7 +2648,7 @@ int yb_auth_via_auth_backend(od_client_t *client)
 
 	od_debug(
 		&instance->logger, "auth backend",
-		NULL, NULL,
+		client, NULL,
 		"yb_auth_via_auth_backend started");
 
 	/* internal client */
@@ -2657,7 +2658,7 @@ int yb_auth_via_auth_backend(od_client_t *client)
 	if (control_conn_client == NULL) {
 		od_debug(
 			&instance->logger, "auth backend",
-			control_conn_client, NULL,
+			client, NULL,
 			"failed to allocate internal client for the auth backend");
 		goto failed_to_acquire_auth_backend;
 	}
@@ -2764,7 +2765,8 @@ cleanup:
 	 * close the backend connection as we don't want to reuse machines in this
 	 * pool.
 	 */
-	od_router_close(router, control_conn_client);
+	server->offline = true;
+	od_router_detach(router, control_conn_client);
 	od_router_unroute(router, control_conn_client);
 	if (control_conn_client->io.io) {
 		machine_close(control_conn_client->io.io);

@@ -261,7 +261,8 @@ static inline int update_db_entry_via_ctrl_conn(od_global_t *global,
 	 * close the backend connection as we don't want to reuse machines in this
 	 * pool.
 	 */
-	od_router_close(router, control_conn_client);
+	server->offline = true;
+	od_router_detach(router, control_conn_client);
 	od_router_unroute(router, control_conn_client);
 	if (control_conn_client->io.io) {
 		machine_close(control_conn_client->io.io);
