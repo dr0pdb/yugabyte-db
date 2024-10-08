@@ -2375,7 +2375,7 @@ retry1:
 							 errhint("Valid values are: \"false\", 0, \"true\", 1.")));
 
 				/* Client needs to be connected on the unix domain socket */
-				if (!IS_AF_UNIX(port->raddr.addr.ss_family))
+				if (port->raddr.addr.ss_family != AF_UNIX)
 					ereport(FATAL,
 							(errcode(ERRCODE_PROTOCOL_VIOLATION),
 							 errmsg("yb_authonly can only be set "

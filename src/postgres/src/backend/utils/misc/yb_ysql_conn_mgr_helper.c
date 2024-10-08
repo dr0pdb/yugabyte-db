@@ -856,7 +856,7 @@ yb_is_client_ysqlconnmgr_check_hook(bool *newval, void **extra,
 		return true;
 
 	/* Client needs to be connected on unix domain socket */
-	if (MyProcPort->raddr.addr.ss_family != AF_UNIX && !yb_am_auth_backend)
+	if (MyProcPort->raddr.addr.ss_family != AF_UNIX && !yb_is_auth_backend)
 		ereport(FATAL, (errcode(ERRCODE_PROTOCOL_VIOLATION),
 						errmsg("yb_is_client_ysqlconnmgr can only be set "
 							   "if the connection is made over unix domain "
