@@ -935,8 +935,7 @@ InitPostgresImpl(const char *in_dbname, Oid dboid,
 		 */
 		XactIsoLevel = XACT_READ_COMMITTED;
 
-		if (!yb_is_auth_backend)
-			(void) GetTransactionSnapshot();
+		(void) GetTransactionSnapshot();
 	}
 
 	/*
@@ -1144,6 +1143,11 @@ InitPostgresImpl(const char *in_dbname, Oid dboid,
 
 		/* close the transaction we started above */
 		CommitTransactionCommand();
+
+		/*
+		 * The auth-backend is only responsible for authentication, so we skip
+		 * the remaining steps below.
+		 */
 		return;
 	}
 

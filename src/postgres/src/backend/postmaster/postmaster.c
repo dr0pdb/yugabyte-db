@@ -2089,8 +2089,15 @@ ProcessStartupPacket(Port *port, bool ssl_done, bool gss_done)
 	ProtocolVersion proto;
 	MemoryContext oldcontext;
 
-	char	   *yb_auth_backend_remote_host = NULL;
-	char		yb_logical_conn_type = 'U';
+	/*
+	 * The remote host of the client that has connected to the connection
+	 * manager. The connection manager connects to the auth-backend for
+	 * authentication but to match hba rules correctly, we need the remote host
+	 * of the actual client. This information is passed by the connection
+	 * manager to the auth-backend.
+	 */
+	char *yb_auth_backend_remote_host = NULL;
+	char		yb_logical_conn_type = 'U'; /* Unencrypted */
 	bool		yb_logical_conn_type_provided = false;
 
 	pq_startmsgread();
@@ -2482,7 +2489,8 @@ retry1:
 
 			/*
 			 * HARD Code connection type between client and ysql_conn_mgr to
-			 * AF_INET (only supported) for authentication.
+			 * AF_INET which is the only supported connection type for
+			 * authentication.
 			 */
 			port->raddr.addr.ss_family = AF_INET;
 			port->remote_host = yb_auth_backend_remote_host;
@@ -4930,6 +4938,9 @@ BackendInitialize(Port *port)
 			snprintf(remote_ps_data, sizeof(remote_ps_data), "%s", remote_host);
 		else
 			snprintf(remote_ps_data, sizeof(remote_ps_data), "%s(%s)", remote_host, remote_port);
+
+		/* Cannot be a walsender and an auth-backend simultaneously. */
+		Assert(!(am_walsender && yb_is_auth_backend));
 
 		YBC_LOG_INFO("Started %s backend with pid: %d, user_name: %s, "
 					 "remote_ps_data: %s",
