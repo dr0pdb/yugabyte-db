@@ -879,11 +879,11 @@ yb_is_client_ysqlconnmgr_assign_hook(bool newval, void *extras)
 	yb_is_client_ysqlconnmgr = newval;
 
 	/*
-	 * Parallel workers are created and maintained by postmaster. So physical connections
-	 * can never be of parallel worker type, therefore it makes no sense to perform any
-	 * ysql connection manager specific operations on it.
+	 * Parallel workers are created and maintained by postmaster. So physical
+	 * connections can never be of parallel worker type, therefore it makes no
+	 * sense to perform any ysql connection manager specific operations on it.
 	*/
-	if (yb_is_client_ysqlconnmgr == true && !yb_is_parallel_worker)
+	if (yb_is_client_ysqlconnmgr && !yb_is_parallel_worker)
 		send_oid_info('d', get_database_oid(MyProcPort->database_name, false));
 }
 
