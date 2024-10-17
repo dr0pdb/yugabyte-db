@@ -299,7 +299,7 @@ static inline int od_backend_startup(od_server_t *server,
 			 * message after forwarding the packet to the client.
 			 */
 			if (!is_authenticating)
-			machine_msg_free(msg);
+				machine_msg_free(msg);
 			if (rc == -1)
 				return -1;
 			break;
