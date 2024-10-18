@@ -247,11 +247,12 @@ static inline int od_router_expire_server_tick_cb(od_server_t *server,
 		/* advance idle time for 1 sec */
 		if (server_life < lifetime &&
 		    server->idle_time < route->rule->pool->ttl) {
+			/* YB NOTE: the server is within the pool's ttl. */
 			server->idle_time++;
 			return 0;
 		}
 
-		/* YB NOTE: advance idle time even after crossing the route ttl. */
+		/* YB NOTE: the server has crossed the pool's ttl. */
 		server->idle_time++;
 
 		/*
