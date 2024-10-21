@@ -78,11 +78,11 @@ struct od_client {
 	kiwi_fe_error_t *deploy_err;
 
 	bool yb_is_authenticating;
-	char yb_client_address[128];
+	char yb_client_address[32];
 
 	/*
-	 * only set for the authentication flow via the auth backend.
-	 * this refers to the actual client connected to the conn manager.
+	 * Only set for the authentication flow via the auth backend.
+	 * This refers to the actual client connected to the conn manager.
 	 */
 	od_client_t *yb_external_client;
 };

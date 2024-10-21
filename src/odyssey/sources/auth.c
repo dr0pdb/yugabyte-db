@@ -1049,11 +1049,16 @@ int od_auth_backend(od_server_t *server, machine_msg_t *msg,
 		if (auth_type == 0)
 			return 0;
 
-		/* AuthenticationCleartextPassword and AuthenticationMD5Password */
+		/*
+		 * AuthenticationCleartextPassword and AuthenticationMD5Password.
+		 *
+		 * Other possible values are AuthenticationSASL, 
+		 * AuthenticationSASLContinue and AuthenticationSASLFinal which are
+		 * unsupported by YSQL connection manager.
+		 */
 		assert(auth_type == 3 || auth_type == 5);
 		assert(client->yb_external_client != NULL);
 
-		int rc;
 		kiwi_fe_type_t type;
 		od_client_t *external_client = client->yb_external_client;
 

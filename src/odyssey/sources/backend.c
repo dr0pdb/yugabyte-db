@@ -154,21 +154,25 @@ static int yb_read_client_id_from_notice_pkt(od_client_t *client,
 	int rc = -1;
 
 	/* Received a NOTICE packet, it can be the HINT containing the client id */
-	if (kiwi_fe_read_notice(machine_msg_data(msg), machine_msg_size(msg),
-				&hint) == -1) {
-		od_debug(&instance->logger, "read clientid", client, server,
-			 "failed to parse error message from server");
+	rc = kiwi_fe_read_notice(machine_msg_data(msg), machine_msg_size(msg),
+				&hint);
+	if (rc == -1) {
+		od_error(&instance->logger, "read clientid", client, server,
+			 "failed to parse notice message from server");
 		return -1;
 	}
 
+	/*
+	 * If the HINT contains the client id, store it. Ignore the data otherwise.
+	 */
 	char *data = hint.hint;
 	if (data != NULL &&
 		strncmp(data, YB_SHMEM_KEY_FORMAT, strlen(YB_SHMEM_KEY_FORMAT)) == 0) {
 		assert(client->client_id == 0);
-		client->client_id = atoi(hint.hint + strlen(YB_SHMEM_KEY_FORMAT));
-		return 0;
+		client->client_id = atoi(data + strlen(YB_SHMEM_KEY_FORMAT));
 	}
-	return -1;
+
+	return 0;
 }
 
 static inline int od_backend_startup(od_server_t *server,
@@ -179,7 +183,7 @@ static inline int od_backend_startup(od_server_t *server,
 	od_route_t *route = server->route;
 
 	bool is_authenticating = client->yb_is_authenticating;
-	char db_name[128], user_name[128];
+	char db_name[64], user_name[64];
 	int db_name_len, user_name_len;
 	char yb_logical_conn_type[2];
 
@@ -206,7 +210,7 @@ static inline int od_backend_startup(od_server_t *server,
 		user_name_len = route->id.user_len;
 
 		/*
-		 * the connection between connection manager and the backend is always
+		 * The connection between connection manager and the backend is always
 		 * unencrypted.
 		 */
 		yb_logical_conn_type[0] = YB_LOGICAL_UNENCRYPTED_CONN;
@@ -357,6 +361,14 @@ static inline int od_backend_startup(od_server_t *server,
 				/*
 				 * Skip writing variables that shouldn't be sent to the 
 				 * transactional backend here.
+				 *
+				 * The server_encoding and is_superuser are internal GUC
+				 * variables that would throw errors if we tried to replay them
+				 * on the transactional backends.
+				 *
+				 * We skip session_authorization as well because it is redundant
+				 * to do so. Both the auth-backend and the transactional backend
+				 * will be set with the same user.
 				 */
 				if ((yb_od_streq(name, name_len,
 						 "server_encoding",
@@ -369,7 +381,13 @@ static inline int od_backend_startup(od_server_t *server,
 					     sizeof("session_authorization"))))
 					break;
 
-				/* set client parameters */
+				/*
+				 * Set client parameters. There are variables such as 
+				 * client_encoding, DateStyle etc. where the client's set value
+				 * should not be overridden by the value returned by the
+				 * auth-backend. Hence, we only set the variable if it doesn't
+				 * exist in the client vars.
+				 */
 				yb_kiwi_vars_set_if_not_exists(
 					&client->yb_external_client->vars, name,
 					name_len, value, value_len);
@@ -406,10 +424,15 @@ static inline int od_backend_startup(od_server_t *server,
 			 * Store the client_id from the notice packet during authentication
 			 * if received.
 			 */
-			if (is_authenticating)
-				yb_read_client_id_from_notice_pkt(
+			if (is_authenticating) {
+				rc = yb_read_client_id_from_notice_pkt(
 					client->yb_external_client, server,
 					instance, msg);
+				if (rc == -1) {
+					machine_msg_free(msg);
+					return -1;
+				}
+			}
 			machine_msg_free(msg);
 			break;
 		case YB_KIWI_BE_FATAL_FOR_LOGICAL_CONNECTION:
@@ -425,20 +448,16 @@ static inline int od_backend_startup(od_server_t *server,
 			return -1;
 		case YB_OID_DETAILS:
 			if (is_authenticating)
-			{
 				/* Read the oid details */
-				yb_handle_oid_pkt_client(instance, client, msg);
-				machine_msg_free(msg);
-			}
+				rc = yb_handle_oid_pkt_client(instance, client, msg);
 			else
-			{
 				rc = yb_handle_oid_pkt_server(instance, server, msg, db_name);
-				machine_msg_free(msg);
-				if (rc == -1)
-					return -1;
-				if (yb_is_route_invalid(route))
-					return -1;
-			}
+
+			machine_msg_free(msg);
+			if (rc == -1)
+				return -1;
+			if (yb_is_route_invalid(route))
+				return -1;
 			break;
 		default:
 			machine_msg_free(msg);
