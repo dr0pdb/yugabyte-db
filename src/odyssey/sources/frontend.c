@@ -426,6 +426,14 @@ static inline od_frontend_status_t od_frontend_setup_params(od_client_t *client)
 		machine_msg_t *msg;
 
 		var = &client->vars.vars[i];
+		if (var == NULL) {
+			od_debug(&instance->logger, "setup", client, NULL,
+				"unexpected NULL value in client->vars");
+			
+			i++;
+			continue;
+		}
+
 		msg = kiwi_be_write_parameter_status(stream, var->name,
 						     var->name_len, var->value,
 						     var->value_len);
@@ -2660,7 +2668,11 @@ int yb_auth_via_auth_backend(od_client_t *client)
 		goto failed_to_acquire_auth_backend;
 	}
 
-	/* set control connection route user and database */
+	/*
+	 * Set control connection route user and database. The auth-backend is
+	 * created from the control pool, so these values are set so that the pool
+	 * gets matched in the below call to od_router_route.
+	 */
 #ifndef YB_GUC_SUPPORT_VIA_SHMEM
 	yb_kiwi_var_set(&control_conn_client->startup.user,
 		     "control_connection_user", 24);
@@ -2710,12 +2722,18 @@ int yb_auth_via_auth_backend(od_client_t *client)
 
 	od_server_t *server;
 	server = control_conn_client->server;
+	server->yb_auth_backend = true;
 
 	od_debug(&instance->logger, "auth backend", control_conn_client,
-		 server, "attached to server %s%.*s", server->id.id_prefix,
+		 server, "attached to auth backend %s%.*s", server->id.id_prefix,
 		 (int)sizeof(server->id.id), server->id.id);
 
-/* Set the client user and database for authentication. */
+	/*
+	 * Set the client user and database for authentication. Once, the control
+	 * pool is selected for the backend, we can now set these values to the
+	 * actual user and database values since we have to send them to the
+	 * auth-backend.
+	 */
 #ifndef YB_GUC_SUPPORT_VIA_SHMEM
 	yb_kiwi_var_set(&control_conn_client->startup.user,
 		     client->startup.user.value, client->startup.user.value_len);

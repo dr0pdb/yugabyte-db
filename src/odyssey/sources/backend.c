@@ -39,6 +39,12 @@ static inline int od_backend_terminate(od_server_t *server)
 
 void od_backend_close_connection(od_server_t *server)
 {
+	/* YB NOTE: Log the type of the backend being closed. */
+	od_instance_t *instance = server->global->instance;
+	od_debug(&instance->logger, "backend", NULL, server,
+		"closing %s backend connection",
+		server->yb_auth_backend ? "auth" : "regular");
+
 	/* failed to connect to endpoint, so notring to do */
 	if (server->io.io == NULL) {
 		return;
@@ -189,8 +195,19 @@ static inline int od_backend_startup(od_server_t *server,
 
 	if (is_authenticating)
 	{
+		/*
+		 * While authenticating, the client parameter refers to the internal
+		 * control-connection client while this yb_external_client is the
+		 * original client that has made the connection to the connection
+		 * manager.
+		 */
 		assert(client->yb_external_client != NULL);
 
+		/*
+		 * Read and use the database and user values from the client instead of
+		 * the route since the route will have the user, db of the control pool.
+		 * See yb_auth_via_auth_backend for more.
+		 */
 		strcpy(db_name, (char *)client->startup.database.value);
 		db_name_len = client->startup.database.value_len;
 
@@ -382,7 +399,7 @@ static inline int od_backend_startup(od_server_t *server,
 					break;
 
 				/*
-				 * Set client parameters. There are variables such as 
+				 * Set client parameters. There are variables such as
 				 * client_encoding, DateStyle etc. where the client's set value
 				 * should not be overridden by the value returned by the
 				 * auth-backend. Hence, we only set the variable if it doesn't
