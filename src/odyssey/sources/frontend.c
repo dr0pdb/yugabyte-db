@@ -2789,8 +2789,11 @@ cleanup:
 	}
 	od_client_free(control_conn_client);
 
-	if (rc == -1)
-		return -1;
+	if (rc == NOT_OK_RESPONSE) {
+		od_frontend_fatal(client, KIWI_CONNECTION_FAILURE,
+				"failed to connect to remote server");
+		return NOT_OK_RESPONSE;
+	}
 
 	return OK_RESPONSE;
 
