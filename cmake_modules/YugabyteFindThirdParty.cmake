@@ -73,10 +73,11 @@ macro(yb_find_third_party_dependencies)
 
   ## OpenSSL
 
+  set(OPENSSL_USE_STATIC_LIBS TRUE)
   find_package(OpenSSL REQUIRED)
   include_directories(SYSTEM ${OPENSSL_INCLUDE_DIR})
   ADD_THIRDPARTY_LIB(openssl
-    SHARED_LIB "${OPENSSL_CRYPTO_LIBRARY}"
+    STATIC_LIB "${OPENSSL_CRYPTO_LIBRARY}"
     DEPS ${OPENSSL_LIB_DEPS})
 
   message("OPENSSL_CRYPTO_LIBRARY=${OPENSSL_CRYPTO_LIBRARY}")
