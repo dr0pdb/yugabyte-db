@@ -73,7 +73,8 @@ void od_router_free(od_router_t *router)
 		od_system_server_free(server);
 	}
 
-	od_router_foreach(router, od_router_immed_close_cb, NULL);
+	void *yb_argv[] = { router->global->instance };
+	od_router_foreach(router, od_router_immed_close_cb, yb_argv);
 	od_route_pool_free(&router->route_pool);
 	od_rules_free(&router->rules);
 	pthread_mutex_destroy(&router->lock);
@@ -319,7 +320,7 @@ int od_router_expire(od_router_t *router, od_list_t *expire_list)
 {
 	int count = 0;
 	uint64_t now_us = machine_time_us();
-	void *argv[] = { expire_list, &count, &now_us };
+	void *argv[] = { expire_list, &count, &now_us, router->global->instance };
 	od_router_foreach(router, od_router_expire_cb, argv);
 	return count;
 }
@@ -578,6 +579,140 @@ bool od_should_not_spun_connection_yet(int connections_in_pool, int pool_size,
 
 #define MAX_BUZYLOOP_RETRY 10
 
+// Count the number of active routes i.e. routes with at least one in_use or
+// pending client.
+// IMPORTANT: The caller must not hold any locks on any of the routes.
+static uint32_t yb_count_all_active_routes(od_router_t *router, od_route_t *current_route) {
+	od_router_lock(router);
+
+	od_route_pool_t *pool = &router->route_pool;
+	od_list_t *i;
+	uint32_t active_routes = 0;
+	od_list_foreach(&pool->list, i)
+	{
+		od_route_t *route;
+		route = od_container_of(i, od_route_t, link);
+
+		if (yb_is_route_invalid(route))
+			continue;
+
+		// The current route must be counted as an active route since we have an
+		// active request on it.
+		if (route == current_route) {
+			active_routes++;
+			continue;
+		}
+
+		od_route_lock(route);
+		active_routes +=
+			(od_server_pool_total(&route->server_pool) +
+				 yb_od_client_pool_queue(&route->client_pool) >
+			 0) ? 1 : 0;
+		od_route_unlock(route);
+	}
+
+	od_router_unlock(router);
+	return active_routes;
+}
+
+// Calculate the number of in_use backends (aka physical connection) across all
+// routes.
+// IMPORTANT: The caller must not hold any locks on any of the routes.
+static uint32_t yb_calculate_all_in_use_backends(od_router_t *router) {
+	od_router_lock(router);
+
+	od_route_pool_t *pool = &router->route_pool;
+	od_list_t *i;
+	uint32_t total_in_use_backends = 0;
+	od_list_foreach(&pool->list, i)
+	{
+		od_route_t *route;
+		route = od_container_of(i, od_route_t, link);
+
+		if (yb_is_route_invalid(route))
+			continue;
+
+		od_route_lock(route);
+		total_in_use_backends += od_server_pool_total(&route->server_pool);
+		od_route_unlock(route);
+	}
+
+	od_router_unlock(router);
+	return total_in_use_backends;
+}
+
+// Return an idle server to close from a route different from the current route.
+// The route must be exceeding the per_route_quota.
+// Returns NULL if no such route is found.
+// IMPORTANT: Must not hold a lock on any of the route before calling this
+// function to avoid deadlocks.
+// IMPORTANT: If the route is found, the caller must unlock the route after
+// closing the idle server.
+static od_server_t *yb_get_idle_server_to_close(od_router_t *router,
+					 od_route_t *current_route,
+					 uint32_t per_route_quota)
+{
+	od_server_t *idle_server = NULL;
+	od_router_lock(router);
+
+	od_route_pool_t *pool = &router->route_pool;
+	od_list_t *i;
+	od_list_foreach(&pool->list, i)
+	{
+		od_route_t *route;
+		route = od_container_of(i, od_route_t, link);
+
+		if (route == current_route || yb_is_route_invalid(route))
+			continue;
+
+		od_route_lock(route);
+		uint32_t route_yb_in_use =
+				od_server_pool_total(&route->server_pool);
+		if (route_yb_in_use > per_route_quota) {
+			idle_server = od_pg_server_pool_next(&route->server_pool,
+				OD_SERVER_IDLE);
+
+			// Note the lack of od_route_unlock(route) in this case.
+			// The caller is responsible for unlocking the route once it is done
+			// shutting down this server.
+			if (idle_server)
+				break;
+		}
+		od_route_unlock(route);
+	}
+
+	od_router_unlock(router);
+	return idle_server;
+}
+
+// IMPORTANT: Must not hold a lock on any of the route before calling this
+// function to avoid deadlocks.
+static bool yb_is_another_route_waiting(od_router_t *router, od_route_t *current_route) {
+	od_router_lock(router);
+
+	od_route_pool_t *pool = &router->route_pool;
+	od_list_t *i;
+	od_list_foreach(&pool->list, i)
+	{
+		od_route_t *route;
+		route = od_container_of(i, od_route_t, link);
+
+		if (route == current_route || yb_is_route_invalid(route))
+			continue;
+
+		od_route_lock(route);
+		if (yb_od_client_pool_queue(&route->client_pool) > 0) {
+			od_route_unlock(route);
+			od_router_unlock(router);
+			return true;
+		}
+		od_route_unlock(route);
+	}
+
+	od_router_unlock(router);
+	return false;
+}
+
 /*
  * od_router_attach is a function used to attach a client object to a server object.
  * client_for_router represents the internal client used for
@@ -620,6 +755,7 @@ od_router_status_t od_router_attach(od_router_t *router,
 	const char *is_warmup_needed_flag = getenv("YB_YSQL_CONN_MGR_DOWARMUP_ALL_POOLS_MODE");
 	bool is_warmup_needed = false;
 	bool random_allot = false;
+	bool added_to_pending_requests_map = false;
 
 	is_warmup_needed = is_warmup_needed_flag != NULL && strcmp(is_warmup_needed_flag, "none") != 0;
 	random_allot = is_warmup_needed && strcmp(is_warmup_needed_flag, "random") == 0;
@@ -688,9 +824,24 @@ od_router_status_t od_router_attach(od_router_t *router,
 				od_atomic_u32_of(&router->servers_routing);
 			uint32_t max_routing = (uint32_t)route->rule->storage
 						       ->server_max_routing;
-			if (pool_size == 0 || connections_in_pool < pool_size) {
+
+			bool yb_is_slot_available = false;
+			if (instance->config.yb_enable_multi_route_pool) {
+				od_route_unlock(route);
+				uint32_t yb_total_acquired_slots =
+					yb_calculate_all_in_use_backends(router);
+				od_route_lock(route);
+				yb_is_slot_available =
+					yb_total_acquired_slots < (uint32_t) instance->config.yb_ysql_max_connections;
+			} else {
+				yb_is_slot_available = pool_size == 0 ||
+					connections_in_pool < pool_size;
+			}
+
+			if (yb_is_slot_available) {
 				if (od_should_not_spun_connection_yet(
-					    connections_in_pool, pool_size,
+					    connections_in_pool,
+						(instance->config.yb_enable_multi_route_pool) ? 0 : pool_size,
 					    (int)currently_routing,
 					    (int)max_routing)) {
 					// concurrent server connection in progress.
@@ -706,6 +857,44 @@ od_router_status_t od_router_attach(od_router_t *router,
 					// We are allowed to spun new server connection
 					break;
 				}
+			} else if (instance->config.yb_enable_multi_route_pool) {
+				// We have reached ysql_max_connections limit. We need to close
+				// a physical connection before we can start a new one.
+				// Find a route which has more entries than per_route_quota and
+				// get a machine from it if possible. If found, we close that
+				// machine, otherwise, we add ourselves to the pending count
+				// and wait.
+
+				// We need to unlock the route before we can call
+				// yb_count_all_active_routes and yb_get_idle_server_to_close
+				// functions.
+				od_route_unlock(route);
+				uint32_t num_active_routes =
+					yb_count_all_active_routes(router, route);
+				uint32_t per_route_quota =
+					(uint32_t)instance->config.yb_ysql_max_connections /
+						num_active_routes;
+				od_server_t *idle_server =
+					yb_get_idle_server_to_close(router, route, per_route_quota);
+				if (idle_server) {
+					// Close the server and make space for ourselves.
+					od_route_t *idle_route = idle_server->route;
+					od_pg_server_pool_set(&idle_route->server_pool,
+							      idle_server,
+							      OD_SERVER_UNDEF);
+					idle_server->route = NULL;
+					od_backend_close_connection(idle_server);
+					od_backend_close(idle_server);
+					od_route_unlock(idle_route);
+
+					// We are allowed to spun new server connection now that we
+					// have made space for ourselves.
+					od_route_lock(route);
+					break;
+				}
+
+				// No available idle servers. We have to wait.
+				od_route_lock(route);
 			}
 		}
 
@@ -814,6 +1003,21 @@ void od_router_detach(od_router_t *router, od_client_t *client)
 	od_server_t *server = client->server;
 	od_io_detach(&server->io);
 
+	od_instance_t *instance = router->global->instance;
+	bool is_another_db_waiting_and_under_quota = false;
+	if (instance->config.yb_enable_multi_route_pool) {
+		uint32_t yb_num_active_routes =
+			yb_count_all_active_routes(router, route);
+		uint32_t yb_per_route_quota =
+			(uint32_t)instance->config.yb_ysql_max_connections /
+			yb_num_active_routes;
+		od_route_lock(route);
+		uint32_t yb_in_use_db = od_server_pool_total(&route->server_pool);
+		od_route_unlock(route);
+		is_another_db_waiting_and_under_quota = (yb_in_use_db > yb_per_route_quota)
+			&& yb_is_another_route_waiting(router, route);
+	}
+
 	od_route_lock(route);
 
 	client->server = NULL;
@@ -830,7 +1034,8 @@ void od_router_detach(od_router_t *router, od_client_t *client)
 	 */
 	if (od_likely(!server->offline) &&
 		!server->yb_sticky_connection &&
-		!server->reset_timeout) {
+		!server->reset_timeout &&
+		!is_another_db_waiting_and_under_quota) {
 		od_instance_t *instance = server->global->instance;
 		if (route->id.physical_rep || route->id.logical_rep) {
 			od_debug(&instance->logger, "expire-replication", NULL,
@@ -878,6 +1083,7 @@ void od_router_close(od_router_t *router, od_client_t *client)
 
 	od_client_pool_set(&route->client_pool, client, OD_CLIENT_PENDING);
 	od_pg_server_pool_set(&route->server_pool, server, OD_SERVER_UNDEF);
+
 	client->server = NULL;
 	server->client = NULL;
 	server->route = NULL;
