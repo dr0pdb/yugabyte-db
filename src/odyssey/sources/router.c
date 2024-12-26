@@ -73,8 +73,7 @@ void od_router_free(od_router_t *router)
 		od_system_server_free(server);
 	}
 
-	void *yb_argv[] = { router->global->instance };
-	od_router_foreach(router, od_router_immed_close_cb, yb_argv);
+	od_router_foreach(router, od_router_immed_close_cb, NULL);
 	od_route_pool_free(&router->route_pool);
 	od_rules_free(&router->rules);
 	pthread_mutex_destroy(&router->lock);
@@ -320,7 +319,7 @@ int od_router_expire(od_router_t *router, od_list_t *expire_list)
 {
 	int count = 0;
 	uint64_t now_us = machine_time_us();
-	void *argv[] = { expire_list, &count, &now_us, router->global->instance };
+	void *argv[] = { expire_list, &count, &now_us };
 	od_router_foreach(router, od_router_expire_cb, argv);
 	return count;
 }
@@ -755,7 +754,6 @@ od_router_status_t od_router_attach(od_router_t *router,
 	const char *is_warmup_needed_flag = getenv("YB_YSQL_CONN_MGR_DOWARMUP_ALL_POOLS_MODE");
 	bool is_warmup_needed = false;
 	bool random_allot = false;
-	bool added_to_pending_requests_map = false;
 
 	is_warmup_needed = is_warmup_needed_flag != NULL && strcmp(is_warmup_needed_flag, "none") != 0;
 	random_allot = is_warmup_needed && strcmp(is_warmup_needed_flag, "random") == 0;
@@ -841,6 +839,9 @@ od_router_status_t od_router_attach(od_router_t *router,
 			if (yb_is_slot_available) {
 				if (od_should_not_spun_connection_yet(
 					    connections_in_pool,
+						// TODO(#25284): The existing control of ramping up of connections utilizes
+						// the pool_size which isn't applicable in the multi route algorithm.
+						// Consider an alternative.
 						(instance->config.yb_enable_multi_route_pool) ? 0 : pool_size,
 					    (int)currently_routing,
 					    (int)max_routing)) {
