@@ -578,9 +578,12 @@ bool od_should_not_spun_connection_yet(int connections_in_pool, int pool_size,
 
 #define MAX_BUZYLOOP_RETRY 10
 
-// Count the number of active routes i.e. routes with at least one in_use or
-// pending client.
-// IMPORTANT: The caller must not hold any locks on any of the routes.
+/*
+ * Count the number of active routes i.e. routes with at least one in_use or
+ * pending client.
+ *
+ * IMPORTANT: The caller must not hold any locks on any of the routes.
+ */
 static uint32_t yb_count_all_active_routes(od_router_t *router, od_route_t *current_route) {
 	od_router_lock(router);
 
@@ -595,9 +598,11 @@ static uint32_t yb_count_all_active_routes(od_router_t *router, od_route_t *curr
 		if (yb_is_route_invalid(route))
 			continue;
 
-		// The current route must be counted as an active route since we have an
-		// active request on it.
-		if (route == current_route) {
+		/*
+		 * The current route must be counted as an active route since we have an
+		 * active request on it.
+		 */
+		if (od_route_id_compare(&route->id, &current_route->id)) {
 			active_routes++;
 			continue;
 		}
@@ -605,7 +610,7 @@ static uint32_t yb_count_all_active_routes(od_router_t *router, od_route_t *curr
 		od_route_lock(route);
 		active_routes +=
 			(od_server_pool_total(&route->server_pool) +
-				 yb_od_client_pool_queue(&route->client_pool) >
+				 od_client_pool_total(&route->client_pool) >
 			 0) ? 1 : 0;
 		od_route_unlock(route);
 	}
@@ -614,9 +619,12 @@ static uint32_t yb_count_all_active_routes(od_router_t *router, od_route_t *curr
 	return active_routes;
 }
 
-// Calculate the number of in_use backends (aka physical connection) across all
-// routes.
-// IMPORTANT: The caller must not hold any locks on any of the routes.
+/*
+ * Calculate the number of in_use backends (aka physical connection) across all
+ * routes.
+ *
+ * IMPORTANT: The caller must not hold any locks on any of the routes.
+ */
 static uint32_t yb_calculate_all_in_use_backends(od_router_t *router) {
 	od_router_lock(router);
 
@@ -640,13 +648,17 @@ static uint32_t yb_calculate_all_in_use_backends(od_router_t *router) {
 	return total_in_use_backends;
 }
 
-// Return an idle server to close from a route different from the current route.
-// The route must be exceeding the per_route_quota.
-// Returns NULL if no such route is found.
-// IMPORTANT: Must not hold a lock on any of the route before calling this
-// function to avoid deadlocks.
-// IMPORTANT: If the route is found, the caller must unlock the route after
-// closing the idle server.
+/*
+ * Return an idle server to close from a route different from the current route.
+ * The route must be exceeding the per_route_quota.
+ * Returns NULL if no such route is found.
+ *
+ * IMPORTANT: Must not hold a lock on any of the route before calling this
+ * function to avoid deadlocks.
+ *
+ * IMPORTANT: If the route is found, the caller must unlock the route after
+ * closing the idle server.
+ */
 static od_server_t *yb_get_idle_server_to_close(od_router_t *router,
 					 od_route_t *current_route,
 					 uint32_t per_route_quota)
@@ -661,7 +673,8 @@ static od_server_t *yb_get_idle_server_to_close(od_router_t *router,
 		od_route_t *route;
 		route = od_container_of(i, od_route_t, link);
 
-		if (route == current_route || yb_is_route_invalid(route))
+		if (od_route_id_compare(&route->id, &current_route->id) ||
+		    yb_is_route_invalid(route))
 			continue;
 
 		od_route_lock(route);
@@ -671,9 +684,11 @@ static od_server_t *yb_get_idle_server_to_close(od_router_t *router,
 			idle_server = od_pg_server_pool_next(&route->server_pool,
 				OD_SERVER_IDLE);
 
-			// Note the lack of od_route_unlock(route) in this case.
-			// The caller is responsible for unlocking the route once it is done
-			// shutting down this server.
+			/*
+			 * Note the lack of od_route_unlock(route) in this case.
+			 * The caller is responsible for unlocking the route once it is done
+			 * shutting down this server.
+			 */
 			if (idle_server)
 				break;
 		}
@@ -684,9 +699,17 @@ static od_server_t *yb_get_idle_server_to_close(od_router_t *router,
 	return idle_server;
 }
 
-// IMPORTANT: Must not hold a lock on any of the route before calling this
-// function to avoid deadlocks.
-static bool yb_is_another_route_waiting(od_router_t *router, od_route_t *current_route) {
+/*
+ * Return true if there is another route waiting for a connection and is under
+ * quota.
+ *
+ * IMPORTANT: Must not hold a lock on any of the route before calling this
+ * function to avoid deadlocks.
+ */
+static bool yb_is_another_route_waiting_and_under_quota(
+	od_router_t *router,
+	od_route_t *current_route,
+	uint32_t yb_per_route_quota) {
 	od_router_lock(router);
 
 	od_route_pool_t *pool = &router->route_pool;
@@ -696,11 +719,14 @@ static bool yb_is_another_route_waiting(od_router_t *router, od_route_t *current
 		od_route_t *route;
 		route = od_container_of(i, od_route_t, link);
 
-		if (route == current_route || yb_is_route_invalid(route))
+		if (od_route_id_compare(&route->id, &current_route->id) ||
+		    yb_is_route_invalid(route))
 			continue;
 
 		od_route_lock(route);
-		if (yb_od_client_pool_queue(&route->client_pool) > 0) {
+		// The route is under quota and has pending clients.
+		if (yb_od_client_pool_queue(&route->client_pool) > 0 &&
+		    od_server_pool_total(&route->server_pool) < (int) yb_per_route_quota) {
 			od_route_unlock(route);
 			od_router_unlock(router);
 			return true;
@@ -1015,8 +1041,9 @@ void od_router_detach(od_router_t *router, od_client_t *client)
 		od_route_lock(route);
 		uint32_t yb_in_use_db = od_server_pool_total(&route->server_pool);
 		od_route_unlock(route);
-		is_another_db_waiting_and_under_quota = (yb_in_use_db > yb_per_route_quota)
-			&& yb_is_another_route_waiting(router, route);
+		is_another_db_waiting_and_under_quota =
+			(yb_in_use_db > yb_per_route_quota)
+			&& yb_is_another_route_waiting_and_under_quota(router, route, yb_per_route_quota);
 	}
 
 	od_route_lock(route);
@@ -1084,7 +1111,6 @@ void od_router_close(od_router_t *router, od_client_t *client)
 
 	od_client_pool_set(&route->client_pool, client, OD_CLIENT_PENDING);
 	od_pg_server_pool_set(&route->server_pool, server, OD_SERVER_UNDEF);
-
 	client->server = NULL;
 	server->client = NULL;
 	server->route = NULL;
