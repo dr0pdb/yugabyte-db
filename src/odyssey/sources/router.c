@@ -689,53 +689,17 @@ static od_server_t *yb_get_idle_server_to_close(od_router_t *router,
 			 * The caller is responsible for unlocking the route once it is done
 			 * shutting down this server.
 			 */
-			if (idle_server)
-				break;
+			if (idle_server) {
+				od_route_unlock(route);
+				od_router_unlock(router);
+				return idle_server;
+			}
 		}
 		od_route_unlock(route);
 	}
 
 	od_router_unlock(router);
-	return idle_server;
-}
-
-/*
- * Return true if there is another route waiting for a connection and is under
- * quota.
- *
- * IMPORTANT: Must not hold a lock on any of the route before calling this
- * function to avoid deadlocks.
- */
-static bool yb_is_another_route_waiting_and_under_quota(
-	od_router_t *router,
-	od_route_t *current_route,
-	uint32_t yb_per_route_quota) {
-	od_router_lock(router);
-
-	od_route_pool_t *pool = &router->route_pool;
-	od_list_t *i;
-	od_list_foreach(&pool->list, i)
-	{
-		od_route_t *route;
-		route = od_container_of(i, od_route_t, link);
-
-		if (od_route_id_compare(&route->id, &current_route->id) ||
-		    yb_is_route_invalid(route))
-			continue;
-
-		od_route_lock(route);
-		// The route is under quota and has pending clients.
-		if (yb_od_client_pool_queue(&route->client_pool) > 0 &&
-		    od_server_pool_total(&route->server_pool) < (int) yb_per_route_quota) {
-			od_route_unlock(route);
-			od_router_unlock(router);
-			return true;
-		}
-		od_route_unlock(route);
-	}
-
-	od_router_unlock(router);
-	return false;
+	return NULL;
 }
 
 /*
@@ -1030,22 +994,6 @@ void od_router_detach(od_router_t *router, od_client_t *client)
 	od_server_t *server = client->server;
 	od_io_detach(&server->io);
 
-	od_instance_t *instance = router->global->instance;
-	bool is_another_db_waiting_and_under_quota = false;
-	if (instance->config.yb_enable_multi_route_pool) {
-		uint32_t yb_num_active_routes =
-			yb_count_all_active_routes(router, route);
-		uint32_t yb_per_route_quota =
-			(uint32_t)instance->config.yb_ysql_max_connections /
-			yb_num_active_routes;
-		od_route_lock(route);
-		uint32_t yb_in_use_db = od_server_pool_total(&route->server_pool);
-		od_route_unlock(route);
-		is_another_db_waiting_and_under_quota =
-			(yb_in_use_db > yb_per_route_quota)
-			&& yb_is_another_route_waiting_and_under_quota(router, route, yb_per_route_quota);
-	}
-
 	od_route_lock(route);
 
 	client->server = NULL;
@@ -1062,8 +1010,7 @@ void od_router_detach(od_router_t *router, od_client_t *client)
 	 */
 	if (od_likely(!server->offline) &&
 		!server->yb_sticky_connection &&
-		!server->reset_timeout &&
-		!is_another_db_waiting_and_under_quota) {
+		!server->reset_timeout) {
 		od_instance_t *instance = server->global->instance;
 		if (route->id.physical_rep || route->id.logical_rep) {
 			od_debug(&instance->logger, "expire-replication", NULL,
