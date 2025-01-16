@@ -825,7 +825,7 @@ Status PgApiImpl::NewCreateDatabase(
   return AddToCurrentPgMemctx(
       std::make_unique<PgCreateDatabase>(
           pg_session_, database_name, database_oid, source_database_oid, next_oid, yb_clone_info,
-          colocated, pg_txn_manager_->IsDdlMode()),
+          colocated, pg_txn_manager_->IsDdlMode(), pg_txn_manager_->IsSeparateDdlMode()),
       handle);
 }
 
@@ -948,7 +948,7 @@ Status PgApiImpl::NewCreateTable(const char* database_name,
           pg_session_, database_name, schema_name, table_name, table_id, is_shared_table,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
-          old_relfilenode_oid, is_truncate, pg_txn_manager_->IsDdlMode()),
+          old_relfilenode_oid, is_truncate, pg_txn_manager_->IsDdlMode(), pg_txn_manager_->IsSeparateDdlMode()),
       handle);
 }
 
@@ -975,7 +975,7 @@ Status PgApiImpl::ExecCreateTable(PgStatement* handle) {
 
 Status PgApiImpl::NewAlterTable(const PgObjectId& table_id, PgStatement** handle) {
   return AddToCurrentPgMemctx(
-      std::make_unique<PgAlterTable>(pg_session_, table_id, pg_txn_manager_->IsDdlMode()), handle);
+      std::make_unique<PgAlterTable>(pg_session_, table_id, pg_txn_manager_->IsDdlMode(), pg_txn_manager_->IsSeparateDdlMode()), handle);
 }
 
 Status PgApiImpl::AlterTableAddColumn(
@@ -1144,7 +1144,7 @@ Status PgApiImpl::NewCreateIndex(const char* database_name,
           pg_session_, database_name, schema_name, index_name, index_id, is_shared_index,
           is_sys_catalog_index, if_not_exist, PG_YBROWID_MODE_NONE, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, false /* is_matview */, pg_table_id,
-          old_relfilenode_id, false /* is_truncate */, pg_txn_manager_->IsDdlMode(), base_table_id,
+          old_relfilenode_id, false /* is_truncate */, pg_txn_manager_->IsDdlMode(), pg_txn_manager_->IsSeparateDdlMode(), base_table_id,
           is_unique_index, skip_index_backfill),
       handle);
 }
@@ -1911,25 +1911,32 @@ Status PgApiImpl::EnterSeparateDdlTxnMode() {
   // Flush all buffered operations as ddl txn use its own transaction session.
   RETURN_NOT_OK(pg_session_->FlushBufferedOperations());
   pg_session_->ResetHasWriteOperationsInDdlMode();
-  return pg_txn_manager_->EnterSeparateDdlTxnMode();
+  return pg_txn_manager_->EnterDdlTxnMode(true);
+}
+
+Status PgApiImpl::EnterDdlTxnBlockMode() {
+  pg_session_->ResetHasWriteOperationsInDdlMode();
+  return pg_txn_manager_->EnterDdlTxnMode(false);
 }
 
 bool PgApiImpl::HasWriteOperationsInDdlTxnMode() const {
   return pg_session_->HasWriteOperationsInDdlMode();
 }
 
-Status PgApiImpl::ExitSeparateDdlTxnMode(PgOid db_oid, bool is_silent_modification) {
-  // Flush all buffered operations as ddl txn use its own transaction session.
-  RETURN_NOT_OK(pg_session_->FlushBufferedOperations());
-  RETURN_NOT_OK(pg_txn_manager_->ExitSeparateDdlTxnModeWithCommit(db_oid, is_silent_modification));
+Status PgApiImpl::ExitDdlTxnMode(PgOid db_oid, bool is_silent_modification, bool is_separate_ddl) {
+  if (is_separate_ddl) {
+    // Flush all buffered operations as ddl txn use its own transaction session.
+    RETURN_NOT_OK(pg_session_->FlushBufferedOperations());
+  }
+  RETURN_NOT_OK(pg_txn_manager_->ExitDdlTxnModeWithCommit(db_oid, is_silent_modification));
   // Next reads from catalog tables have to see changes made by the DDL transaction.
   ResetCatalogReadTime();
   return Status::OK();
 }
 
-Status PgApiImpl::ClearSeparateDdlTxnMode() {
+Status PgApiImpl::ClearDdlTxnMode() {
   RollbackTransactionScopedSessionState();
-  return pg_txn_manager_->ExitSeparateDdlTxnModeWithAbort();
+  return pg_txn_manager_->ExitDdlTxnModeWithAbort();
 }
 
 Status PgApiImpl::SetActiveSubTransaction(SubTransactionId id) {

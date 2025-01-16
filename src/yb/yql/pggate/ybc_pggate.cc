@@ -1848,6 +1848,10 @@ YbcStatus YBCPgSetReadOnlyStmt(bool read_only_stmt) {
   return ToYBCStatus(pgapi->SetReadOnlyStmt(read_only_stmt));
 }
 
+YbcStatus YBCPgEnterDdlTxnBlockMode() {
+  return ToYBCStatus(pgapi->EnterDdlTxnBlockMode());
+}
+
 YbcStatus YBCPgEnterSeparateDdlTxnMode() {
   return ToYBCStatus(pgapi->EnterSeparateDdlTxnMode());
 }
@@ -1856,12 +1860,12 @@ bool YBCPgHasWriteOperationsInDdlTxnMode() {
   return pgapi->HasWriteOperationsInDdlTxnMode();
 }
 
-YbcStatus YBCPgExitSeparateDdlTxnMode(YbcPgOid db_oid, bool is_silent_altering) {
-  return ToYBCStatus(pgapi->ExitSeparateDdlTxnMode(db_oid, is_silent_altering));
+YbcStatus YBCPgExitDdlTxnMode(YbcPgOid db_oid, bool is_silent_altering, bool is_separate_ddl) {
+  return ToYBCStatus(pgapi->ExitDdlTxnMode(db_oid, is_silent_altering, is_separate_ddl));
 }
 
-YbcStatus YBCPgClearSeparateDdlTxnMode() {
-  return ToYBCStatus(pgapi->ClearSeparateDdlTxnMode());
+YbcStatus YBCPgClearDdlTxnMode() {
+  return ToYBCStatus(pgapi->ClearDdlTxnMode());
 }
 
 YbcStatus YBCPgSetActiveSubTransaction(uint32_t id) {

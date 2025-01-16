@@ -1420,7 +1420,7 @@ class PgClient::Impl : public BigDataFetcher {
 };
 
 std::string DdlMode::ToString() const {
-  return YB_STRUCT_TO_STRING(has_docdb_schema_changes, silently_altered_db);
+  return YB_STRUCT_TO_STRING(has_docdb_schema_changes, silently_altered_db, is_separate_ddl_txn);
 }
 
 void DdlMode::ToPB(tserver::PgFinishTransactionRequestPB_DdlModePB* dest) const {
@@ -1428,6 +1428,7 @@ void DdlMode::ToPB(tserver::PgFinishTransactionRequestPB_DdlModePB* dest) const 
   if (silently_altered_db) {
     dest->mutable_silently_altered_db()->set_value(*silently_altered_db);
   }
+  dest->set_is_separate_ddl_txn(is_separate_ddl_txn);
 }
 
 PgClient::PgClient(const YbcPgAshConfig& ash_config,

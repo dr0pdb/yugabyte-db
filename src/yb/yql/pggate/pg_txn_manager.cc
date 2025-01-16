@@ -202,7 +202,7 @@ PgTxnManager::PgTxnManager(
 
 PgTxnManager::~PgTxnManager() {
   // Abort the transaction before the transaction manager gets destroyed.
-  WARN_NOT_OK(ExitSeparateDdlTxnModeWithAbort(), "Failed to abort DDL transaction in dtor");
+  WARN_NOT_OK(ExitDdlTxnModeWithAbort(), "Failed to abort DDL transaction in dtor");
   WARN_NOT_OK(AbortPlainTransaction(), "Failed to abort DML transaction in dtor");
 }
 
@@ -320,7 +320,7 @@ uint64_t PgTxnManager::NewPriority(YbcTxnPriorityRequirement txn_priority_requir
 
 Status PgTxnManager::CalculateIsolation(
     bool read_only_op, YbcTxnPriorityRequirement txn_priority_requirement) {
-  if (IsDdlMode()) {
+  if (IsSeparateDdlMode()) {
     VLOG_TXN_STATE(2);
     return Status::OK();
   }
@@ -434,7 +434,7 @@ Status PgTxnManager::AbortPlainTransaction() {
 }
 
 Status PgTxnManager::FinishPlainTransaction(Commit commit) {
-  if (PREDICT_FALSE(IsDdlMode())) {
+  if (PREDICT_FALSE(IsSeparateDdlMode())) {
     // GH #22353 - A DML txn must be aborted or committed only when there is no active DDL txn
     // (ie. after any active DDL txn has itself committed or aborted). Silently ignoring this
     // scenario may lead to errors in the future. Convert this to an SCHECK once the GH issue is
@@ -458,6 +458,8 @@ Status PgTxnManager::FinishPlainTransaction(Commit commit) {
   // caller. In the event that the tserver recovers, it will eventually expire the transaction due
   // to inactivity.
   VLOG_TXN_STATE(2) << (commit ? "Committing" : "Aborting") << " transaction.";
+  // If in DDL mode, we should have invoked ExitDdlMode() in pg_yb_utils.c and not be here.
+  DCHECK(!ddl_state_);
   Status status = client_->FinishTransaction(commit);
   VLOG_TXN_STATE(2) << "Transaction " << (commit ? "commit" : "abort") << " status: " << status;
   ResetTxnAndSession();
@@ -478,26 +480,28 @@ void PgTxnManager::ResetTxnAndSession() {
   read_only_stmt_ = false;
 }
 
-Status PgTxnManager::EnterSeparateDdlTxnMode() {
-  RSTATUS_DCHECK(!IsDdlMode(), IllegalState,
-                 "EnterSeparateDdlTxnMode called when already in a DDL transaction");
+Status PgTxnManager::EnterDdlTxnMode(bool separate_ddl_mode) {
+  RSTATUS_DCHECK(!separate_ddl_mode || !IsSeparateDdlMode(), IllegalState,
+                 "EnterDdlTxnMode called when already in a separate DDL transaction");
   VLOG_TXN_STATE(2);
   ddl_state_.emplace();
+  ddl_state_->is_separate_ddl_txn = separate_ddl_mode;
   VLOG_TXN_STATE(2);
   return Status::OK();
 }
 
-Status PgTxnManager::ExitSeparateDdlTxnModeWithAbort() {
-  return ExitSeparateDdlTxnMode({});
+Status PgTxnManager::ExitDdlTxnModeWithAbort() {
+  return ExitDdlTxnMode({});
 }
 
-Status PgTxnManager::ExitSeparateDdlTxnModeWithCommit(uint32_t db_oid, bool is_silent_altering) {
-  return ExitSeparateDdlTxnMode(
+Status PgTxnManager::ExitDdlTxnModeWithCommit(uint32_t db_oid, bool is_silent_altering) {
+  return ExitDdlTxnMode(
       DdlCommitInfo{.db_oid = db_oid, .is_silent_altering = is_silent_altering});
 }
 
-Status PgTxnManager::ExitSeparateDdlTxnMode(const std::optional<DdlCommitInfo>& commit_info) {
-  VLOG_TXN_STATE(2);
+Status PgTxnManager::ExitDdlTxnMode(const std::optional<DdlCommitInfo>& commit_info) {
+  VLOG_TXN_STATE(2) << "Exiting DDL txn mode with commit_info: "
+                    << (commit_info ? "true" : "false");
   if (!IsDdlMode()) {
     RSTATUS_DCHECK(
         !commit_info, IllegalState, "Commit ddl txn called when not in a DDL transaction");
@@ -514,6 +518,10 @@ Status PgTxnManager::ExitSeparateDdlTxnMode(const std::optional<DdlCommitInfo>& 
                   ? std::optional(commit_info->db_oid) : std::nullopt
           });
   WARN_NOT_OK(status, Format("Failed to $0 DDL transaction", commit ? "commit" : "abort"));
+  if (!ddl_state_->is_separate_ddl_txn) {
+    // This is not a separate DDL transaction, so we should invoke ResetTxnAndSession() as well.
+    ResetTxnAndSession();
+  }
   if (PREDICT_TRUE(status.ok() || !commit)) {
     // In case of an abort, reset the DDL mode here as we may later re-enter this function and retry
     // the abort as part of transaction error recovery if the status is not ok.
@@ -563,11 +571,15 @@ std::string PgTxnManager::TxnStateDebugStr() const {
 
 void PgTxnManager::SetupPerformOptions(
     tserver::PgPerformOptionsPB* options, EnsureReadTimeIsSet ensure_read_time) {
-  if (!IsDdlMode() && !txn_in_progress_) {
+  if (!IsSeparateDdlMode() && !txn_in_progress_) {
     IncTxnSerialNo();
   }
+  VLOG(5) << "Setting up PerformOptions with isolation level " << isolation_level_;
   options->set_isolation(isolation_level_);
   options->set_ddl_mode(IsDdlMode());
+  VLOG(5) << "Setting is_separate_ddl_mode";
+  options->set_is_separate_ddl_mode(IsSeparateDdlMode());
+  VLOG(5) << "is_separate_ddl_mode = " << options->is_separate_ddl_mode();
   options->set_yb_non_ddl_txn_for_sys_tables_allowed(yb_non_ddl_txn_for_sys_tables_allowed);
   options->set_trace_requested(enable_tracing_);
   options->set_txn_serial_no(serial_no_.txn());
@@ -587,7 +599,7 @@ void PgTxnManager::SetupPerformOptions(
     options->set_defer_read_point(true);
     need_defer_read_point_ = false;
   }
-  if (!IsDdlMode()) {
+  if (!IsSeparateDdlMode()) {
     // The state in read_time_manipulation_ is only for kPlain transactions. And if YSQL switches to
     // kDdl mode for sometime, we should keep read_time_manipulation_ as is so that once YSQL
     // switches back to kDdl mode, the read_time_manipulation_ is not lost.

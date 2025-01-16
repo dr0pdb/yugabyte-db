@@ -1026,6 +1026,114 @@ YBOnPostgresBackendShutdown()
 	YBCDestroyPgGate();
 }
 
+/*---------------------------------------------------------------------------*/
+/* Transactional DDL state                                                   */
+/*---------------------------------------------------------------------------*/
+
+static ProcessUtility_hook_type prev_ProcessUtility = NULL;
+typedef struct CatalogModificationAspects
+{
+	uint64_t applied;
+	uint64_t pending;
+
+} CatalogModificationAspects;
+
+typedef struct DdlTransactionState
+{
+	int nesting_level;
+	MemoryContext mem_context;
+	CatalogModificationAspects catalog_modification_aspects;
+	bool is_global_ddl;
+	NodeTag original_node_tag;
+	const char *original_ddl_command_tag;
+
+	// This indicates whether the current DDL transaction is running as part of
+	// the regular transaction block. This is currently unset for online schema
+	// changes as these are a class of DDLs that split a single DDL into several
+	// steps. Each of these steps is a separate transaction that commits
+	// independently of the top level transaction. We need these steps to commit
+	// so that these intermediate changes are visible to all other backends.
+	// Note that an online schema change can never happen in a transaction
+	// block. Thus, it is not possible for nesting_level > 0 and
+	// uses_regular_txn_block == true.
+	bool uses_regular_txn_block;
+} DdlTransactionState;
+
+static DdlTransactionState ddl_transaction_state = {0};
+
+
+static void
+YBResetEnableSpecialDDLMode()
+{
+	/*
+	 * Reset yb_make_next_ddl_statement_nonbreaking to avoid its further side
+	 * effect that may not be intended.
+	 *
+	 * Also, reset Connection Manager cache if the value was cached to begin
+	 * with.
+	 */
+	if (YbIsClientYsqlConnMgr() && yb_make_next_ddl_statement_nonbreaking)
+		YbSendParameterStatusForConnectionManager("yb_make_next_ddl_statement_nonbreaking", "false");
+	yb_make_next_ddl_statement_nonbreaking = false;
+
+	/*
+	 * Reset yb_make_next_ddl_statement_nonincrementing to avoid its further side
+	 * effect that may not be intended.
+	 *
+	 * Also, reset Connection Manager cache if the value was cached to begin
+	 * with.
+	 */
+	if (YbIsClientYsqlConnMgr() && yb_make_next_ddl_statement_nonincrementing)
+		YbSendParameterStatusForConnectionManager("yb_make_next_ddl_statement_nonincrementing", "false");
+	yb_make_next_ddl_statement_nonincrementing = false;
+}
+
+/*
+ * Release all space allocated in the yb_memctx of a context and all of
+ * its descendants, but don't delete the yb_memctx themselves.
+ */
+static YbcStatus
+YbMemCtxReset(MemoryContext context)
+{
+	AssertArg(MemoryContextIsValid(context));
+	for (MemoryContext child = context->firstchild;
+		 child != NULL;
+		 child = child->nextchild)
+	{
+		YbcStatus status = YbMemCtxReset(child);
+		if (status)
+			return status;
+	}
+	return context->yb_memctx ? YBCPgResetMemctx(context->yb_memctx) : NULL;
+}
+
+static void
+YBResetDdlState()
+{
+	YbcStatus status = NULL;
+	if (ddl_transaction_state.mem_context)
+	{
+		if (GetCurrentMemoryContext() == ddl_transaction_state.mem_context)
+			MemoryContextSwitchTo(ddl_transaction_state.mem_context->parent);
+		/* Reset the yb_memctx of the ddl memory context including its descendants.
+		 * This is to ensure that all the operations in this ddl transaction are
+		 * completed before we abort the ddl transaction. For example, when a ddl
+		 * transaction aborts there may be a PgDocOp in this ddl transaction which
+		 * still has a pending Perform operation to pre-fetch the next batch of
+		 * rows and the Perform's RPC call has not completed yet. Releasing the ddl
+		 * memory context will trigger the call to ~PgDocOp where we'll wait for
+		 * the pending operation to complete. Because all the objects allocated
+		 * during this ddl transaction are released, we assume they are no longer
+		 * needed after the ddl transaction aborts.
+		 */
+		status = YbMemCtxReset(ddl_transaction_state.mem_context);
+	}
+	ddl_transaction_state = (struct DdlTransactionState){0};
+	YBResetEnableSpecialDDLMode();
+	HandleYBStatus(YBCPgClearDdlTxnMode());
+	HandleYBStatus(status);
+}
+
 void
 YBCRecreateTransaction()
 {
@@ -1048,6 +1156,15 @@ YBCCommitTransaction()
 	if (!IsYugaByteEnabled())
 		return;
 
+	/*
+	 * The transaction contains DDL statements and uses regular transaction
+	 * block.
+	 */
+	if (ddl_transaction_state.uses_regular_txn_block) {
+		YBExitDdlMode();
+		return;
+	}
+
 	HandleYBStatus(YBCPgCommitPlainTransaction());
 }
 
@@ -1058,13 +1175,22 @@ YBCAbortTransaction()
 		return;
 
 	/*
+	 * The transaction contains DDL statements and uses regular transaction
+	 * block.
+	 */
+	if (ddl_transaction_state.uses_regular_txn_block) {
+		YBResetDdlState();
+		return;
+	}
+
+	/*
 	 * If a DDL operation during a DDL txn fails, the txn will be aborted before
 	 * we get here. However if there are failures afterwards (i.e. during
 	 * COMMIT or catalog version increment), then we might get here as part of
 	 * top level error recovery in PostgresMain() with the DDL txn state still
 	 * set in pggate. Clean it up in that case.
 	 */
-	 YbcStatus status = YBCPgClearSeparateDdlTxnMode();
+	 YbcStatus status = YBCPgClearDdlTxnMode();
 
 	/*
 	 * Aborting a transaction is likely to fail only when there are issues
@@ -1797,26 +1923,6 @@ YBIsInitDbAlreadyDone()
 /* Transactional DDL support                                                 */
 /*---------------------------------------------------------------------------*/
 
-static ProcessUtility_hook_type prev_ProcessUtility = NULL;
-typedef struct CatalogModificationAspects
-{
-	uint64_t applied;
-	uint64_t pending;
-
-} CatalogModificationAspects;
-
-typedef struct DdlTransactionState
-{
-	int nesting_level;
-	MemoryContext mem_context;
-	CatalogModificationAspects catalog_modification_aspects;
-	bool is_global_ddl;
-	NodeTag original_node_tag;
-	const char *original_ddl_command_tag;
-} DdlTransactionState;
-
-static DdlTransactionState ddl_transaction_state = {0};
-
 static void
 MergeCatalogModificationAspects(CatalogModificationAspects *aspects,
 								bool apply)
@@ -1824,78 +1930,6 @@ MergeCatalogModificationAspects(CatalogModificationAspects *aspects,
 	if (apply)
 		aspects->applied |= aspects->pending;
 	aspects->pending = 0;
-}
-
-static void
-YBResetEnableSpecialDDLMode()
-{
-	/*
-	 * Reset yb_make_next_ddl_statement_nonbreaking to avoid its further side
-	 * effect that may not be intended.
-	 *
-	 * Also, reset Connection Manager cache if the value was cached to begin
-	 * with.
-	 */
-	if (YbIsClientYsqlConnMgr() && yb_make_next_ddl_statement_nonbreaking)
-		YbSendParameterStatusForConnectionManager("yb_make_next_ddl_statement_nonbreaking", "false");
-	yb_make_next_ddl_statement_nonbreaking = false;
-
-	/*
-	 * Reset yb_make_next_ddl_statement_nonincrementing to avoid its further side
-	 * effect that may not be intended.
-	 *
-	 * Also, reset Connection Manager cache if the value was cached to begin
-	 * with.
-	 */
-	if (YbIsClientYsqlConnMgr() && yb_make_next_ddl_statement_nonincrementing)
-		YbSendParameterStatusForConnectionManager("yb_make_next_ddl_statement_nonincrementing", "false");
-	yb_make_next_ddl_statement_nonincrementing = false;
-}
-
-/*
- * Release all space allocated in the yb_memctx of a context and all of
- * its descendants, but don't delete the yb_memctx themselves.
- */
-static YbcStatus
-YbMemCtxReset(MemoryContext context)
-{
-	AssertArg(MemoryContextIsValid(context));
-	for (MemoryContext child = context->firstchild;
-		 child != NULL;
-		 child = child->nextchild)
-	{
-		YbcStatus status = YbMemCtxReset(child);
-		if (status)
-			return status;
-	}
-	return context->yb_memctx ? YBCPgResetMemctx(context->yb_memctx) : NULL;
-}
-
-static void
-YBResetDdlState()
-{
-	YbcStatus status = NULL;
-	if (ddl_transaction_state.mem_context)
-	{
-		if (GetCurrentMemoryContext() == ddl_transaction_state.mem_context)
-			MemoryContextSwitchTo(ddl_transaction_state.mem_context->parent);
-		/* Reset the yb_memctx of the ddl memory context including its descendants.
-		 * This is to ensure that all the operations in this ddl transaction are
-		 * completed before we abort the ddl transaction. For example, when a ddl
-		 * transaction aborts there may be a PgDocOp in this ddl transaction which
-		 * still has a pending Perform operation to pre-fetch the next batch of
-		 * rows and the Perform's RPC call has not completed yet. Releasing the ddl
-		 * memory context will trigger the call to ~PgDocOp where we'll wait for
-		 * the pending operation to complete. Because all the objects allocated
-		 * during this ddl transaction are released, we assume they are no longer
-		 * needed after the ddl transaction aborts.
-		 */
-		status = YbMemCtxReset(ddl_transaction_state.mem_context);
-	}
-	ddl_transaction_state = (struct DdlTransactionState){0};
-	YBResetEnableSpecialDDLMode();
-	HandleYBStatus(YBCPgClearSeparateDdlTxnMode());
-	HandleYBStatus(status);
 }
 
 int
@@ -1922,6 +1956,7 @@ YBIncrementDdlNestingLevel(YbDdlMode mode)
 
 		MemoryContextSwitchTo(ddl_transaction_state.mem_context);
 		HandleYBStatus(YBCPgEnterSeparateDdlTxnMode());
+		ddl_transaction_state.uses_regular_txn_block = false;
 
 		if (yb_force_catalog_update_on_next_ddl)
 		{
@@ -1934,6 +1969,21 @@ YBIncrementDdlNestingLevel(YbDdlMode mode)
 	}
 
 	++ddl_transaction_state.nesting_level;
+	ddl_transaction_state.catalog_modification_aspects.pending |= mode;
+}
+
+void YBSetDdlMode(YbDdlMode mode)
+{
+	if (ddl_transaction_state.nesting_level > 0 ||
+		ddl_transaction_state.uses_regular_txn_block)
+	{
+		ddl_transaction_state.catalog_modification_aspects.pending |= mode;
+		return;
+	}
+
+	HandleYBStatus(YBCPgEnterDdlTxnBlockMode());
+	// ddl_transaction_state.nesting_level = 1;
+	ddl_transaction_state.uses_regular_txn_block = true;
 	ddl_transaction_state.catalog_modification_aspects.pending |= mode;
 }
 
@@ -1952,20 +2002,21 @@ YbCatalogModificationAspectsToDdlMode(uint64_t catalog_modification_aspects)
 		case YB_DDL_MODE_NO_ALTERING: switch_fallthrough();
 		case YB_DDL_MODE_SILENT_ALTERING: switch_fallthrough();
 		case YB_DDL_MODE_VERSION_INCREMENT: switch_fallthrough();
-		case YB_DDL_MODE_BREAKING_CHANGE: return mode;
+		case YB_DDL_MODE_BREAKING_CHANGE: switch_fallthrough();
+		case YB_DDL_MODE_ONLINE_SCHEMA_CHANGE_VERSION_INCREMENT: return mode;
 	}
 	Assert(false);
 	return YB_DDL_MODE_BREAKING_CHANGE;
 }
 
 void
-YBDecrementDdlNestingLevel()
+YBExitDdlMode()
 {
 	const bool has_write = YBCPgHasWriteOperationsInDdlTxnMode();
 	MergeCatalogModificationAspects(&ddl_transaction_state.catalog_modification_aspects,
 									has_write);
 
-	--ddl_transaction_state.nesting_level;
+	Assert(ddl_transaction_state.nesting_level == 0);
 	if (yb_test_fail_next_ddl)
 	{
 		yb_test_fail_next_ddl = false;
@@ -1998,19 +2049,25 @@ YBDecrementDdlNestingLevel()
 														  ddl_transaction_state.is_global_ddl,
 														  ddl_transaction_state.original_ddl_command_tag);
 
+			YBC_LOG_INFO("YBExitDdlMode increment_done: %d, mode: %d, is_global_ddl: %d, original_ddl_command_tag: %s",
+						 increment_done, mode, ddl_transaction_state.is_global_ddl, ddl_transaction_state.original_ddl_command_tag);
+
 			is_silent_altering = (mode == YB_DDL_MODE_SILENT_ALTERING);
 		}
 
+		const bool uses_separate_txn =
+			!ddl_transaction_state.uses_regular_txn_block;
 		ddl_transaction_state = (DdlTransactionState) {};
 
-		HandleYBStatus(YBCPgExitSeparateDdlTxnMode(MyDatabaseId,
-												   is_silent_altering));
+		HandleYBStatus(YBCPgExitDdlTxnMode(MyDatabaseId,
+										   is_silent_altering,
+										   uses_separate_txn));
 
 		/*
 		 * Optimization to avoid redundant cache refresh on the current session
 		 * since we should have already updated the cache locally while
 		 * applying the DDL changes.
-		 * (Doing this after YBCPgExitSeparateDdlTxnMode so it only executes
+		 * (Doing this after YBCPgExitDdlTxnMode so it only executes
 		 * if DDL txn commit succeeds.)
 		 */
 		if (increment_done)
@@ -2051,6 +2108,13 @@ YBDecrementDdlNestingLevel()
 		}
 		YBClearDdlHandles();
 	}
+}
+
+void
+YBDecrementDdlNestingLevel() {
+	--ddl_transaction_state.nesting_level;
+	if (ddl_transaction_state.nesting_level == 0)
+		YBExitDdlMode();
 }
 
 static Node *
@@ -2120,6 +2184,7 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 	bool is_version_increment = true;
 	bool is_breaking_change = true;
 	bool is_altering_existing_data = false;
+	bool is_online_schema_change = false;
 
 	Node *parsetree = GetActualStmtNode(pstmt);
 	NodeTag node_tag = nodeTag(parsetree);
@@ -2527,6 +2592,8 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 			 * transactions so we don't have to force a transaction abort on PG side.
 			 */
 			is_breaking_change = false;
+			is_online_schema_change =
+				castNode(IndexStmt, parsetree)->concurrent != YB_CONCURRENCY_DISABLED;
 			break;
 
 		case T_VacuumStmt:
@@ -2634,6 +2701,9 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 	if (is_breaking_change)
 		aspects |= YB_SYS_CAT_MOD_ASPECT_BREAKING_CHANGE;
 
+	if (is_online_schema_change)
+		aspects |= YB_SYS_CAT_MOD_ASPECT_ONLINE_SCHEMA_CHANGE;
+
 	return (YbDdlModeOptional){
 		.has_value = true,
 		.value = YbCatalogModificationAspectsToDdlMode(aspects)
@@ -2654,6 +2724,8 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 	const YbDdlModeOptional ddl_mode = YbGetDdlMode(pstmt, context);
 
 	const bool is_ddl = ddl_mode.has_value;
+	const bool is_online_ddl = is_ddl &&
+		ddl_mode.value == YB_DDL_MODE_ONLINE_SCHEMA_CHANGE_VERSION_INCREMENT;
 
 	PG_TRY();
 	{
@@ -2677,7 +2749,14 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 				YbInitPinnedCacheIfNeeded(true /* shared_only */);
 #endif
 
-			YBIncrementDdlNestingLevel(ddl_mode.value);
+			/*
+			 * For online schema change, start a separate DDL transaction but
+			 * for rest, use the existing transaction block to execute.
+			 */
+			if (is_online_ddl)
+				YBIncrementDdlNestingLevel(ddl_mode.value);
+			else
+				YBSetDdlMode(ddl_mode.value);
 
 			if (YbShouldIncrementLogicalClientVersion(pstmt) &&
 				YbIsClientYsqlConnMgr() &&
@@ -2694,19 +2773,13 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 									context, params, queryEnv,
 									dest, qc);
 
-		if (is_ddl)
+		if (is_online_ddl)
 			YBDecrementDdlNestingLevel();
 	}
 	PG_CATCH();
 	{
-		if (is_ddl)
-		{
-			/*
-			 * It is possible that nesting_level has wrong value due to error.
-			 * Ddl transaction state should be reset.
-			 */
-			YBResetDdlState();
-		}
+		if (is_online_ddl)
+			YBDecrementDdlNestingLevel();
 		PG_RE_THROW();
 	}
 	PG_END_TRY();

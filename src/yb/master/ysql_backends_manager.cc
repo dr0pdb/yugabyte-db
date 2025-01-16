@@ -162,6 +162,7 @@ Status YsqlBackendsManager::WaitForYsqlBackendsCatalogVersion(
     if (FLAGS_ysql_enable_db_catalog_version_mode) {
       RETURN_NOT_OK(master_->catalog_manager_impl()->IsCatalogVersionTableInPerdbMode(&perdb_mode));
     }
+    LOG(INFO) << LogPrefix() << " perdb_mode: " << perdb_mode;
     if (perdb_mode) {
       s = master_->catalog_manager_impl()->GetYsqlDBCatalogVersion(
           db_oid, &master_version, nullptr /* last_breaking_version */);

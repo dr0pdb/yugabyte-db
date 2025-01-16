@@ -300,6 +300,8 @@ YbIncrementMasterDBCatalogVersionTableEntryImpl(Oid db_oid,
 	}
 
 	HandleYBStatus(YBCPgDmlExecWriteOp(update_stmt, &rows_affected_count));
+
+	YBC_LOG_INFO("Rows affected by YbIncrementMasterDBCatalogVersionTableEntryImpl is %d", rows_affected_count);
 	/*
 	 * Under normal situation rows_affected_count should be exactly 1. However
 	 * when a connection is established in per-database catalog version mode,

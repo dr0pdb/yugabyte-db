@@ -37,7 +37,8 @@ class PgCreateDatabase final : public PgStatementLeafBase<PgDdl, StmtOp::kCreate
                    PgOid next_oid,
                    YbcCloneInfo* yb_clone_info,
                    bool colocated,
-                   bool use_transaction);
+                   bool use_transaction,
+                   bool is_separate_ddl_txn);
 
   Status Exec();
 
@@ -136,7 +137,8 @@ class PgCreateTableBase : public PgDdl {
                     const PgObjectId& pg_table_oid,
                     const PgObjectId& old_relfilenode_oid,
                     bool is_truncate,
-                    bool use_transaction);
+                    bool use_transaction,
+                    bool is_separate_ddl_txn);
 
   tserver::PgCreateTableRequestPB req_;
 
@@ -166,7 +168,8 @@ class PgCreateTable final : public PgStatementLeafBase<PgCreateTableBase, StmtOp
       const PgObjectId& pg_table_oid,
       const PgObjectId& old_relfilenode_oid,
       bool is_truncate,
-      bool use_transaction);
+      bool use_transaction,
+      bool is_separate_ddl_txn);
 };
 
 class PgCreateIndex final : public PgStatementLeafBase<PgCreateTableBase, StmtOp::kCreateIndex> {
@@ -190,6 +193,7 @@ class PgCreateIndex final : public PgStatementLeafBase<PgCreateTableBase, StmtOp
       const PgObjectId& old_relfilenode_oid,
       bool is_truncate,
       bool use_transaction,
+      bool is_separate_ddl_txn,
       const PgObjectId& base_table_id,
       bool is_unique_index,
       bool skip_index_backfill);
@@ -233,7 +237,7 @@ class PgDropIndex final : public PgStatementLeafBase<PgDdl, StmtOp::kDropIndex> 
 class PgAlterTable final : public PgStatementLeafBase<PgDdl, StmtOp::kAlterTable> {
  public:
   PgAlterTable(
-      const PgSession::ScopedRefPtr& pg_session, const PgObjectId& table_id, bool use_transaction);
+      const PgSession::ScopedRefPtr& pg_session, const PgObjectId& table_id, bool use_transaction, bool is_separate_ddl_txn);
 
   Status AddColumn(const char *name,
                    const YbcPgTypeEntity *attr_type,

@@ -71,9 +71,9 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   Status SetEnableTracing(bool tracing);
   Status UpdateFollowerReadsConfig(bool enable_follower_reads, int32_t staleness);
   Status SetDeferrable(bool deferrable);
-  Status EnterSeparateDdlTxnMode();
-  Status ExitSeparateDdlTxnModeWithAbort();
-  Status ExitSeparateDdlTxnModeWithCommit(uint32_t db_oid, bool is_silent_altering);
+  Status EnterDdlTxnMode(bool separate_ddl_mode);
+  Status ExitDdlTxnModeWithAbort();
+  Status ExitDdlTxnModeWithCommit(uint32_t db_oid, bool is_silent_altering);
   void DdlEnableForceCatalogModification();
   void SetDdlHasSyscatalogChanges();
   Status SetInTxnBlock(bool in_txn_blk);
@@ -82,6 +82,7 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   bool IsTxnInProgress() const { return txn_in_progress_; }
   IsolationLevel GetIsolationLevel() const { return isolation_level_; }
   bool IsDdlMode() const { return ddl_state_.has_value(); }
+  bool IsSeparateDdlMode() const { return ddl_state_.has_value() && ddl_state_->is_separate_ddl_txn; }
   std::optional<bool> GetDdlForceCatalogModification() const {
     return ddl_state_ ? std::optional(ddl_state_->force_catalog_modification) : std::nullopt;
   }
@@ -102,9 +103,10 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   struct DdlState {
     bool has_docdb_schema_changes = false;
     bool force_catalog_modification = false;
+    bool is_separate_ddl_txn = false;
 
     std::string ToString() const {
-      return YB_STRUCT_TO_STRING(has_docdb_schema_changes, force_catalog_modification);
+      return YB_STRUCT_TO_STRING(has_docdb_schema_changes, force_catalog_modification, is_separate_ddl_txn);
     }
   };
 
@@ -151,7 +153,7 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
 
   void IncTxnSerialNo();
 
-  Status ExitSeparateDdlTxnMode(const std::optional<DdlCommitInfo>& commit_info);
+  Status ExitDdlTxnMode(const std::optional<DdlCommitInfo>& commit_info);
 
   // ----------------------------------------------------------------------------------------------
 

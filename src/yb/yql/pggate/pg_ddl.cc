@@ -75,7 +75,8 @@ PgCreateDatabase::PgCreateDatabase(const PgSession::ScopedRefPtr& pg_session,
                                    PgOid next_oid,
                                    YbcCloneInfo *yb_clone_info,
                                    bool colocated,
-                                   bool use_transaction)
+                                   bool use_transaction,
+                                   bool is_separate_ddl_txn)
     : BaseType(pg_session) {
   req_.set_database_name(database_name);
   req_.set_database_oid(database_oid);
@@ -83,6 +84,7 @@ PgCreateDatabase::PgCreateDatabase(const PgSession::ScopedRefPtr& pg_session,
   req_.set_next_oid(next_oid);
   req_.set_colocated(colocated);
   req_.set_use_transaction(use_transaction);
+  req_.set_is_separate_ddl_txn(is_separate_ddl_txn);
   if (yb_clone_info) {
     req_.set_source_database_name(yb_clone_info->src_db_name);
     req_.set_clone_time(yb_clone_info->clone_time);
@@ -170,7 +172,8 @@ PgCreateTableBase::PgCreateTableBase(
     const PgObjectId& pg_table_oid,
     const PgObjectId& old_relfilenode_oid,
     bool is_truncate,
-    bool use_transaction)
+    bool use_transaction,
+    bool is_separate_ddl_txn)
     : PgDdl(pg_session) {
   table_id.ToPB(req_.mutable_table_id());
   req_.set_database_name(database_name);
@@ -191,6 +194,7 @@ PgCreateTableBase::PgCreateTableBase(
   old_relfilenode_oid.ToPB(req_.mutable_old_relfilenode_oid());
   req_.set_is_truncate(is_truncate);
   req_.set_use_transaction(use_transaction);
+  req_.set_is_separate_ddl_txn(is_separate_ddl_txn);
 
   // Add internal primary key column to a Postgres table without a user-specified primary key.
   switch (ybrowid_mode) {
@@ -289,12 +293,13 @@ PgCreateTable::PgCreateTable(
     const PgObjectId& pg_table_oid,
     const PgObjectId& old_relfilenode_oid,
     bool is_truncate,
-    bool use_transaction)
+    bool use_transaction,
+    bool is_separate_ddl_txn)
     : BaseType(
           pg_session, database_name, schema_name, table_name, table_id, is_shared_table,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
-          old_relfilenode_oid, is_truncate, use_transaction) {}
+          old_relfilenode_oid, is_truncate, use_transaction, is_separate_ddl_txn) {}
 
 PgCreateIndex::PgCreateIndex(
     const PgSession::ScopedRefPtr& pg_session,
@@ -315,6 +320,7 @@ PgCreateIndex::PgCreateIndex(
     const PgObjectId& old_relfilenode_oid,
     bool is_truncate,
     bool use_transaction,
+    bool is_separate_ddl_txn,
     const PgObjectId& base_table_id,
     bool is_unique_index,
     bool skip_index_backfill)
@@ -322,7 +328,7 @@ PgCreateIndex::PgCreateIndex(
           pg_session, database_name, schema_name, table_name, table_id, is_shared_table,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
-          old_relfilenode_oid, is_truncate, use_transaction) {
+          old_relfilenode_oid, is_truncate, use_transaction, is_separate_ddl_txn) {
   base_table_id.ToPB(req_.mutable_base_table_id());
   req_.set_is_unique_index(is_unique_index);
   req_.set_skip_index_backfill(skip_index_backfill);
@@ -391,10 +397,12 @@ Status PgDropIndex::Exec() {
 //--------------------------------------------------------------------------------------------------
 
 PgAlterTable::PgAlterTable(
-    const PgSession::ScopedRefPtr& pg_session, const PgObjectId& table_id, bool use_transaction)
+    const PgSession::ScopedRefPtr& pg_session, const PgObjectId& table_id,
+    bool use_transaction, bool is_separate_ddl_txn)
     : BaseType(pg_session) {
   table_id.ToPB(req_.mutable_table_id());
   req_.set_use_transaction(use_transaction);
+  req_.set_is_separate_ddl_txn(is_separate_ddl_txn);
 }
 
 Status PgAlterTable::AddColumn(const char *name,

@@ -805,6 +805,7 @@ Result<PerformFuture> PgSession::Perform(BufferableOperations&& ops, PerformOpti
   PgsqlOps operations;
   PgObjectIds relations;
   std::move(ops).MoveTo(operations, relations);
+  LOG(INFO) << "Sending PerformAsync RPC with " << operations.size() << " operations";
   return PerformFuture(
       pg_client_.PerformAsync(&options, std::move(operations)), std::move(relations));
 }

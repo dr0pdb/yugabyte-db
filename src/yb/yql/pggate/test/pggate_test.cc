@@ -217,7 +217,7 @@ void PggateTest::BeginDDLTransaction() {
 }
 
 void PggateTest::CommitDDLTransaction() {
-  CHECK_YBC_STATUS(YBCPgExitSeparateDdlTxnMode(0 /* db_oid */, false /* is_silent_altering */));
+  CHECK_YBC_STATUS(YBCPgExitDdlTxnMode(0 /* db_oid */, false /* is_silent_altering */, true /* is_separate_ddl */));
 }
 
 void PggateTest::BeginTransaction() {

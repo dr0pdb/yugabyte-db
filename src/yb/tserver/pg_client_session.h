@@ -201,7 +201,7 @@ class PgClientSession {
   auto LogPrefix() const { return PrefixLogger(id_); }
 
   Result<const TransactionMetadata*> GetDdlTransactionMetadata(
-      bool use_transaction, CoarseTimePoint deadline);
+      bool use_transaction, bool is_separate_ddl_txn, CoarseTimePoint deadline);
   Status BeginTransactionIfNecessary(
       const PgPerformOptionsPB& options, CoarseTimePoint deadline);
   Status DoBeginTransactionIfNecessary(

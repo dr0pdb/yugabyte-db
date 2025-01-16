@@ -921,6 +921,7 @@ PgClientSession::PgClientSession(
 
 Status PgClientSession::CreateTable(
     const PgCreateTableRequestPB& req, PgCreateTableResponsePB* resp, rpc::RpcContext* context) {
+  LOG(INFO) << "CreateTable request: " << req.ShortDebugString();
   PgCreateTable helper(req);
   RETURN_NOT_OK(helper.Prepare());
 
@@ -933,7 +934,7 @@ Status PgClientSession::CreateTable(
   }
 
   const auto* metadata = VERIFY_RESULT(GetDdlTransactionMetadata(
-      req.use_transaction(), context->GetClientDeadline()));
+      req.use_transaction(), req.is_separate_ddl_txn(), context->GetClientDeadline()));
   RETURN_NOT_OK(helper.Exec(&client(), metadata, context->GetClientDeadline()));
   VLOG_WITH_PREFIX(1) << __func__ << ": " << req.table_name();
   const auto& indexed_table_id = helper.indexed_table_id();
@@ -965,7 +966,8 @@ Status PgClientSession::CreateDatabase(
       req.source_database_oid() != kPgInvalidOid ? GetPgsqlNamespaceId(req.source_database_oid())
                                                  : "",
       req.next_oid(),
-      VERIFY_RESULT(GetDdlTransactionMetadata(req.use_transaction(), context->GetClientDeadline())),
+      VERIFY_RESULT(GetDdlTransactionMetadata(
+          req.use_transaction(), req.is_separate_ddl_txn(), context->GetClientDeadline())),
       req.colocated(), context->GetClientDeadline(), yb_clone_info);
 }
 
@@ -982,7 +984,7 @@ Status PgClientSession::DropTable(
     const PgDropTableRequestPB& req, PgDropTableResponsePB* resp, rpc::RpcContext* context) {
   const auto yb_table_id = PgObjectId::GetYbTableIdFromPB(req.table_id());
   const auto* metadata = VERIFY_RESULT(GetDdlTransactionMetadata(
-      true /* use_transaction */, context->GetClientDeadline()));
+      true /* use_transaction */, false /* is_separate_ddl_txn */, context->GetClientDeadline()));
   // If ddl rollback is enabled, the table will not be deleted now, so we cannot wait for the
   // table/index deletion to complete. The table will be deleted in the background only after the
   // transaction has been determined to be a success.
@@ -1018,7 +1020,7 @@ Status PgClientSession::AlterTable(
   const auto table_id = PgObjectId::GetYbTableIdFromPB(req.table_id());
   const auto alterer = client().NewTableAlterer(table_id);
   const auto txn = VERIFY_RESULT(GetDdlTransactionMetadata(
-      req.use_transaction(), context->GetClientDeadline()));
+      req.use_transaction(), req.is_separate_ddl_txn(), context->GetClientDeadline()));
   if (txn) {
     alterer->part_of_transaction(txn);
   }
@@ -1165,7 +1167,7 @@ Status PgClientSession::CreateTablegroup(
   const auto id = PgObjectId::FromPB(req.tablegroup_id());
   auto tablespace_id = PgObjectId::FromPB(req.tablespace_id());
   const auto* metadata = VERIFY_RESULT(GetDdlTransactionMetadata(
-      true /* use_transaction */, context->GetClientDeadline()));
+      true /* use_transaction */, false /* is_separate_ddl_txn */, context->GetClientDeadline()));
   auto s = client().CreateTablegroup(
       req.database_name(),
       GetPgsqlNamespaceId(id.database_oid),
@@ -1190,7 +1192,7 @@ Status PgClientSession::DropTablegroup(
     rpc::RpcContext* context) {
   const auto id = PgObjectId::FromPB(req.tablegroup_id());
   const auto* metadata = VERIFY_RESULT(GetDdlTransactionMetadata(
-      true /* use_transaction */, context->GetClientDeadline()));
+      true /* use_transaction */, false /* is_separate_ddl_txn */, context->GetClientDeadline()));
   const auto status =
       client().DeleteTablegroup(GetPgsqlTablegroupId(id.database_oid, id.object_oid), metadata);
   if (status.IsNotFound()) {
@@ -1233,7 +1235,7 @@ Status PgClientSession::RollbackToSubTransaction(
    */
   auto kind = PgClientSessionKind::kPlain;
 
-  if (req.has_options() && req.options().ddl_mode())
+  if (req.has_options() && req.options().is_separate_ddl_mode())
     kind = PgClientSessionKind::kDdl;
 
   auto transaction = Transaction(kind);
@@ -1294,7 +1296,7 @@ Status PgClientSession::SetActiveSubTransaction(
 
   auto kind = PgClientSessionKind::kPlain;
   if (req.has_options()) {
-    if (req.options().ddl_mode()) {
+    if (req.options().is_separate_ddl_mode()) {
       kind = PgClientSessionKind::kDdl;
     } else {
       RETURN_NOT_OK(BeginTransactionIfNecessary(req.options(), context->GetClientDeadline()));
@@ -1317,14 +1319,14 @@ Status PgClientSession::FinishTransaction(
     const PgFinishTransactionRequestPB& req, PgFinishTransactionResponsePB* resp,
     rpc::RpcContext* context) {
   saved_priority_ = std::nullopt;
-  auto is_ddl = false;
+  auto is_separate_ddl = false;
   auto kind = PgClientSessionKind::kPlain;
   auto has_docdb_schema_changes = false;
   std::optional<uint32_t> silently_altered_db;
   if (req.has_ddl_mode()) {
     const auto& ddl_mode = req.ddl_mode();
-    is_ddl = true;
-    kind = PgClientSessionKind::kDdl;
+    is_separate_ddl = ddl_mode.is_separate_ddl_txn();
+    kind = is_separate_ddl ? PgClientSessionKind::kDdl : PgClientSessionKind::kPlain;
     has_docdb_schema_changes = ddl_mode.has_docdb_schema_changes();
     if (ddl_mode.has_silently_altered_db()) {
       silently_altered_db = ddl_mode.silently_altered_db().value();
@@ -1332,13 +1334,13 @@ Status PgClientSession::FinishTransaction(
   }
   auto& txn = GetSessionData(kind).transaction;
   if (!txn) {
-    VLOG_WITH_PREFIX_AND_FUNC(2) << "ddl: " << is_ddl << ", no running transaction";
+    VLOG_WITH_PREFIX_AND_FUNC(2) << "is_separate_ddl: " << is_separate_ddl << ", no running transaction";
     return Status::OK();
   }
 
   const TransactionMetadata* metadata = nullptr;
   if (has_docdb_schema_changes) {
-    metadata = VERIFY_RESULT(GetDdlTransactionMetadata(true, context->GetClientDeadline()));
+    metadata = VERIFY_RESULT(GetDdlTransactionMetadata(true, is_separate_ddl, context->GetClientDeadline()));
     LOG_IF(DFATAL, !metadata) << "metadata is required";
   }
   client::YBTransactionPtr txn_value;
@@ -1352,7 +1354,7 @@ Status PgClientSession::FinishTransaction(
                             : PgResponseCache::Disabler());
 
     VLOG_WITH_PREFIX_AND_FUNC(2)
-        << "ddl: " << is_ddl << ", txn: " << txn_value->id()
+        << "is_separate_ddl: " << is_separate_ddl << ", txn: " << txn_value->id()
         << ", commit: " << commit_status;
     // If commit_status is not ok, we cannot be sure whether the commit was successful or not. It
     // is possible that the commit succeeded at the transaction coordinator but we failed to get
@@ -1384,7 +1386,7 @@ Status PgClientSession::FinishTransaction(
     }
   } else {
     VLOG_WITH_PREFIX_AND_FUNC(2)
-        << "ddl: " << is_ddl << ", txn: " << txn_value->id() << ", abort";
+        << "is_separate_ddl: " << is_separate_ddl << ", txn: " << txn_value->id() << ", abort";
     txn_value->Abort();
   }
 
@@ -1642,10 +1644,10 @@ Result<PgClientSession::SetupSessionResult> PgClientSession::SetupSession(
            "Reading catalog from followers is not allowed");
     kind = PgClientSessionKind::kCatalog;
     EnsureSession(kind, deadline);
-  } else if (options.ddl_mode()) {
+  } else if (options.is_separate_ddl_mode()) {
     kind = PgClientSessionKind::kDdl;
     EnsureSession(kind, deadline);
-    RETURN_NOT_OK(GetDdlTransactionMetadata(true /* use_transaction */, deadline));
+    RETURN_NOT_OK(GetDdlTransactionMetadata(true /* use_transaction */, true /* is_separate_ddl_txn */, deadline));
   } else if (options.needs_pg_session_transaction()) {
     kind = PgClientSessionKind::kPgSession;
     RETURN_NOT_OK(BeginPgSessionLevelTxnIfNecessary(deadline));
@@ -1731,7 +1733,7 @@ Result<PgClientSession::SetupSessionResult> PgClientSession::SetupSession(
 
   // TODO: Reset in_txn_limit which might be on session from past Perform? Not resetting will not
   // cause any issue, but should we reset for safety?
-  if (!options.ddl_mode() && !options.use_catalog_session()) {
+  if (!options.is_separate_ddl_mode() && !options.use_catalog_session()) {
     txn_serial_no_ = txn_serial_no;
     read_time_serial_no_ = read_time_serial_no;
     if (in_txn_limit) {
@@ -1880,13 +1882,27 @@ Status PgClientSession::DoBeginTransactionIfNecessary(
 }
 
 Result<const TransactionMetadata*> PgClientSession::GetDdlTransactionMetadata(
-    bool use_transaction, CoarseTimePoint deadline) {
+    bool use_transaction, bool is_separate_ddl_txn, CoarseTimePoint deadline) {
   if (!use_transaction) {
     return nullptr;
   }
 
-  auto& txn = GetSessionData(PgClientSessionKind::kDdl).transaction;
+  auto& txn =
+      GetSessionData(is_separate_ddl_txn ? PgClientSessionKind::kDdl : PgClientSessionKind::kPlain)
+          .transaction;
+  if (!is_separate_ddl_txn) {
+    // Since this DDL is not being executed in a special block, we should never need to create a
+    // new transaction here.
+    DCHECK(txn);
+    if (ddl_txn_metadata_.transaction_id == txn->id()) {
+      return &ddl_txn_metadata_;
+    }
+    ddl_txn_metadata_ = VERIFY_RESULT(Copy(txn->GetMetadata(deadline).get()));
+    return &ddl_txn_metadata_;
+  }
+
   if (!txn) {
+    DCHECK(is_separate_ddl_txn);
     const auto isolation = FLAGS_ysql_serializable_isolation_for_ddl_txn
         ? IsolationLevel::SERIALIZABLE_ISOLATION : IsolationLevel::SNAPSHOT_ISOLATION;
     txn = transaction_builder_(IsDDL::kTrue, client::ForceGlobalTransaction::kTrue, deadline,

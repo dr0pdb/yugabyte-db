@@ -228,6 +228,7 @@ message PgAlterTableRequestPB {
   bool increment_schema_version = 8;
   PgReplicaIdentityPB replica_identity = 9;
   AshMetadataPB ash_metadata = 10;
+  bool is_separate_ddl_txn = 11;
 }
 
 message PgAlterTableResponsePB {
@@ -247,6 +248,7 @@ message PgCreateDatabaseRequestPB {
   string source_owner = 10;
   string target_owner = 11;
   AshMetadataPB ash_metadata = 12;
+  bool is_separate_ddl_txn = 13;
 }
 
 message PgCreateDatabaseResponsePB {
@@ -313,6 +315,7 @@ message PgCreateTableRequestPB {
   uint64 session_id = 1;
 
   bool use_transaction = 2;
+  bool is_separate_ddl_txn = 26;
   PgObjectIdPB table_id = 3;
   string database_name = 4;
   string table_name = 5;
@@ -424,6 +427,7 @@ message PgFinishTransactionRequestPB {
     // This transaction contains changes to the DocDB schema protobufs.
     bool has_docdb_schema_changes = 1;
     OptionalUint32PB silently_altered_db = 2;
+    bool is_separate_ddl_txn = 3;
   }
 
   uint64 session_id = 1;
@@ -644,6 +648,7 @@ message PgPerformOptionsPB {
   // Replace with IsolationLevel after migration to proto3.
   uint32 isolation = 2;
   bool ddl_mode = 3;
+  bool is_separate_ddl_mode = 26;
   uint64 txn_serial_no = 4;
   uint64 read_time_serial_no = 20;
 

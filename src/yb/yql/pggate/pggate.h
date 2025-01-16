@@ -659,9 +659,10 @@ class PgApiImpl {
   Status SetEnableTracing(bool tracing);
   Status UpdateFollowerReadsConfig(bool enable_follower_reads, int32_t staleness_ms);
   Status EnterSeparateDdlTxnMode();
+  Status EnterDdlTxnBlockMode();
   bool HasWriteOperationsInDdlTxnMode() const;
-  Status ExitSeparateDdlTxnMode(PgOid db_oid, bool is_silent_modification);
-  Status ClearSeparateDdlTxnMode();
+  Status ExitDdlTxnMode(PgOid db_oid, bool is_silent_modification, bool is_separate_ddl);
+  Status ClearDdlTxnMode();
   Status SetActiveSubTransaction(SubTransactionId id);
   Status RollbackToSubTransaction(SubTransactionId id);
   double GetTransactionPriority() const;

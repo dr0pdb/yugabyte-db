@@ -2347,7 +2347,7 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&yb_debug_log_docdb_requests,
-		false,
+		true,
 		NULL, NULL, NULL
 	},
 

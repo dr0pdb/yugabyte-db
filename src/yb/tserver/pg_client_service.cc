@@ -1627,6 +1627,7 @@ class PgClientServiceImpl::Impl {
   }
 
   void Perform(PgPerformRequestPB* req, PgPerformResponsePB* resp, rpc::RpcContext* context) {
+    LOG(INFO) << "Received Perform request: " << req->DebugString();
     auto status = DoPerform(req, resp, context);
     if (!status.ok()) {
       Respond(status, resp, context);
