@@ -2112,6 +2112,7 @@ YBExitDdlMode()
 
 void
 YBDecrementDdlNestingLevel() {
+	YBC_LOG_INFO("YBDecrementDdlNestingLevel");
 	--ddl_transaction_state.nesting_level;
 	if (ddl_transaction_state.nesting_level == 0)
 		YBExitDdlMode();

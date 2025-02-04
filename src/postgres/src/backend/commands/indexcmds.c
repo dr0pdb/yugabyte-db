@@ -2151,6 +2151,9 @@ DefineIndex(Oid relationId,
 		YBIncrementDdlNestingLevel(
 			YB_DDL_MODE_ONLINE_SCHEMA_CHANGE_VERSION_INCREMENT);
 
+		YBC_LOG_INFO("Time to wait for backends to have up-to-date version after "
+					 "committing pg_index tuple with indislive=true");
+
 		/* Wait for all backends to have up-to-date version. */
 		YbWaitForBackendsCatalogVersion();
 
@@ -2171,6 +2174,8 @@ DefineIndex(Oid relationId,
 		YBDecrementDdlNestingLevel();
 		CommitTransactionCommand();
 
+		YBC_LOG_INFO("committing pg_index tuple with indisready=true is done");
+
 		/* Delay after committing pg_index update. */
 		pg_usleep(yb_index_state_flags_update_delay * 1000);
 		if (yb_test_block_index_phase[0] != '\0')
@@ -2181,6 +2186,9 @@ DefineIndex(Oid relationId,
 		StartTransactionCommand();
 		YBIncrementDdlNestingLevel(
 			YB_DDL_MODE_ONLINE_SCHEMA_CHANGE_VERSION_INCREMENT);
+
+		YBC_LOG_INFO("Time to wait for backends to have up-to-date version after "
+					 "committing pg_index tuple with indisready=true");
 
 		/* Wait for all backends to have up-to-date version. */
 		YbWaitForBackendsCatalogVersion();
@@ -5070,11 +5078,12 @@ YbWaitForBackendsCatalogVersion()
 			}
 		}
 
+		YBC_LOG_INFO("Sending RPC YBCPgWaitForBackendsCatalogVersion");
 		YbcStatus s = YBCPgWaitForBackendsCatalogVersion(MyDatabaseId,
 														 catalog_version,
 														 MyProcPid,
 														 &num_lagging_backends);
-
+		YBC_LOG_INFO("Done with RPC YBCPgWaitForBackendsCatalogVersion");
 		if (!s)		/* ok */
 			continue;
 		if (YBCStatusIsTryAgain(s))
@@ -5101,4 +5110,6 @@ YbWaitForBackendsCatalogVersion()
 		}
 		HandleYBStatus(s);
 	}
+
+	YBC_LOG_INFO("Done with YbWaitForBackendsCatalogVersion");
 }

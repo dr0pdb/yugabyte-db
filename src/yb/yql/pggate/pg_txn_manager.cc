@@ -515,7 +515,8 @@ Status PgTxnManager::ExitDdlTxnMode(const std::optional<DdlCommitInfo>& commit_i
           .has_docdb_schema_changes = ddl_state_->has_docdb_schema_changes,
           .silently_altered_db =
               commit_info && commit_info->is_silent_altering
-                  ? std::optional(commit_info->db_oid) : std::nullopt
+                  ? std::optional(commit_info->db_oid) : std::nullopt,
+          .is_separate_ddl_txn = ddl_state_->is_separate_ddl_txn,
           });
   WARN_NOT_OK(status, Format("Failed to $0 DDL transaction", commit ? "commit" : "abort"));
   if (!ddl_state_->is_separate_ddl_txn) {
@@ -577,9 +578,7 @@ void PgTxnManager::SetupPerformOptions(
   VLOG(5) << "Setting up PerformOptions with isolation level " << isolation_level_;
   options->set_isolation(isolation_level_);
   options->set_ddl_mode(IsDdlMode());
-  VLOG(5) << "Setting is_separate_ddl_mode";
   options->set_is_separate_ddl_mode(IsSeparateDdlMode());
-  VLOG(5) << "is_separate_ddl_mode = " << options->is_separate_ddl_mode();
   options->set_yb_non_ddl_txn_for_sys_tables_allowed(yb_non_ddl_txn_for_sys_tables_allowed);
   options->set_trace_requested(enable_tracing_);
   options->set_txn_serial_no(serial_no_.txn());

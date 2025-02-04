@@ -1145,6 +1145,7 @@ Status PgClientSession::WaitForBackendsCatalogVersion(
     const PgWaitForBackendsCatalogVersionRequestPB& req,
     PgWaitForBackendsCatalogVersionResponsePB* resp,
     rpc::RpcContext* context) {
+  LOG(INFO) << "WaitForBackendsCatalogVersion request: " << req.DebugString();
   // TODO(jason): send deadline to client.
   const int num_lagging_backends = VERIFY_RESULT(client().WaitForYsqlBackendsCatalogVersion(
       req.database_oid(), req.catalog_version(), context->GetClientDeadline(),
@@ -1318,6 +1319,7 @@ Status PgClientSession::SetActiveSubTransaction(
 Status PgClientSession::FinishTransaction(
     const PgFinishTransactionRequestPB& req, PgFinishTransactionResponsePB* resp,
     rpc::RpcContext* context) {
+  LOG(INFO) << "FinishTransaction request: " << req.DebugString();
   saved_priority_ = std::nullopt;
   auto is_separate_ddl = false;
   auto kind = PgClientSessionKind::kPlain;
@@ -1647,7 +1649,8 @@ Result<PgClientSession::SetupSessionResult> PgClientSession::SetupSession(
   } else if (options.is_separate_ddl_mode()) {
     kind = PgClientSessionKind::kDdl;
     EnsureSession(kind, deadline);
-    RETURN_NOT_OK(GetDdlTransactionMetadata(true /* use_transaction */, true /* is_separate_ddl_txn */, deadline));
+    RETURN_NOT_OK(GetDdlTransactionMetadata(
+        true /* use_transaction */, true /* is_separate_ddl_txn */, deadline));
   } else if (options.needs_pg_session_transaction()) {
     kind = PgClientSessionKind::kPgSession;
     RETURN_NOT_OK(BeginPgSessionLevelTxnIfNecessary(deadline));
