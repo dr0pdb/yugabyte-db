@@ -63,6 +63,7 @@ TAG_FLAG(ysql_yb_follower_reads_behavior_before_fixing_20482, advanced);
                      << "; query: { " << ::yb::pggate::GetDebugQueryString(pg_callbacks_) << " }; "
 
 DECLARE_uint64(max_clock_skew_usec);
+DECLARE_bool(TEST_ysql_yb_ddl_transaction_block_enabled);
 
 namespace {
 
@@ -204,8 +205,9 @@ PgTxnManager::PgTxnManager(
 
 PgTxnManager::~PgTxnManager() {
   // Abort the transaction before the transaction manager gets destroyed.
-  WARN_NOT_OK(ExitSeparateDdlTxnModeWithAbort(), "Failed to abort DDL transaction in dtor");
-  WARN_NOT_OK(AbortPlainTransaction(), "Failed to abort DML transaction in dtor");
+  WARN_NOT_OK(
+      ExitSeparateDdlTxnModeWithAbort(), "Failed to abort separate DDL transaction in dtor");
+  WARN_NOT_OK(AbortPlainTransaction(), "Failed to abort plain transaction in dtor");
 }
 
 Status PgTxnManager::BeginTransaction(int64_t start_time) {
@@ -322,7 +324,8 @@ uint64_t PgTxnManager::NewPriority(YbcTxnPriorityRequirement txn_priority_requir
 
 Status PgTxnManager::CalculateIsolation(
     bool read_only_op, YbcTxnPriorityRequirement txn_priority_requirement) {
-  if (IsDdlMode()) {
+  if (FLAGS_TEST_ysql_yb_ddl_transaction_block_enabled ? DdlUsesSeparateTransaction()
+                                                       : IsDdlMode()) {
     VLOG_TXN_STATE(2);
     return Status::OK();
   }
@@ -428,15 +431,23 @@ void PgTxnManager::SetActiveSubTransactionId(SubTransactionId id) {
 }
 
 Status PgTxnManager::CommitPlainTransaction() {
-  return FinishPlainTransaction(Commit::kTrue);
+  return FinishPlainTransaction(Commit::kTrue, std::nullopt /* ddl_commit_info */);
+}
+
+Status PgTxnManager::CommitPlainTransactionContainingDDL(
+    uint32_t ddl_db_oid, bool ddl_is_silent_altering) {
+  return FinishPlainTransaction(Commit::kTrue, DdlCommitInfo{ddl_db_oid, ddl_is_silent_altering});
 }
 
 Status PgTxnManager::AbortPlainTransaction() {
-  return FinishPlainTransaction(Commit::kFalse);
+  return FinishPlainTransaction(Commit::kFalse, std::nullopt /* ddl_commit_info */);
 }
 
-Status PgTxnManager::FinishPlainTransaction(Commit commit) {
-  if (PREDICT_FALSE(IsDdlMode())) {
+Status PgTxnManager::FinishPlainTransaction(
+    Commit commit, const std::optional<DdlCommitInfo>& ddl_commit_info) {
+  if (PREDICT_FALSE(
+          IsDdlMode() && (!FLAGS_TEST_ysql_yb_ddl_transaction_block_enabled ||
+                          !DdlUsesRegularTransactionBlock()))) {
     // GH #22353 - A DML txn must be aborted or committed only when there is no active DDL txn
     // (ie. after any active DDL txn has itself committed or aborted). Silently ignoring this
     // scenario may lead to errors in the future. Convert this to an SCHECK once the GH issue is
@@ -460,7 +471,24 @@ Status PgTxnManager::FinishPlainTransaction(Commit commit) {
   // caller. In the event that the tserver recovers, it will eventually expire the transaction due
   // to inactivity.
   VLOG_TXN_STATE(2) << (commit ? "Committing" : "Aborting") << " transaction.";
-  Status status = client_->FinishTransaction(commit);
+  std::optional<DdlMode> ddl_mode = std::nullopt;
+  if (ddl_state_) {
+    DCHECK(FLAGS_TEST_ysql_yb_ddl_transaction_block_enabled)
+        << "Unexpected DDL state found in plain transaction";
+    DCHECK(ddl_state_->uses_regular_transaction_block)
+        << "Unexpected DDL state found in plain transaction without regular transaction block";
+
+    ddl_mode.emplace(DdlMode {
+        .has_docdb_schema_changes = ddl_state_->has_docdb_schema_changes,
+        .silently_altered_db =
+            ddl_commit_info && ddl_commit_info->is_silent_altering
+                ? std::optional(ddl_commit_info->db_oid) : std::nullopt,
+        .uses_regular_transaction_block = true,
+        });
+  }
+  VLOG_TXN_STATE(2) << "Sending FinishTransaction request with commit: " << commit << ", ddl_mode: "
+                    << (ddl_mode ? ddl_mode->ToString() : "NULL");
+  Status status = client_->FinishTransaction(commit, ddl_mode);
   VLOG_TXN_STATE(2) << "Transaction " << (commit ? "commit" : "abort") << " status: " << status;
   ResetTxnAndSession();
   return status;
@@ -479,6 +507,22 @@ void PgTxnManager::ResetTxnAndSession() {
   snapshot_read_time_is_set_ = false;
   read_time_manipulation_ = tserver::ReadTimeManipulation::NONE;
   read_only_stmt_ = false;
+  if (FLAGS_TEST_ysql_yb_ddl_transaction_block_enabled) {
+    ddl_state_.reset();
+  }
+}
+
+Status PgTxnManager::SetDdlStateInPlainTransaction() {
+  RSTATUS_DCHECK(FLAGS_TEST_ysql_yb_ddl_transaction_block_enabled, IllegalState,
+                 "SetDdlStateInPlainTransaction called when DDL transaction block is disabled");
+  RSTATUS_DCHECK(!IsDdlMode(), IllegalState,
+                 "SetDdlStateInPlainTransaction called when the DDL state is already present");
+
+  VLOG_TXN_STATE(2);
+  ddl_state_.emplace();
+  ddl_state_->uses_regular_transaction_block = true;
+  VLOG_TXN_STATE(2);
+  return Status::OK();
 }
 
 Status PgTxnManager::EnterSeparateDdlTxnMode() {
@@ -486,6 +530,7 @@ Status PgTxnManager::EnterSeparateDdlTxnMode() {
                  "EnterSeparateDdlTxnMode called when already in a DDL transaction");
   VLOG_TXN_STATE(2);
   ddl_state_.emplace();
+  ddl_state_->uses_regular_transaction_block = false;
   VLOG_TXN_STATE(2);
   return Status::OK();
 }
@@ -501,9 +546,11 @@ Status PgTxnManager::ExitSeparateDdlTxnModeWithCommit(uint32_t db_oid, bool is_s
 
 Status PgTxnManager::ExitSeparateDdlTxnMode(const std::optional<DdlCommitInfo>& commit_info) {
   VLOG_TXN_STATE(2);
-  if (!IsDdlMode()) {
+  if (!((FLAGS_TEST_ysql_yb_ddl_transaction_block_enabled && DdlUsesSeparateTransaction()) ||
+          (!FLAGS_TEST_ysql_yb_ddl_transaction_block_enabled && IsDdlMode()))) {
     RSTATUS_DCHECK(
-        !commit_info, IllegalState, "Commit ddl txn called when not in a DDL transaction");
+        !commit_info, IllegalState,
+        "Commit separate ddl txn called when not in a separate DDL transaction");
     return Status::OK();
   }
 
@@ -514,7 +561,8 @@ Status PgTxnManager::ExitSeparateDdlTxnMode(const std::optional<DdlCommitInfo>& 
           .has_docdb_schema_changes = ddl_state_->has_docdb_schema_changes,
           .silently_altered_db =
               commit_info && commit_info->is_silent_altering
-                  ? std::optional(commit_info->db_oid) : std::nullopt
+                  ? std::optional(commit_info->db_oid) : std::nullopt,
+          .uses_regular_transaction_block = false,
           });
   WARN_NOT_OK(status, Format("Failed to $0 DDL transaction", commit ? "commit" : "abort"));
   if (PREDICT_TRUE(status.ok() || !commit)) {
@@ -566,11 +614,12 @@ std::string PgTxnManager::TxnStateDebugStr() const {
 
 Status PgTxnManager::SetupPerformOptions(
     tserver::PgPerformOptionsPB* options, EnsureReadTimeIsSet ensure_read_time) {
-  if (!IsDdlMode() && !txn_in_progress_) {
+  if (!DdlUsesSeparateTransaction() && !txn_in_progress_) {
     IncTxnSerialNo();
   }
   options->set_isolation(isolation_level_);
   options->set_ddl_mode(IsDdlMode());
+  options->set_ddl_uses_regular_transaction_block(DdlUsesRegularTransactionBlock());
   options->set_yb_non_ddl_txn_for_sys_tables_allowed(yb_non_ddl_txn_for_sys_tables_allowed);
   options->set_trace_requested(enable_tracing_);
   options->set_txn_serial_no(serial_no_.txn());
@@ -590,7 +639,7 @@ Status PgTxnManager::SetupPerformOptions(
     options->set_defer_read_point(true);
     need_defer_read_point_ = false;
   }
-  if (!IsDdlMode()) {
+  if (!DdlUsesSeparateTransaction()) {
     // The state in read_time_manipulation_ is only for kPlain transactions. And if YSQL switches to
     // kDdl mode for sometime, we should keep read_time_manipulation_ as is so that once YSQL
     // switches back to kDdl mode, the read_time_manipulation_ is not lost.
