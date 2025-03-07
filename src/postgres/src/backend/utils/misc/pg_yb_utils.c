@@ -3365,7 +3365,7 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 	 * Start a separate DDL transaction if
 	 * FLAGS_TEST_yb_ddl_transaction_block_enabled is false or if this
 	 * is an online schema change operation.
-	*/
+	 */
 	const bool use_separate_ddl_transaction =
 		is_ddl &&
 		(ddl_mode.value == YB_DDL_MODE_ONLINE_SCHEMA_CHANGE_VERSION_INCREMENT ||
