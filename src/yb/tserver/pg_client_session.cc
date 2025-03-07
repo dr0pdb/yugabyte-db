@@ -1117,7 +1117,7 @@ class PgClientSession::Impl {
   }
 
     const auto* metadata = VERIFY_RESULT(GetDdlTransactionMetadata(
-        req.use_transaction(), req.uses_regular_transaction_block(), context->GetClientDeadline()));
+        req.use_transaction(), req.use_regular_transaction_block(), context->GetClientDeadline()));
     RETURN_NOT_OK(helper.Exec(&client_, metadata, context->GetClientDeadline()));
     VLOG_WITH_PREFIX(1) << __func__ << ": " << req.table_name();
     const auto& indexed_table_id = helper.indexed_table_id();
@@ -1150,7 +1150,7 @@ class PgClientSession::Impl {
             ? GetPgsqlNamespaceId(req.source_database_oid()) : "",
         req.next_oid(),
         VERIFY_RESULT(GetDdlTransactionMetadata(
-            req.use_transaction(), req.uses_regular_transaction_block(),
+            req.use_transaction(), req.use_regular_transaction_block(),
             context->GetClientDeadline())),
         req.colocated(), context->GetClientDeadline(), yb_clone_info);
   }
@@ -1167,7 +1167,7 @@ class PgClientSession::Impl {
       const PgDropTableRequestPB& req, PgDropTableResponsePB* resp, rpc::RpcContext* context) {
     const auto yb_table_id = PgObjectId::GetYbTableIdFromPB(req.table_id());
     const auto* metadata = VERIFY_RESULT(GetDdlTransactionMetadata(
-        true /* use_transaction */, req.uses_regular_transaction_block(),
+        true /* use_transaction */, req.use_regular_transaction_block(),
         context->GetClientDeadline()));
     // If ddl rollback is enabled, the table will not be deleted now, so we cannot wait for the
     // table/index deletion to complete. The table will be deleted in the background only after the
@@ -1204,7 +1204,7 @@ class PgClientSession::Impl {
     const auto table_id = PgObjectId::GetYbTableIdFromPB(req.table_id());
     const auto alterer = client_.NewTableAlterer(table_id);
     const auto txn = VERIFY_RESULT(GetDdlTransactionMetadata(
-        req.use_transaction(), req.uses_regular_transaction_block(), context->GetClientDeadline()));
+        req.use_transaction(), req.use_regular_transaction_block(), context->GetClientDeadline()));
     if (txn) {
       alterer->part_of_transaction(txn);
     }
@@ -1371,7 +1371,7 @@ class PgClientSession::Impl {
     const auto id = PgObjectId::FromPB(req.tablegroup_id());
     const auto tablespace_id = PgObjectId::FromPB(req.tablespace_id());
     const auto* metadata = VERIFY_RESULT(GetDdlTransactionMetadata(
-        true /* use_transaction */, req.uses_regular_transaction_block(),
+        true /* use_transaction */, req.use_regular_transaction_block(),
         context->GetClientDeadline()));
     const auto s = client_.CreateTablegroup(
         req.database_name(), GetPgsqlNamespaceId(id.database_oid), id.GetYbTablegroupId(),
@@ -1392,7 +1392,7 @@ class PgClientSession::Impl {
       rpc::RpcContext* context) {
     const auto id = PgObjectId::FromPB(req.tablegroup_id());
     const auto* metadata = VERIFY_RESULT(GetDdlTransactionMetadata(
-        true /* use_transaction */, req.uses_regular_transaction_block(),
+        true /* use_transaction */, req.use_regular_transaction_block(),
         context->GetClientDeadline()));
     const auto status =
         client_.DeleteTablegroup(GetPgsqlTablegroupId(id.database_oid, id.object_oid), metadata);
@@ -1400,6 +1400,12 @@ class PgClientSession::Impl {
       return Status::OK();
     }
     return status;
+  }
+
+  PgClientSessionKind GetSessionKindBasedOnDDLOptions(
+      bool ddl_mode, bool ddl_use_regular_transaction_block) const {
+    return (ddl_mode && !ddl_use_regular_transaction_block) ? PgClientSessionKind::kDdl
+                                                            : PgClientSessionKind::kPlain;
   }
 
   Status RollbackToSubTransaction(
@@ -1416,8 +1422,8 @@ class PgClientSession::Impl {
     // SAVEPOINT statement. This is because each statement in RC isolation is a sub-transaction.
     // Hence, this check needs to be revisited in a follow-up revision.
     RSTATUS_DCHECK(
-        !req.options().ddl_mode() || !req.options().ddl_uses_regular_transaction_block(),
-        Unsupported,
+        !req.options().ddl_mode() || !req.options().ddl_use_regular_transaction_block(),
+        NotSupported,
         "Savepoints are not supported with DDL operations in regular transaction blocks."
         "Track the support at https://github.com/yugabyte/yugabyte-db/issues/26298");
 
@@ -1444,10 +1450,9 @@ class PgClientSession::Impl {
     * ------ Commands...
     * ------ Rollback to Savepoint 1
     */
-    const auto kind = (req.has_options() && req.options().ddl_mode() &&
-                       !req.options().ddl_uses_regular_transaction_block())
-                          ? PgClientSessionKind::kDdl
-                          : PgClientSessionKind::kPlain;
+    const auto kind = GetSessionKindBasedOnDDLOptions(
+        req.has_options() && req.options().ddl_mode(),
+        req.has_options() && req.options().ddl_use_regular_transaction_block());
 
     auto transaction = Transaction(kind);
 
@@ -1505,18 +1510,16 @@ class PgClientSession::Impl {
       rpc::RpcContext* context) {
     saved_priority_.reset();
     const bool is_ddl = req.has_ddl_mode();
-    const bool ddl_uses_regular_transaction_block =
-        is_ddl && req.ddl_mode().uses_regular_transaction_block();
-    const auto kind = (is_ddl && !ddl_uses_regular_transaction_block)
-        ? PgClientSessionKind::kDdl
-        : PgClientSessionKind::kPlain;
+    const bool ddl_use_regular_transaction_block =
+        is_ddl && req.ddl_mode().use_regular_transaction_block();
+    const auto kind = GetSessionKindBasedOnDDLOptions(is_ddl, ddl_use_regular_transaction_block);
     const auto deadline = context->GetClientDeadline();
     auto release_locks_status = ReleaseObjectLocksIfNecessary(kind, deadline);
     auto& txn = GetSessionData(kind).transaction;
     if (!txn) {
       VLOG_WITH_PREFIX_AND_FUNC(2)
           << "ddl: " << is_ddl
-          << ", ddl_uses_regular_transaction_block: " << ddl_uses_regular_transaction_block
+          << ", ddl_use_regular_transaction_block: " << ddl_use_regular_transaction_block
           << ", no running distributed transaction";
       return release_locks_status;
     }
@@ -2351,11 +2354,11 @@ class PgClientSession::Impl {
             "Reading catalog from followers is not allowed");
       kind = PgClientSessionKind::kCatalog;
       EnsureSession(kind, deadline);
-    } else if (options.ddl_mode() && !options.ddl_uses_regular_transaction_block()) {
+    } else if (options.ddl_mode() && !options.ddl_use_regular_transaction_block()) {
       kind = PgClientSessionKind::kDdl;
       EnsureSession(kind, deadline);
       RETURN_NOT_OK(GetDdlTransactionMetadata(
-          true /* use_transaction */, false /* uses_regular_transaction_block */, deadline));
+          true /* use_transaction */, false /* use_regular_transaction_block */, deadline));
     } else {
       DCHECK(kind == PgClientSessionKind::kPlain);
       auto& session = EnsureSession(kind, deadline);
@@ -2428,7 +2431,7 @@ class PgClientSession::Impl {
 
     // TODO: Reset in_txn_limit which might be on session from past Perform? Not resetting will not
     // cause any issue, but should we reset for safety?
-    if (!(options.ddl_mode() && !options.ddl_uses_regular_transaction_block()) &&
+    if (!(options.ddl_mode() && !options.ddl_use_regular_transaction_block()) &&
         !options.use_catalog_session()) {
       txn_serial_no_ = txn_serial_no;
       read_time_serial_no_ = read_time_serial_no;
@@ -2577,15 +2580,15 @@ class PgClientSession::Impl {
   }
 
   Result<const TransactionMetadata*> GetDdlTransactionMetadata(
-    bool use_transaction, bool uses_regular_transaction_block, CoarseTimePoint deadline) {
+    bool use_transaction, bool use_regular_transaction_block, CoarseTimePoint deadline) {
     if (!use_transaction) {
       return nullptr;
     }
 
     const auto kSessionKind =
-      uses_regular_transaction_block ? PgClientSessionKind::kPlain : PgClientSessionKind::kDdl;
+      use_regular_transaction_block ? PgClientSessionKind::kPlain : PgClientSessionKind::kDdl;
     auto& txn = GetSessionData(kSessionKind).transaction;
-    if (uses_regular_transaction_block) {
+    if (use_regular_transaction_block) {
       RSTATUS_DCHECK(FLAGS_TEST_ysql_yb_ddl_transaction_block_enabled, IllegalState,
                      "Received DDL request in regular transaction block, but DDL transaction block "
                      "support is disabled");
@@ -2849,13 +2852,13 @@ class PgClientSession::Impl {
       const PgFinishTransactionRequestPB& req, CoarseTimePoint deadline,
       client::YBTransactionPtr& txn) {
     const auto is_ddl = req.has_ddl_mode();
-    auto ddl_uses_regular_transaction_block = false;
+    auto ddl_use_regular_transaction_block = false;
     auto has_docdb_schema_changes = false;
     std::optional<uint32_t> silently_altered_db;
 
     if (is_ddl) {
       const auto& ddl_mode = req.ddl_mode();
-      ddl_uses_regular_transaction_block = ddl_mode.uses_regular_transaction_block();
+      ddl_use_regular_transaction_block = ddl_mode.use_regular_transaction_block();
       has_docdb_schema_changes = ddl_mode.has_docdb_schema_changes();
       if (ddl_mode.has_silently_altered_db()) {
         silently_altered_db = ddl_mode.silently_altered_db().value();
@@ -2876,7 +2879,7 @@ class PgClientSession::Impl {
 
       VLOG_WITH_PREFIX_AND_FUNC(2)
           << "ddl: " << is_ddl
-          << ", ddl_uses_regular_transaction_block: " << ddl_uses_regular_transaction_block
+          << ", ddl_use_regular_transaction_block: " << ddl_use_regular_transaction_block
           << ", txn: " << txn->id() << ", commit: " << commit_status;
       // If commit_status is not ok, we cannot be sure whether the commit was successful or not. It
       // is possible that the commit succeeded at the transaction coordinator but we failed to get
@@ -2909,7 +2912,7 @@ class PgClientSession::Impl {
     } else {
       VLOG_WITH_PREFIX_AND_FUNC(2)
           << "ddl: " << is_ddl
-          << ", ddl_uses_regular_transaction_block: " << ddl_uses_regular_transaction_block
+          << ", ddl_use_regular_transaction_block: " << ddl_use_regular_transaction_block
           << ", txn: " << txn->id() << ", abort";
       txn->Abort();
     }

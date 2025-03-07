@@ -814,7 +814,7 @@ Status PgApiImpl::NewCreateDatabase(
       std::make_unique<PgCreateDatabase>(
           pg_session_, database_name, database_oid, source_database_oid, next_oid, yb_clone_info,
           colocated, pg_txn_manager_->IsDdlMode(),
-          pg_txn_manager_->DdlUsesRegularTransactionBlock()),
+          pg_txn_manager_->IsDdlModeWithUseRegularTransactionBlock()),
       handle);
 }
 
@@ -891,7 +891,7 @@ Status PgApiImpl::NewCreateTablegroup(
   return AddToCurrentPgMemctx(
       std::make_unique<PgCreateTablegroup>(
           pg_session_, database_name, database_oid, tablegroup_oid, tablespace_oid,
-          pg_txn_manager_->DdlUsesRegularTransactionBlock()),
+          pg_txn_manager_->IsDdlModeWithUseRegularTransactionBlock()),
       handle);
 }
 
@@ -907,7 +907,7 @@ Status PgApiImpl::NewDropTablegroup(
   return AddToCurrentPgMemctx(
       std::make_unique<PgDropTablegroup>(
           pg_session_, database_oid, tablegroup_oid,
-          pg_txn_manager_->DdlUsesRegularTransactionBlock()),
+          pg_txn_manager_->IsDdlModeWithUseRegularTransactionBlock()),
       handle);
 }
 
@@ -941,7 +941,7 @@ Status PgApiImpl::NewCreateTable(const char* database_name,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
           old_relfilenode_oid, is_truncate, pg_txn_manager_->IsDdlMode(),
-          pg_txn_manager_->DdlUsesRegularTransactionBlock()),
+          pg_txn_manager_->IsDdlModeWithUseRegularTransactionBlock()),
       handle);
 }
 
@@ -970,7 +970,7 @@ Status PgApiImpl::NewAlterTable(const PgObjectId& table_id, PgStatement** handle
   return AddToCurrentPgMemctx(
       std::make_unique<PgAlterTable>(
           pg_session_, table_id, pg_txn_manager_->IsDdlMode(),
-          pg_txn_manager_->DdlUsesRegularTransactionBlock()),
+          pg_txn_manager_->IsDdlModeWithUseRegularTransactionBlock()),
       handle);
 }
 
@@ -1141,7 +1141,7 @@ Status PgApiImpl::NewCreateIndex(const char* database_name,
           is_sys_catalog_index, if_not_exist, PG_YBROWID_MODE_NONE, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, false /* is_matview */, pg_table_id,
           old_relfilenode_id, false /* is_truncate */, pg_txn_manager_->IsDdlMode(),
-          pg_txn_manager_->DdlUsesRegularTransactionBlock(), base_table_id,
+          pg_txn_manager_->IsDdlModeWithUseRegularTransactionBlock(), base_table_id,
           is_unique_index, skip_index_backfill),
       handle);
 }

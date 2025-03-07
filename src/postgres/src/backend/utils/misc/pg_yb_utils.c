@@ -1116,7 +1116,7 @@ typedef struct
 	 * changes are visible to all other backends. Note that an online schema
 	 * change can never happen in a transaction block.
 	 */
-	bool uses_regular_txn_block;
+	bool use_regular_txn_block;
 } YbDdlTransactionState;
 
 static YbDdlTransactionState ddl_transaction_state = {0};
@@ -1147,11 +1147,11 @@ YBCCommitTransaction()
 		return;
 
 	/*
-	 * uses_regular_txn_block is only true if
+	 * use_regular_txn_block is only true if
 	 * FLAGS_TEST_yb_ddl_transaction_block_enabled is true. So no need to check the
 	 * flag separately.
 	 */
-	if (ddl_transaction_state.uses_regular_txn_block)
+	if (ddl_transaction_state.use_regular_txn_block)
 	{
 		/*
 		 * The transaction contains DDL statements and uses regular transaction
@@ -1170,7 +1170,7 @@ YBCAbortTransaction()
 	if (!IsYugaByteEnabled() || !YBTransactionsEnabled())
 		return;
 
-	if (ddl_transaction_state.uses_regular_txn_block)
+	if (ddl_transaction_state.use_regular_txn_block)
 		YBResetDdlState();
 
 	/*
@@ -2229,7 +2229,7 @@ YBResetDdlState()
 		status = YbMemCtxReset(ddl_transaction_state.mem_context);
 	}
 
-	bool uses_regular_txn_block = ddl_transaction_state.uses_regular_txn_block;
+	bool use_regular_txn_block = ddl_transaction_state.use_regular_txn_block;
 	ddl_transaction_state = (YbDdlTransactionState)
 	{
 	};
@@ -2239,7 +2239,7 @@ YBResetDdlState()
 	 * separate DDL transaction mode. The ddl_state stored in PGGate will be
 	 * cleared up as part of the abort of the regular transaction.
 	 */
-	if (!uses_regular_txn_block)
+	if (!use_regular_txn_block)
 		HandleYBStatus(YBCPgClearSeparateDdlTxnMode());
 	HandleYBStatus(status);
 }
@@ -2257,9 +2257,9 @@ YBGetDdlOriginalNodeTag()
 }
 
 bool
-YBGetDdlUsesRegularTransactionBlock()
+YBGetDdlUseRegularTransactionBlock()
 {
-	return ddl_transaction_state.uses_regular_txn_block;
+	return ddl_transaction_state.use_regular_txn_block;
 }
 
 void
@@ -2298,7 +2298,7 @@ YBIncrementDdlNestingLevel(YbDdlMode mode)
 								  ALLOCSET_DEFAULT_SIZES);
 
 		MemoryContextSwitchTo(ddl_transaction_state.mem_context);
-		ddl_transaction_state.uses_regular_txn_block = false;
+		ddl_transaction_state.use_regular_txn_block = false;
 		HandleYBStatus(YBCPgEnterSeparateDdlTxnMode());
 
 		if (yb_force_catalog_update_on_next_ddl)
@@ -2319,16 +2319,18 @@ void
 YBSetDdlState(YbDdlMode mode)
 {
 	Assert(*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled);
+	Assert(!ddl_transaction_state.use_regular_txn_block ||
+		   ddl_transaction_state.nesting_level == 0);
 
 	if (ddl_transaction_state.nesting_level > 0 ||
-		ddl_transaction_state.uses_regular_txn_block)
+		ddl_transaction_state.use_regular_txn_block)
 	{
 		ddl_transaction_state.catalog_modification_aspects.pending |= mode;
 		return;
 	}
 
 	HandleYBStatus(YBCPgSetDdlStateInPlainTransaction());
-	ddl_transaction_state.uses_regular_txn_block = true;
+	ddl_transaction_state.use_regular_txn_block = true;
 	ddl_transaction_state.catalog_modification_aspects.pending |= mode;
 }
 
@@ -2521,13 +2523,13 @@ YBCommitTransactionContainingDDL()
 	}
 
 	Oid			database_oid = YbGetDatabaseOidToIncrementCatalogVersion();
-	bool uses_regular_txn_block = ddl_transaction_state.uses_regular_txn_block;
+	bool use_regular_txn_block = ddl_transaction_state.use_regular_txn_block;
 
 	ddl_transaction_state = (YbDdlTransactionState)
 	{
 	};
 
-	if (uses_regular_txn_block)
+	if (use_regular_txn_block)
 		HandleYBStatus(YBCPgCommitPlainTransactionContainingDDL(MyDatabaseId, is_silent_altering));
 	else
 		HandleYBStatus(YBCPgExitSeparateDdlTxnMode(MyDatabaseId,
@@ -2622,7 +2624,13 @@ YBCommitTransactionContainingDDL()
 void
 YBDecrementDdlNestingLevel()
 {
+	Assert(!ddl_transaction_state.use_regular_txn_block);
+
 	--ddl_transaction_state.nesting_level;
+	/*
+	 * The transaction contains DDL statements and uses a separate DDL
+	 * transaction.
+	 */
 	if (ddl_transaction_state.nesting_level == 0)
 		YBCommitTransactionContainingDDL();
 }
@@ -3353,8 +3361,15 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 	const YbDdlModeOptional ddl_mode = YbGetDdlMode(pstmt, context);
 
 	const bool	is_ddl = ddl_mode.has_value;
-	const bool	is_online_ddl = is_ddl &&
-		ddl_mode.value == YB_DDL_MODE_ONLINE_SCHEMA_CHANGE_VERSION_INCREMENT;
+	/*
+	 * Start a separate DDL transaction if
+	 * FLAGS_TEST_yb_ddl_transaction_block_enabled is false or if this
+	 * is an online schema change operation.
+	*/
+	const bool use_separate_ddl_transaction =
+		is_ddl &&
+		(ddl_mode.value == YB_DDL_MODE_ONLINE_SCHEMA_CHANGE_VERSION_INCREMENT ||
+		 !*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled);
 
 	PG_TRY();
 	{
@@ -3379,13 +3394,7 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 				YbInitPinnedCacheIfNeeded(true /* shared_only */ );
 #endif
 
-			/*
-			 * Start a separate DDL transaction if
-			 * FLAGS_TEST_yb_ddl_transaction_block_enabled is false or if this
-			 * is an online schema change operation.
-			 */
-			if (!(*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled) ||
-				is_online_ddl)
+			if (use_separate_ddl_transaction)
 				YBIncrementDdlNestingLevel(ddl_mode.value);
 			else
 				YBSetDdlState(ddl_mode.value);
@@ -3409,15 +3418,13 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 		{
 			CheckAlterDatabaseDdl(pstmt);
 
-			if (!(*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled) ||
-				is_online_ddl)
+			if (use_separate_ddl_transaction)
 				YBDecrementDdlNestingLevel();
 		}
 	}
 	PG_CATCH();
 	{
-		if (!(*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled) ||
-			is_online_ddl)
+		if (use_separate_ddl_transaction)
 		{
 			/*
 			 * It is possible that nesting_level has wrong value due to error.

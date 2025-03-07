@@ -798,7 +798,7 @@ bool		YBIsInitDbAlreadyDone();
 
 extern int YBGetDdlNestingLevel();
 extern NodeTag YBGetDdlOriginalNodeTag();
-extern bool YBGetDdlUsesRegularTransactionBlock();
+extern bool YBGetDdlUseRegularTransactionBlock();
 extern void YbSetIsGlobalDDL();
 extern void YbIncrementPgTxnsCommitted();
 

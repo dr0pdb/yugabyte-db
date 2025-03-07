@@ -314,7 +314,7 @@ AddInvalidationMessage(InvalidationMsgsGroup *group, int subgroup,
 		   YBGetDdlOriginalNodeTag() == T_Invalid ||
 		   yb_non_ddl_txn_for_sys_tables_allowed ||
 		   YBGetDdlNestingLevel() > 0 ||
-		   YBGetDdlUsesRegularTransactionBlock());
+		   YBGetDdlUseRegularTransactionBlock());
 	InvalMessageArray *ima = &InvalMessageArrays[subgroup];
 	int			nextindex = group->nextmsg[subgroup];
 

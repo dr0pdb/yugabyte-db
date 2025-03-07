@@ -84,11 +84,11 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   bool IsTxnInProgress() const { return txn_in_progress_; }
   IsolationLevel GetIsolationLevel() const { return isolation_level_; }
   bool IsDdlMode() const { return ddl_state_.has_value(); }
-  bool DdlUsesRegularTransactionBlock() const {
-    return ddl_state_.has_value() && ddl_state_->uses_regular_transaction_block;
+  bool IsDdlModeWithUseRegularTransactionBlock() const {
+    return ddl_state_.has_value() && ddl_state_->use_regular_transaction_block;
   }
-  bool DdlUsesSeparateTransaction() const {
-    return ddl_state_.has_value() && !ddl_state_->uses_regular_transaction_block;
+  bool IsDdlModeWithSeparateTransaction() const {
+    return ddl_state_.has_value() && !ddl_state_->use_regular_transaction_block;
   }
   std::optional<bool> GetDdlForceCatalogModification() const {
     return ddl_state_ ? std::optional(ddl_state_->force_catalog_modification) : std::nullopt;
@@ -118,11 +118,11 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   struct DdlState {
     bool has_docdb_schema_changes = false;
     bool force_catalog_modification = false;
-    bool uses_regular_transaction_block = false;
+    bool use_regular_transaction_block = false;
 
     std::string ToString() const {
       return YB_STRUCT_TO_STRING(
-          has_docdb_schema_changes, force_catalog_modification, uses_regular_transaction_block);
+          has_docdb_schema_changes, force_catalog_modification, use_regular_transaction_block);
     }
   };
 
@@ -165,7 +165,7 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
 
   std::string TxnStateDebugStr() const;
 
-  DdlMode ConstructDdlModeFromDdlState(
+  DdlMode GetDdlModeFromDdlState(
     const std::optional<DdlState> ddl_state, const std::optional<DdlCommitInfo>& ddl_commit_info);
 
   Status FinishPlainTransaction(Commit commit, const std::optional<DdlCommitInfo>& ddl_commit_info);
