@@ -84,7 +84,7 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   bool IsTxnInProgress() const { return txn_in_progress_; }
   IsolationLevel GetIsolationLevel() const { return isolation_level_; }
   bool IsDdlMode() const { return ddl_state_.has_value(); }
-  bool IsDdlModeWithUseRegularTransactionBlock() const {
+  bool IsDdlModeWithRegularTransactionBlock() const {
     return ddl_state_.has_value() && ddl_state_->use_regular_transaction_block;
   }
   bool IsDdlModeWithSeparateTransaction() const {

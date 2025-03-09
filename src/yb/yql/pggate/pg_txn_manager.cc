@@ -503,7 +503,7 @@ Status PgTxnManager::FinishPlainTransaction(
   std::optional<DdlMode> ddl_mode = std::nullopt;
   if (ddl_state_) {
     RSTATUS_DCHECK(
-        IsDdlModeWithUseRegularTransactionBlock(), IllegalState,
+        IsDdlModeWithRegularTransactionBlock(), IllegalState,
         "Unexpected DDL state. Expected to be in DDL mode within regular transaction block");
 
     ddl_mode.emplace(GetDdlModeFromDdlState(ddl_state_, ddl_commit_info));
@@ -631,7 +631,7 @@ Status PgTxnManager::SetupPerformOptions(
   }
   options->set_isolation(isolation_level_);
   options->set_ddl_mode(IsDdlMode());
-  options->set_ddl_use_regular_transaction_block(IsDdlModeWithUseRegularTransactionBlock());
+  options->set_ddl_use_regular_transaction_block(IsDdlModeWithRegularTransactionBlock());
   options->set_yb_non_ddl_txn_for_sys_tables_allowed(yb_non_ddl_txn_for_sys_tables_allowed);
   options->set_trace_requested(enable_tracing_);
   options->set_txn_serial_no(serial_no_.txn());
