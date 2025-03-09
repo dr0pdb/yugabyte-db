@@ -30,11 +30,11 @@ ROLLBACK;
 
 SELECT * FROM test3;
 SELECT * FROM test4;
--- TODO(#23825): The following select will retry after encountering a version 
+-- TODO(#23825): The following select will retry after encountering a version
 -- mismatch error, and it will result in double output for now. This is a known
 -- issue.
 SELECT * FROM test1;
- 
+
 -- Test commit of a block with multiple DDLs
 BEGIN ISOLATION LEVEL REPEATABLE READ;
 CREATE TABLE test3 (id int);
@@ -58,7 +58,7 @@ ROLLBACK;
 
 SELECT * FROM test5;
 SELECT * FROM test6;
--- TODO(#23825): The following select will retry after encountering a version 
+-- TODO(#23825): The following select will retry after encountering a version
 -- mismatch error, and it will result in double output for now. This is a known
 -- issue.
 SELECT * FROM test1;
