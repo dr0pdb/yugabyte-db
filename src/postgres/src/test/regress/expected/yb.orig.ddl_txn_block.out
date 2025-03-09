@@ -6,7 +6,7 @@ INSERT INTO test1 VALUES (2);
 ROLLBACK;
 -- No rows in test1.
 SELECT * FROM test1;
- id
+ id 
 ----
 (0 rows)
 
@@ -21,13 +21,13 @@ CREATE TABLE test2 (id int);
 INSERT INTO test1 VALUES (2);
 COMMIT;
 SELECT * FROM test1;
- id
+ id 
 ----
   2
 (1 row)
 
 SELECT * FROM test2;
- id
+ id 
 ----
 (0 rows)
 
@@ -50,15 +50,14 @@ LINE 1: SELECT * FROM test4;
 -- mismatch error, and it will result in double output for now. This is a known
 -- issue.
 SELECT * FROM test1;
- id
+ id 
 ----
 (0 rows)
 
- id
+ id 
 ----
   2
 (1 row)
-
 
 -- Test commit of a block with multiple DDLs
 BEGIN ISOLATION LEVEL REPEATABLE READ;
@@ -68,19 +67,19 @@ ALTER TABLE test1 ADD COLUMN value text;
 INSERT INTO test1 VALUES (3, 'text');
 COMMIT;
 SELECT * FROM test3;
- id
+ id 
 ----
 (0 rows)
 
 SELECT * FROM test4;
- id
+ id 
 ----
 (0 rows)
 
 SELECT * FROM test1;
- id | value
+ id | value 
 ----+-------
-  2 |
+  2 | 
   3 | text
 (2 rows)
 
@@ -100,17 +99,17 @@ SELECT * FROM test6;
 ERROR:  relation "test6" does not exist
 LINE 1: SELECT * FROM test6;
                       ^
--- TODO(#23825): The following select will retry after encountering a version 
+-- TODO(#23825): The following select will retry after encountering a version
 -- mismatch error, and it will result in double output for now. This is a known
 -- issue.
 SELECT * FROM test1;
- id | value
+ id | value 
 ----+-------
 (0 rows)
 
- id | value
+ id | value 
 ----+-------
-  2 |
+  2 | 
   3 | text
 (2 rows)
 
@@ -122,29 +121,30 @@ ALTER TABLE test1 ADD COLUMN value1 text;
 INSERT INTO test1 VALUES (4, 'text', 'text2');
 COMMIT;
 SELECT * FROM test5;
- id
+ id 
 ----
 (0 rows)
 
 SELECT * FROM test6;
- id
+ id 
 ----
 (0 rows)
 
 SELECT * FROM test1;
- id | value | value1
+ id | value | value1 
 ----+-------+--------
-  5 | text  |
+  5 | text  | 
   4 | text  | text2
-  2 |       |
-  3 | text  |
+  2 |       | 
+  3 | text  | 
 (4 rows)
 
 CREATE INDEX ON test1(value);
 SELECT value FROM test1 WHERE value='text';
- value
+ value 
 -------
  text
  text
  text
 (3 rows)
+
