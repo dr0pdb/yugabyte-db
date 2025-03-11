@@ -801,6 +801,9 @@ extern NodeTag YBGetDdlOriginalNodeTag();
 extern bool YBGetDdlUseRegularTransactionBlock();
 extern void YbSetIsGlobalDDL();
 extern void YbIncrementPgTxnsCommitted();
+extern void YbAddAlteredTableIds(List *table_ids);
+extern void YbInvalidateTableCacheForTables(List *ybAlteredTableIds);
+
 
 typedef enum YbSysCatalogModificationAspect
 {

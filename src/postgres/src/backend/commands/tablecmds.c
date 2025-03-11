@@ -701,7 +701,6 @@ static void YbATSetPKRewriteChildPartitions(List **yb_wqueue,
 											bool skip_copy_split_options);
 static void YbATCopyIndexSplitOptions(Oid oldId, IndexStmt *stmt,
 									  AlteredTableInfo *tab);
-static void YbATInvalidateTableCacheAfterAlter(List *ybAlteredTableIds);
 
 /* ----------------------------------------------------------------
  *		DefineRelation
@@ -4784,10 +4783,11 @@ ATController(AlterTableStmt *parsetree,
 		 * changes done to DocDB.
 		 */
 		ATRewriteCatalogs(&wqueue, lockmode, context, &rollbackHandles, &ybAlteredTableIds);
+		YbAddAlteredTableIds(ybAlteredTableIds);
 	}
 	PG_CATCH();
 	{
-		YbATInvalidateTableCacheAfterAlter(ybAlteredTableIds);
+		YbInvalidateTableCacheForTables(ybAlteredTableIds);
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
@@ -4796,7 +4796,7 @@ ATController(AlterTableStmt *parsetree,
 	PG_TRY();
 	{
 		ATRewriteTables(parsetree, &wqueue, lockmode, context);
-		YbATInvalidateTableCacheAfterAlter(ybAlteredTableIds);
+		YbInvalidateTableCacheForTables(ybAlteredTableIds);
 	}
 	PG_CATCH();
 	{
@@ -4816,7 +4816,7 @@ ATController(AlterTableStmt *parsetree,
 				YBCExecAlterTable(handle, RelationGetRelid(rel));
 			}
 		}
-		YbATInvalidateTableCacheAfterAlter(ybAlteredTableIds);
+		YbInvalidateTableCacheForTables(ybAlteredTableIds);
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
@@ -22933,43 +22933,5 @@ YbATCopyIndexSplitOptions(Oid oldId, IndexStmt *stmt, AlteredTableInfo *tab)
 		if (yb_copy_split_options)
 			stmt->split_options = YbGetSplitOptions(idx_rel);
 		RelationClose(idx_rel);
-	}
-}
-
-/*
- * Used in YB to re-invalidate table cache entries at the end of an ALTER TABLE
- * operation.
- */
-static void
-YbATInvalidateTableCacheAfterAlter(List *ybAlteredTableIds)
-{
-	if (YbDdlRollbackEnabled() && ybAlteredTableIds)
-	{
-		/*
-		 * As part of DDL transaction verification, we may have incremented
-		 * the schema version for the affected tables. So, re-invalidate
-		 * the table cache entries of the affected tables.
-		 */
-		ListCell   *lc = NULL;
-
-		foreach(lc, ybAlteredTableIds)
-		{
-			Oid			relid = lfirst_oid(lc);
-			Relation	rel = RelationIdGetRelation(relid);
-
-			/*
-			 * The relation may no longer exist if it was dropped as part of
-			 * a legacy rewrite operation. We can skip invalidation in that
-			 * case.
-			 */
-			if (!rel)
-			{
-				Assert(!yb_enable_alter_table_rewrite);
-				continue;
-			}
-			YBCPgAlterTableInvalidateTableByOid(YBCGetDatabaseOidByRelid(relid),
-												YbGetRelfileNodeIdFromRelId(relid));
-			RelationClose(rel);
-		}
 	}
 }
