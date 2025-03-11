@@ -501,11 +501,13 @@ Status PgTxnManager::FinishPlainTransaction(
       << (commit ? "Committing" : "Aborting")
       << (is_read_only ? " read only" : "") << " transaction.";
   std::optional<DdlMode> ddl_mode = std::nullopt;
-  if (ddl_state_) {
-    RSTATUS_DCHECK(
-        IsDdlModeWithRegularTransactionBlock(), IllegalState,
-        "Unexpected DDL state. Expected to be in DDL mode within regular transaction block");
-
+  // GH #22353 - We are only expected to reach inside the **if** condition, if the DDL, DML
+  // transaction unification is enabled and we have a DDL statement within the transaction block.
+  // Therefore, ideally here we should have a RSTATUS_DCHECK on
+  // IsDdlModeWithRegularTransactionBlock() inside, instead of checking it in the if condition. We
+  // do that only due to the linked bug GH #22353 where we can enter this function while executing
+  // the ANALYZE command with DDL state set despite of using separate DDL transactions.
+  if (ddl_state_ && IsDdlModeWithRegularTransactionBlock()) {
     ddl_mode.emplace(GetDdlModeFromDdlState(ddl_state_, ddl_commit_info));
   }
   VLOG_TXN_STATE(2) << "Sending FinishTransaction request with commit: " << commit << ", ddl_mode: "
@@ -513,6 +515,14 @@ Status PgTxnManager::FinishPlainTransaction(
   Status status = client_->FinishTransaction(commit, ddl_mode);
   VLOG_TXN_STATE(2) << "Transaction " << (commit ? "commit" : "abort") << " status: " << status;
   ResetTxnAndSession();
+  // GH #22353 - Ideally the reset of the ddl_state_ should happen without the if condition, but
+  // due to the linked bug GH #22353, we are resetting the DDL state only if DDL, DML transaction
+  // unification is enabled and we have a DDL statement within the transaction block. We can enter
+  // this function while executing the ANALYZE command with DDL state set despite of using separate
+  // DDL transactions. We don't want to clear out the DDL state in that case.
+  if (IsDdlModeWithRegularTransactionBlock()) {
+    ddl_state_.reset();
+  }
   return status;
 }
 
@@ -529,7 +539,6 @@ void PgTxnManager::ResetTxnAndSession() {
   snapshot_read_time_is_set_ = false;
   read_time_manipulation_ = tserver::ReadTimeManipulation::NONE;
   read_only_stmt_ = false;
-  ddl_state_.reset();
 }
 
 Status PgTxnManager::SetDdlStateInPlainTransaction() {
