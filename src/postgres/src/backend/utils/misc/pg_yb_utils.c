@@ -2628,10 +2628,22 @@ YBDecrementDdlNestingLevel()
 
 	--ddl_transaction_state.nesting_level;
 	/*
+	 * Merge catalog modification aspects if the nesting level > 0. For
+	 * nesting_level = 0, it is done inside the YBCommitTransactionContainingDDL
+	 * function.
+	 */
+	if (ddl_transaction_state.nesting_level > 0)
+	{
+		const bool	has_write = YBCPgHasWriteOperationsInDdlTxnMode();
+
+		MergeCatalogModificationAspects(&ddl_transaction_state.catalog_modification_aspects,
+										has_write);
+	}
+	/*
 	 * The transaction contains DDL statements and uses a separate DDL
 	 * transaction.
 	 */
-	if (ddl_transaction_state.nesting_level == 0)
+	else
 		YBCommitTransactionContainingDDL();
 }
 
