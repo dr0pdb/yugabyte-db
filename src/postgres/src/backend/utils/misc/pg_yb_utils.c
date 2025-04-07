@@ -3890,9 +3890,7 @@ YbInvalidateTableCacheForAlteredTables()
 			 * cases.
 			 */
 			if (!rel)
-			{
 				continue;
-			}
 			YBCPgAlterTableInvalidateTableByOid(YBCGetDatabaseOidByRelid(relid),
 												YbGetRelfileNodeIdFromRelId(relid));
 			RelationClose(rel);
