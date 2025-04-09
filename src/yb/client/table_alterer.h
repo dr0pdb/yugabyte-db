@@ -20,6 +20,7 @@
 
 #include "yb/common/common_fwd.h"
 
+#include "yb/common/transaction.h"
 #include "yb/master/master_ddl.fwd.h"
 #include "yb/master/master_fwd.h"
 
@@ -85,6 +86,8 @@ class YBTableAlterer {
   // The altering of this table is dependent upon the success of this higher-level transaction.
   YBTableAlterer* part_of_transaction(const TransactionMetadata* txn);
 
+  YBTableAlterer* part_of_sub_transaction(uint32_t sub_txn_id);
+
   // Set increment_schema_version to true.
   YBTableAlterer* set_increment_schema_version();
 
@@ -125,6 +128,7 @@ class YBTableAlterer {
   std::unique_ptr<ReplicationInfoPB> replication_info_;
 
   const TransactionMetadata* txn_ = nullptr;
+  uint32_t sub_txn_id_ = kMinSubTransactionId;
 
   bool increment_schema_version_ = false;
 

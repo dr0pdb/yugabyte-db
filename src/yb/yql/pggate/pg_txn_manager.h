@@ -63,6 +63,7 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   Status EnsureReadPoint();
   Status RestartReadPoint();
   bool IsRestartReadPointRequested();
+  SubTransactionId GetActiveSubTransactionId();
   void SetActiveSubTransactionId(SubTransactionId id);
   Status SetDdlStateInPlainTransaction();
   Status CommitPlainTransaction(const std::optional<PgDdlCommitInfo>& ddl_commit_info);

@@ -681,6 +681,7 @@ Status YBClient::DeleteTable(const YBTableName& table_name, bool wait) {
 Status YBClient::DeleteTable(const string& table_id,
                              bool wait,
                              const TransactionMetadata *txn,
+                             SubTransactionId sub_transaction_id,
                              CoarseTimePoint deadline) {
   return data_->DeleteTable(this,
                             YBTableName(),
@@ -689,13 +690,15 @@ Status YBClient::DeleteTable(const string& table_id,
                             PatchAdminDeadline(deadline),
                             nullptr /* indexed_table_name */,
                             wait,
-                            txn);
+                            txn,
+                            sub_transaction_id);
 }
 
 Status YBClient::DeleteIndexTable(const YBTableName& table_name,
                                   YBTableName* indexed_table_name,
                                   bool wait,
-                                  const TransactionMetadata *txn) {
+                                  const TransactionMetadata *txn,
+                                  SubTransactionId sub_transaction_id) {
   auto deadline = CoarseMonoClock::Now() + default_admin_operation_timeout();
   return data_->DeleteTable(this,
                             table_name,
@@ -704,13 +707,15 @@ Status YBClient::DeleteIndexTable(const YBTableName& table_name,
                             deadline,
                             indexed_table_name,
                             wait,
-                            txn);
+                            txn,
+                            sub_transaction_id);
 }
 
 Status YBClient::DeleteIndexTable(const string& table_id,
                                   YBTableName* indexed_table_name,
                                   bool wait,
                                   const TransactionMetadata *txn,
+                                  SubTransactionId sub_transaction_id,
                                   CoarseTimePoint deadline) {
   return data_->DeleteTable(this,
                             YBTableName(),
@@ -719,7 +724,8 @@ Status YBClient::DeleteIndexTable(const string& table_id,
                             PatchAdminDeadline(deadline),
                             indexed_table_name,
                             wait,
-                            txn);
+                            txn,
+                            sub_transaction_id);
 }
 
 Status YBClient::FlushTables(const std::vector<TableId>& table_ids,

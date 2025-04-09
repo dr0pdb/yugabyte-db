@@ -653,7 +653,8 @@ Status YBClient::Data::DeleteTable(YBClient* client,
                                    CoarseTimePoint deadline,
                                    YBTableName* indexed_table_name,
                                    bool wait,
-                                   const TransactionMetadata *txn) {
+                                   const TransactionMetadata *txn,
+                                   SubTransactionId sub_transaction_id) {
   DeleteTableRequestPB req;
   DeleteTableResponsePB resp;
   int attempts = 0;
@@ -672,6 +673,7 @@ Status YBClient::Data::DeleteTable(YBClient* client,
     DCHECK(!wait);
     txn->ToPB(req.mutable_transaction());
     req.set_ysql_yb_ddl_rollback_enabled(true);
+    req.set_sub_transaction_id(sub_transaction_id);
   }
   req.set_is_index_table(is_index_table);
   const Status status = SyncLeaderMasterRpc(

@@ -176,6 +176,7 @@ PgCreateTableBase::PgCreateTableBase(
     bool is_matview,
     const PgObjectId& pg_table_oid,
     const PgObjectId& old_relfilenode_oid,
+    SubTransactionId active_sub_transaction_id,
     bool is_truncate,
     bool use_transaction,
     bool use_regular_transaction_block)
@@ -200,6 +201,7 @@ PgCreateTableBase::PgCreateTableBase(
   req_.set_is_truncate(is_truncate);
   req_.set_use_transaction(use_transaction);
   req_.set_use_regular_transaction_block(use_regular_transaction_block);
+  req_.set_active_sub_transaction_id(active_sub_transaction_id);
 
   // Add internal primary key column to a Postgres table without a user-specified primary key.
   switch (ybrowid_mode) {
@@ -305,6 +307,7 @@ PgCreateTable::PgCreateTable(
     bool is_matview,
     const PgObjectId& pg_table_oid,
     const PgObjectId& old_relfilenode_oid,
+    SubTransactionId active_sub_transaction_id,
     bool is_truncate,
     bool use_transaction,
     bool use_regular_transaction_block)
@@ -312,7 +315,8 @@ PgCreateTable::PgCreateTable(
           pg_session, database_name, schema_name, table_name, table_id, is_shared_table,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
-          old_relfilenode_oid, is_truncate, use_transaction, use_regular_transaction_block) {}
+          old_relfilenode_oid, active_sub_transaction_id, is_truncate, use_transaction,
+          use_regular_transaction_block) {}
 
 PgCreateIndex::PgCreateIndex(
     const PgSession::ScopedRefPtr& pg_session,
@@ -331,6 +335,7 @@ PgCreateIndex::PgCreateIndex(
     bool is_matview,
     const PgObjectId& pg_table_oid,
     const PgObjectId& old_relfilenode_oid,
+    SubTransactionId active_sub_transaction_id,
     bool is_truncate,
     bool use_transaction,
     bool use_regular_transaction_block,
@@ -341,7 +346,8 @@ PgCreateIndex::PgCreateIndex(
           pg_session, database_name, schema_name, table_name, table_id, is_shared_table,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
-          old_relfilenode_oid, is_truncate, use_transaction, use_regular_transaction_block) {
+          old_relfilenode_oid, active_sub_transaction_id, is_truncate, use_transaction,
+          use_regular_transaction_block) {
   base_table_id.ToPB(req_.mutable_base_table_id());
   req_.set_is_unique_index(is_unique_index);
   req_.set_skip_index_backfill(skip_index_backfill);
@@ -353,13 +359,15 @@ PgCreateIndex::PgCreateIndex(
 
 PgDropTable::PgDropTable(
     const PgSession::ScopedRefPtr& pg_session, const PgObjectId& table_id, bool if_exist,
-    bool use_regular_transaction_block)
+    bool use_regular_transaction_block, SubTransactionId active_sub_transaction_id)
     : BaseType(pg_session), table_id_(table_id), if_exist_(if_exist),
-      use_regular_transaction_block_(use_regular_transaction_block) {
+      use_regular_transaction_block_(use_regular_transaction_block),
+      active_sub_transaction_id_(active_sub_transaction_id) {
 }
 
 Status PgDropTable::Exec() {
-  Status s = pg_session_->DropTable(table_id_, use_regular_transaction_block_);
+  Status s =
+      pg_session_->DropTable(table_id_, use_regular_transaction_block_, active_sub_transaction_id_);
   pg_session_->InvalidateTableCache(table_id_, InvalidateOnPgClient::kFalse);
   if (s.ok() || (s.IsNotFound() && if_exist_)) {
     return Status::OK();
@@ -415,12 +423,14 @@ Status PgDropIndex::Exec() {
 PgAlterTable::PgAlterTable(
     const PgSession::ScopedRefPtr& pg_session,
     const PgObjectId& table_id,
+    SubTransactionId active_sub_transaction_id,
     bool use_transaction,
     bool use_regular_transaction_block)
     : BaseType(pg_session) {
   table_id.ToPB(req_.mutable_table_id());
   req_.set_use_transaction(use_transaction);
   req_.set_use_regular_transaction_block(use_regular_transaction_block);
+  req_.set_active_sub_transaction_id(active_sub_transaction_id);
 }
 
 Status PgAlterTable::AddColumn(const char *name,

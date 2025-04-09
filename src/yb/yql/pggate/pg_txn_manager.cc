@@ -443,6 +443,10 @@ bool PgTxnManager::IsRestartReadPointRequested() {
   return read_time_manipulation_ == tserver::ReadTimeManipulation::RESTART;
 }
 
+SubTransactionId PgTxnManager::GetActiveSubTransactionId() {
+  return active_sub_transaction_id_;
+}
+
 void PgTxnManager::SetActiveSubTransactionId(SubTransactionId id) {
   VLOG_WITH_FUNC(4) << "id: " << id << ", old id: " << active_sub_transaction_id_;
   active_sub_transaction_id_ = id;

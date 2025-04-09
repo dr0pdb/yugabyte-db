@@ -136,6 +136,8 @@ message CreateTableRequestPB {
   }
 
   optional XClusterTableInfo xcluster_table_info = 33;
+
+  optional uint32 sub_transaction_id = 34;
 }
 
 message CreateTableResponsePB {
@@ -372,6 +374,7 @@ message DeleteTableRequestPB {
   optional bool is_index_table = 2 [ default = false ];
   optional TransactionMetadataPB transaction = 3;
   optional bool ysql_yb_ddl_rollback_enabled = 4 [ default = false ];
+  optional uint32 sub_transaction_id = 5;
 }
 
 message DeleteTableResponsePB {
@@ -475,6 +478,8 @@ message AlterTableRequestPB {
   // For CDCSDK Stream creation with consistent snapshot
   optional bytes cdc_sdk_stream_id = 13;
   optional bool cdc_sdk_require_history_cutoff = 14;
+
+  optional uint32 sub_transaction_id = 15;
 }
 
 message AlterTableResponsePB {

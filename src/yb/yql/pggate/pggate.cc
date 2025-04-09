@@ -942,8 +942,8 @@ Status PgApiImpl::NewCreateTable(const char* database_name,
           pg_session_, database_name, schema_name, table_name, table_id, is_shared_table,
           is_sys_catalog_table, if_not_exist, ybrowid_mode, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, is_matview, pg_table_oid,
-          old_relfilenode_oid, is_truncate, pg_txn_manager_->IsDdlMode(),
-          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
+          old_relfilenode_oid, pg_txn_manager_->GetActiveSubTransactionId(), is_truncate,
+          pg_txn_manager_->IsDdlMode(), pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
       handle);
 }
 
@@ -971,8 +971,8 @@ Status PgApiImpl::ExecCreateTable(PgStatement* handle) {
 Status PgApiImpl::NewAlterTable(const PgObjectId& table_id, PgStatement** handle) {
   return AddToCurrentPgMemctx(
       std::make_unique<PgAlterTable>(
-          pg_session_, table_id, pg_txn_manager_->IsDdlMode(),
-          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
+          pg_session_, table_id, pg_txn_manager_->GetActiveSubTransactionId(),
+          pg_txn_manager_->IsDdlMode(), pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
       handle);
 }
 
@@ -1028,7 +1028,8 @@ Status PgApiImpl::NewDropTable(const PgObjectId& table_id, bool if_exist, PgStat
          "Table is being dropped outside of DDL mode");
   return AddToCurrentPgMemctx(
       std::make_unique<PgDropTable>(
-          pg_session_, table_id, if_exist, pg_txn_manager_->IsDdlModeWithRegularTransactionBlock()),
+          pg_session_, table_id, if_exist, pg_txn_manager_->IsDdlModeWithRegularTransactionBlock(),
+          pg_txn_manager_->GetActiveSubTransactionId()),
       handle);
 }
 
@@ -1144,9 +1145,9 @@ Status PgApiImpl::NewCreateIndex(const char* database_name,
           pg_session_, database_name, schema_name, index_name, index_id, is_shared_index,
           is_sys_catalog_index, if_not_exist, PG_YBROWID_MODE_NONE, is_colocated_via_database,
           tablegroup_oid, colocation_id, tablespace_oid, false /* is_matview */, pg_table_id,
-          old_relfilenode_id, false /* is_truncate */, pg_txn_manager_->IsDdlMode(),
-          pg_txn_manager_->IsDdlModeWithRegularTransactionBlock(), base_table_id,
-          is_unique_index, skip_index_backfill),
+          old_relfilenode_id, pg_txn_manager_->GetActiveSubTransactionId(), false /* is_truncate */,
+          pg_txn_manager_->IsDdlMode(), pg_txn_manager_->IsDdlModeWithRegularTransactionBlock(),
+          base_table_id, is_unique_index, skip_index_backfill),
       handle);
 }
 

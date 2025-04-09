@@ -21,6 +21,7 @@
 #include "yb/common/constants.h"
 #include "yb/common/common_fwd.h"
 
+#include "yb/common/transaction.h"
 #include "yb/dockv/dockv_fwd.h"
 
 #include "yb/gutil/macros.h"
@@ -31,6 +32,7 @@
 
 namespace yb {
 struct TransactionMetadata;
+using SubTransactionId = uint32_t;
 
 namespace client {
 
@@ -89,6 +91,8 @@ class YBTableCreator {
 
   // The creation of this table is dependent upon the success of this higher-level transaction.
   YBTableCreator& part_of_transaction(const TransactionMetadata* txn);
+
+  YBTableCreator& part_of_sub_transaction(uint32_t sub_txn_id);
 
   // Adds a partitions to the table.
   YBTableCreator& add_partition(const dockv::Partition& partition);
@@ -253,6 +257,7 @@ class YBTableCreator {
   uint64_t xcluster_backfill_hybrid_time_;
 
   const TransactionMetadata* txn_ = nullptr;
+  uint32_t sub_txn_id_ = kMinSubTransactionId;
 
   DISALLOW_COPY_AND_ASSIGN(YBTableCreator);
 };

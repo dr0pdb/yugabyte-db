@@ -135,7 +135,8 @@ class PgSession final : public RefCountedThreadSafe<PgSession> {
   Status DropSchema(const std::string& schema_name, bool if_exist);
 
   // API for table operations.
-  Status DropTable(const PgObjectId& table_id, bool use_regular_transaction_block);
+  Status DropTable(const PgObjectId& table_id, bool use_regular_transaction_block,
+                   SubTransactionId active_sub_transaction_id);
   Status DropIndex(
       const PgObjectId& index_id,
       bool use_regular_transaction_block,

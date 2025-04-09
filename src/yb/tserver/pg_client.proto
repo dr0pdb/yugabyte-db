@@ -242,6 +242,7 @@ message PgAlterTableRequestPB {
   PgReplicaIdentityPB replica_identity = 9;
   AshMetadataPB ash_metadata = 10;
   bool use_regular_transaction_block = 11;
+  uint32 active_sub_transaction_id = 12;
 }
 
 message PgAlterTableResponsePB {
@@ -339,6 +340,7 @@ message PgCreateTableRequestPB {
 
   bool use_transaction = 2;
   bool use_regular_transaction_block = 26;
+  uint32 active_sub_transaction_id = 27;
   PgObjectIdPB table_id = 3;
   string database_name = 4;
   string table_name = 5;
@@ -427,6 +429,7 @@ message PgDropTableRequestPB {
   bool index = 3;
   AshMetadataPB ash_metadata = 4;
   bool use_regular_transaction_block = 5;
+  uint32 active_sub_transaction_id = 6;
 }
 
 message PgDropTableResponsePB {

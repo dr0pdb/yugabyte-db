@@ -161,7 +161,8 @@ class YBClient::Data {
                              CoarseTimePoint deadline,
                              YBTableName* indexed_table_name,
                              bool wait = true,
-                             const TransactionMetadata *txn = nullptr);
+                             const TransactionMetadata *txn = nullptr,
+                             SubTransactionId sub_transaction_id = kMinSubTransactionId);
 
   Status IsDeleteTableInProgress(YBClient* client,
                                  const std::string& table_id,

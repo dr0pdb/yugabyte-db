@@ -160,6 +160,11 @@ YBTableCreator& YBTableCreator::part_of_transaction(const TransactionMetadata* t
   return *this;
 }
 
+YBTableCreator& YBTableCreator::part_of_sub_transaction(uint32_t sub_txn_id) {
+  sub_txn_id_ = sub_txn_id;
+  return *this;
+}
+
 YBTableCreator &YBTableCreator::add_partition(const dockv::Partition& partition) {
     partitions_.push_back(partition);
     return *this;
@@ -348,6 +353,8 @@ Status YBTableCreator::Create() {
     txn_->ToPB(req.mutable_transaction());
     req.set_ysql_yb_ddl_rollback_enabled(YsqlDdlRollbackEnabled());
   }
+
+  req.set_sub_transaction_id(sub_txn_id_);
 
   // Setup the number splits (i.e. number of splits).
   if (num_tablets_ > 0) {

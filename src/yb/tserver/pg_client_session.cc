@@ -1142,7 +1142,8 @@ class PgClientSession::Impl {
 
     const auto* metadata = VERIFY_RESULT(GetDdlTransactionMetadata(
         req.use_transaction(), req.use_regular_transaction_block(), context->GetClientDeadline()));
-    RETURN_NOT_OK(helper.Exec(&client_, metadata, context->GetClientDeadline()));
+    RETURN_NOT_OK(helper.Exec(
+        &client_, metadata, req.active_sub_transaction_id(), context->GetClientDeadline()));
     VLOG_WITH_PREFIX(1) << __func__ << ": " << req.table_name();
     const auto& indexed_table_id = helper.indexed_table_id();
     if (indexed_table_id.IsValid()) {
@@ -1200,7 +1201,7 @@ class PgClientSession::Impl {
       client::YBTableName indexed_table;
       RETURN_NOT_OK(client_.DeleteIndexTable(
           yb_table_id, &indexed_table, !YsqlDdlRollbackEnabled() /* wait */,
-          metadata, context->GetClientDeadline()));
+          metadata, req.active_sub_transaction_id(), context->GetClientDeadline()));
       indexed_table.SetIntoTableIdentifierPB(resp->mutable_indexed_table());
       table_cache().Invalidate(indexed_table.table_id());
       table_cache().Invalidate(yb_table_id);
@@ -1208,7 +1209,7 @@ class PgClientSession::Impl {
     }
 
     RETURN_NOT_OK(client_.DeleteTable(yb_table_id, !YsqlDdlRollbackEnabled(), metadata,
-          context->GetClientDeadline()));
+          req.active_sub_transaction_id(), context->GetClientDeadline()));
     table_cache().Invalidate(yb_table_id);
     return Status::OK();
   }
@@ -1232,6 +1233,7 @@ class PgClientSession::Impl {
     if (txn) {
       alterer->part_of_transaction(txn);
     }
+    alterer->part_of_sub_transaction(req.active_sub_transaction_id());
     if (req.increment_schema_version()) {
       alterer->set_increment_schema_version();
     }

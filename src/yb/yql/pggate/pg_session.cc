@@ -558,10 +558,13 @@ Result<std::pair<int64_t, bool>> PgSession::ReadSequenceTuple(int64_t db_oid,
 
 //--------------------------------------------------------------------------------------------------
 
-Status PgSession::DropTable(const PgObjectId& table_id, bool use_regular_transaction_block) {
+Status PgSession::DropTable(
+    const PgObjectId& table_id, bool use_regular_transaction_block,
+    SubTransactionId active_sub_transaction_id) {
   tserver::PgDropTableRequestPB req;
   table_id.ToPB(req.mutable_table_id());
   req.set_use_regular_transaction_block(use_regular_transaction_block);
+  req.set_active_sub_transaction_id(active_sub_transaction_id);
   return ResultToStatus(pg_client_.DropTable(&req, CoarseTimePoint()));
 }
 

@@ -923,6 +923,13 @@ class YBTransaction::Impl final : public internal::TxnBatcherIf {
     return subtransaction_.SetActiveSubTransaction(id);
   }
 
+  boost::optional<SubTransactionId> GetActiveSubTransaction() {
+    if (!subtransaction_.active()) {
+      return boost::none;
+    }
+    return subtransaction_.get().subtransaction_id;
+  }
+
   boost::optional<SubTransactionMetadataPB> GetSubTransactionMetadataPB() const {
     if (!subtransaction_.active()) {
       return boost::none;
@@ -2572,6 +2579,10 @@ Trace* YBTransaction::trace() {
 
 void YBTransaction::EnsureTraceCreated() {
   return impl_->EnsureTraceCreated();
+}
+
+boost::optional<SubTransactionId> YBTransaction::GetActiveSubTransaction() {
+  return impl_->GetActiveSubTransaction();
 }
 
 void YBTransaction::SetActiveSubTransaction(SubTransactionId id) {

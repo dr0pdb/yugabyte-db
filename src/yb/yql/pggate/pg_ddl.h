@@ -139,6 +139,7 @@ class PgCreateTableBase : public PgDdl {
                     bool is_matview,
                     const PgObjectId& pg_table_oid,
                     const PgObjectId& old_relfilenode_oid,
+                    SubTransactionId active_sub_transaction_id,
                     bool is_truncate,
                     bool use_transaction,
                     bool use_regular_transaction_block);
@@ -170,6 +171,7 @@ class PgCreateTable final : public PgStatementLeafBase<PgCreateTableBase, StmtOp
       bool is_matview,
       const PgObjectId& pg_table_oid,
       const PgObjectId& old_relfilenode_oid,
+      SubTransactionId active_sub_transaction_id,
       bool is_truncate,
       bool use_transaction,
       bool use_regular_transaction_block);
@@ -194,6 +196,7 @@ class PgCreateIndex final : public PgStatementLeafBase<PgCreateTableBase, StmtOp
       bool is_matview,
       const PgObjectId& pg_table_oid,
       const PgObjectId& old_relfilenode_oid,
+      SubTransactionId active_sub_transaction_id,
       bool is_truncate,
       bool use_transaction,
       bool use_regular_transaction_block,
@@ -206,7 +209,7 @@ class PgDropTable final : public PgStatementLeafBase<PgDdl, StmtOp::kDropTable> 
  public:
   PgDropTable(
       const PgSession::ScopedRefPtr& pg_session, const PgObjectId& table_id, bool if_exist,
-      bool use_regular_transaction_block);
+      bool use_regular_transaction_block, SubTransactionId active_sub_transaction_id);
 
   Status Exec();
 
@@ -214,6 +217,7 @@ class PgDropTable final : public PgStatementLeafBase<PgDdl, StmtOp::kDropTable> 
   const PgObjectId table_id_;
   const bool if_exist_;
   const bool use_regular_transaction_block_;
+  const SubTransactionId active_sub_transaction_id_;
 };
 
 class PgTruncateTable final : public PgStatementLeafBase<PgDdl, StmtOp::kTruncateTable> {
@@ -245,6 +249,7 @@ class PgAlterTable final : public PgStatementLeafBase<PgDdl, StmtOp::kAlterTable
  public:
   PgAlterTable(const PgSession::ScopedRefPtr& pg_session,
                const PgObjectId& table_id,
+               SubTransactionId active_sub_transaction_id,
                bool use_transaction,
                bool use_regular_transaction_block);
 

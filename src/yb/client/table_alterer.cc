@@ -99,6 +99,11 @@ YBTableAlterer* YBTableAlterer::part_of_transaction(const TransactionMetadata* t
   return this;
 }
 
+YBTableAlterer* YBTableAlterer::part_of_sub_transaction(uint32_t sub_txn_id) {
+  sub_txn_id_ = sub_txn_id;
+  return this;
+}
+
 YBTableAlterer* YBTableAlterer::set_increment_schema_version() {
   increment_schema_version_ = true;
   return this;
@@ -215,6 +220,8 @@ Status YBTableAlterer::ToRequest(master::AlterTableRequestPB* req) {
     txn_->ToPB(req->mutable_transaction());
     req->set_ysql_yb_ddl_rollback_enabled(YsqlDdlRollbackEnabled());
   }
+
+  req->set_sub_transaction_id(sub_txn_id_);
 
   if (increment_schema_version_) {
     req->set_increment_schema_version(true);
