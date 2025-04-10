@@ -375,7 +375,7 @@ Status CatalogManager::YsqlDdlTxnCompleteCallbackInternal(
                       << ": Success: "
                       << (success.has_value() ? (*success ? "true" : "false") : "nullopt")
                       << " ysql_ddl_txn_verifier_state: "
-                      << l->ysql_ddl_txn_verifier_state().DebugString();
+                      << CollectionToString(l->ysql_ddl_txn_verifier_state_all());
 
   auto& metadata = l.mutable_data()->pb;
 

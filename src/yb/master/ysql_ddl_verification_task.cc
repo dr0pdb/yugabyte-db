@@ -382,7 +382,7 @@ Status PgSchemaCheckerWithReadTime(SysCatalogTable* sys_catalog,
                << schema.ToString() << " and previous schema " << previous_schema.ToString()
                << " and PG catalog schema " << PrintPgCols(pg_cols)
                << ". The transaction verification state is "
-               << l->ysql_ddl_txn_verifier_state().ShortDebugString();
+               << CollectionToString(l->ysql_ddl_txn_verifier_state_all());
   return STATUS_FORMAT(Corruption, "Failed to verify DDL transaction for table $0",
                        table->ToString());
 }

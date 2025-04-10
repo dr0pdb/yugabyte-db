@@ -533,14 +533,34 @@ struct PersistentTableInfo : public Persistent<SysTablesEntryPB> {
     return pb.ysql_ddl_txn_verifier_state(0);
   }
 
+  // TODO: temporary, the _all suffix should be removed and the above function should be deleted.
+  auto ysql_ddl_txn_verifier_state_all() const {
+    DCHECK_GE(pb.ysql_ddl_txn_verifier_state_size(), 1);
+    return pb.ysql_ddl_txn_verifier_state();
+  }
+
+  auto ysql_ddl_txn_verifier_state_first() const {
+    DCHECK_GE(pb.ysql_ddl_txn_verifier_state_size(), 1);
+    return pb.ysql_ddl_txn_verifier_state(0);
+  }
+
+  auto ysql_ddl_txn_verifier_state_last() const {
+    DCHECK_GE(pb.ysql_ddl_txn_verifier_state_size(), 1);
+    return pb.ysql_ddl_txn_verifier_state(pb.ysql_ddl_txn_verifier_state_size() - 1);
+  }
+
   bool is_being_deleted_by_ysql_ddl_txn() const {
+    // A table with a given *id* can only be deleted as the last statement in a transaction block.
+    // So just check the last ysql_ddl_txn_verifier_state for drop table operation.
     return has_ysql_ddl_txn_verifier_state() &&
-      ysql_ddl_txn_verifier_state().contains_drop_table_op();
+      ysql_ddl_txn_verifier_state_last().contains_drop_table_op();
   }
 
   bool is_being_created_by_ysql_ddl_txn() const {
+    // A table with a given *id* can only be created as the first statement in a transaction block.
+    // So just check the first ysql_ddl_txn_verifier_state for create table operation.
     return has_ysql_ddl_txn_verifier_state() &&
-      ysql_ddl_txn_verifier_state().contains_create_table_op();
+      ysql_ddl_txn_verifier_state_first().contains_create_table_op();
   }
 
   bool is_being_altered_by_ysql_ddl_txn() const {
