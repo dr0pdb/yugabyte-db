@@ -204,3 +204,23 @@ SELECT * FROM test8;
  10 | 10
 (1 row)
 
+-- Rollback of DROP TABLE.
+CREATE TABLE test9 (a int primary key, b int);
+INSERT INTO test9 VALUES (1, 1);
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+INSERT INTO test9 VALUES (2, 2);
+SELECT * FROM test9;
+ a | b 
+---+---
+ 1 | 1
+ 2 | 2
+(2 rows)
+
+DROP TABLE test9;
+ROLLBACK;
+SELECT * FROM test9;
+ a | b 
+---+---
+ 1 | 1
+(1 row)
+
