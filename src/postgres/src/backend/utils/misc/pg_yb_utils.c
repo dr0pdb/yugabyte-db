@@ -3052,6 +3052,7 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 	bool		is_breaking_change = true;
 	bool		is_altering_existing_data = false;
 	bool		is_online_schema_change = false;
+	bool		is_top_level = (context == PROCESS_UTILITY_TOPLEVEL);
 
 	Node	   *parsetree = GetActualStmtNode(pstmt);
 	NodeTag		node_tag = nodeTag(parsetree);
@@ -3530,7 +3531,13 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 					is_altering_existing_data = true;
 				}
 				is_breaking_change = false;
-				is_online_schema_change = stmt->concurrent != YB_CONCURRENCY_DISABLED;
+				/*
+				 * Concurrent create index only happens if we are not in an
+				 * explicit transaction block and NONCONCURRENTLY option is not
+				 * specified explicitly.
+				 */
+				is_online_schema_change = !IsInTransactionBlock(is_top_level)
+					&& stmt->concurrent != YB_CONCURRENCY_DISABLED;
 				break;
 			}
 
