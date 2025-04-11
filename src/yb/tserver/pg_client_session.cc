@@ -1534,6 +1534,14 @@ class PgClientSession::Impl {
 
     const auto deadline = context->GetClientDeadline();
     RETURN_NOT_OK(transaction->RollbackToSubTransaction(subtxn_id, deadline));
+    // If the regular transaction block has DDL statements, also notify yb-master to rollback any
+    // DDLs made as part of rolled back sub-transactions.
+    if (req.has_options() && req.options().ddl_mode() &&
+        req.options().ddl_use_regular_transaction_block()) {
+      RSTATUS_DCHECK(ddl_txn_metadata_.transaction_id == transaction->id(), IllegalState,
+                    "Unexpected DDL transaction metadata found");
+      RETURN_NOT_OK(client_.RollbackYsqlTxnToSubTxn(ddl_txn_metadata_, subtxn_id));
+    }
     return ReleaseObjectLocksIfNecessary(kind, deadline, subtxn_id);
   }
 

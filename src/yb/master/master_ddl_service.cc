@@ -60,6 +60,7 @@ class MasterDdlServiceImpl : public MasterServiceBase, public MasterDdlIf {
     (ListTables)
     (ListUDTypes)
     (ReportYsqlDdlTxnStatus)
+    (RollbackYsqlTxnToSubTxn)
     (TruncateTable)
     (RefreshYsqlLease)
   )

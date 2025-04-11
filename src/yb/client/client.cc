@@ -2606,6 +2606,12 @@ Status YBClient::ReportYsqlDdlTxnStatus(const TransactionMetadata& txn, bool is_
   return data_->ReportYsqlDdlTxnStatus(txn, is_committed, deadline);
 }
 
+Status YBClient::RollbackYsqlTxnToSubTxn(
+    const TransactionMetadata& txn, SubTransactionId sub_txn_id) {
+  auto deadline = CoarseMonoClock::Now() + default_rpc_timeout();
+  return data_->RollbackYsqlTxnToSubTxn(txn, sub_txn_id, deadline);
+}
+
 Status YBClient::WaitForDdlVerificationToFinish(const TransactionMetadata& txn) {
   auto deadline = CoarseMonoClock::Now() +
       MonoDelta::FromSeconds(FLAGS_ddl_verification_timeout_multiplier *

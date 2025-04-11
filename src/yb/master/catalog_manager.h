@@ -500,16 +500,30 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
       TableInfo* table, const TransactionId& txn_id, std::optional<bool> success,
       const LeaderEpoch& epoch);
 
+  Status YsqlDdlTxnRollbackToSubTxn(const std::string& pb_txn_id,
+                                    const SubTransactionId sub_txn_id,
+                                    const LeaderEpoch& epoch);
+
+  Status YsqlDdlTxnRollbackToSubTxnHelper(TableInfo* table,
+                                          const TransactionId& txn_id,
+                                          const SubTransactionId sub_txn_id,
+                                          const LeaderEpoch& epoch);
+
   Status HandleSuccessfulYsqlDdlTxn(const YsqlTableDdlTxnState txn_data);
 
   Status HandleAbortedYsqlDdlTxn(const YsqlTableDdlTxnState txn_data);
 
-  Status ClearYsqlDdlTxnState(const YsqlTableDdlTxnState txn_data);
+  Status RollbackYsqlTxnDdlStates(const YsqlTableDdlTxnState txn_data,
+                                  int ddl_state_start_index_incl);
+
+  Status ClearYsqlDdlTxnState(const YsqlTableDdlTxnState txn_data,
+                              int ddl_state_start_index_incl);
 
   Status YsqlDdlTxnAlterTableHelper(const YsqlTableDdlTxnState txn_data,
                                     const std::vector<DdlLogEntry>& ddl_log_entries,
                                     const std::string& new_table_name,
-                                    bool success);
+                                    bool success,
+                                    int ddl_state_start_index_incl);
 
   Status YsqlDdlTxnDropTableHelper(const YsqlTableDdlTxnState txn_data, bool success);
 
@@ -1220,6 +1234,12 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
   Status ReportYsqlDdlTxnStatus(
       const ReportYsqlDdlTxnStatusRequestPB* req,
       ReportYsqlDdlTxnStatusResponsePB* resp,
+      rpc::RpcContext* rpc,
+      const LeaderEpoch& epoch);
+
+  Status RollbackYsqlTxnToSubTxn(
+      const RollbackYsqlTxnToSubTxnRequestPB* req,
+      RollbackYsqlTxnToSubTxnResponsePB* resp,
       rpc::RpcContext* rpc,
       const LeaderEpoch& epoch);
 

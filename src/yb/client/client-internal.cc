@@ -3029,6 +3029,22 @@ Status YBClient::Data::ReportYsqlDdlTxnStatus(
   return Status::OK();
 }
 
+Status YBClient::Data::RollbackYsqlTxnToSubTxn(
+  const TransactionMetadata& txn, SubTransactionId sub_txn_id, const CoarseTimePoint& deadline) {
+  master::RollbackYsqlTxnToSubTxnRequestPB req;
+  master::RollbackYsqlTxnToSubTxnResponsePB resp;
+
+  req.set_transaction_id(txn.transaction_id.data(), txn.transaction_id.size());
+  req.set_sub_transaction_id(sub_txn_id);
+  RETURN_NOT_OK(SyncLeaderMasterRpc(
+      deadline, req, &resp, "RollbackYsqlTxnToSubTxn",
+      &master::MasterDdlProxy::RollbackYsqlTxnToSubTxnAsync));
+  if (resp.has_error()) {
+    return StatusFromPB(resp.error().status());
+  }
+  return Status::OK();
+}
+
 Status YBClient::Data::IsYsqlDdlVerificationInProgress(
     const TransactionMetadata& txn,
     CoarseTimePoint deadline,

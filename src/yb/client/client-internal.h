@@ -470,6 +470,9 @@ class YBClient::Data {
   Status ReportYsqlDdlTxnStatus(
       const TransactionMetadata& txn, bool is_committed, const CoarseTimePoint& deadline);
 
+  Status RollbackYsqlTxnToSubTxn(
+    const TransactionMetadata& txn, SubTransactionId sub_txn_id, const CoarseTimePoint& deadline);
+
   Status IsYsqlDdlVerificationInProgress(
     const TransactionMetadata& txn,
     CoarseTimePoint deadline,

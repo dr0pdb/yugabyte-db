@@ -966,6 +966,8 @@ class YBClient {
   // Provide the completion status of 'txn' to the YB-Master.
   Status ReportYsqlDdlTxnStatus(const TransactionMetadata& txn, bool is_committed);
 
+  Status RollbackYsqlTxnToSubTxn(const TransactionMetadata& txn, SubTransactionId sub_txn_id);
+
   Status WaitForDdlVerificationToFinish(const TransactionMetadata& txn);
 
   Result<bool> CheckIfPitrActive();
