@@ -828,7 +828,7 @@ DefineIndex(Oid relationId,
 		 */
 		YbDdlMode ddl_mode = YbGetDdlModeForCreateIndex(stmt, concurrent);
 		if (concurrent ||
-			!YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled)
+			!*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled)
 			YBIncrementDdlNestingLevel(ddl_mode);
 		else
 			YBSetDdlState(ddl_mode);
