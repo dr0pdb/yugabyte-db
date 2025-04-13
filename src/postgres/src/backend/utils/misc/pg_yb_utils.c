@@ -3044,15 +3044,56 @@ YbShouldIncrementLogicalClientVersion(PlannedStmt *pstmt)
 	return false;
 }
 
+static YbDdlMode
+YbCalculateDdlMode(bool is_breaking_change, bool is_version_increment,
+	 bool is_altering_existing_data, bool is_online_schema_change)
+{
+	/*
+	 * If yb_make_next_ddl_statement_nonbreaking is true, then no DDL statement
+	 * will cause a breaking catalog change.
+	 */
+	if (yb_make_next_ddl_statement_nonbreaking)
+		is_breaking_change = false;
+	/*
+	 * If yb_make_next_ddl_statement_nonincrementing is true, then no DDL statement
+	 * will cause a catalog version to increment. Note that we also disable breaking
+	 * catalog change as well because it does not make sense to only increment
+	 * breaking breaking catalog version.
+	 */
+	if (yb_make_next_ddl_statement_nonincrementing)
+	{
+		is_version_increment = false;
+		is_breaking_change = false;
+	}
+
+	is_altering_existing_data |= is_version_increment;
+
+	uint64_t	aspects = 0;
+
+	if (is_altering_existing_data)
+		aspects |= YB_SYS_CAT_MOD_ASPECT_ALTERING_EXISTING_DATA;
+
+	if (is_version_increment)
+		aspects |= YB_SYS_CAT_MOD_ASPECT_VERSION_INCREMENT;
+
+	if (is_breaking_change)
+		aspects |= YB_SYS_CAT_MOD_ASPECT_BREAKING_CHANGE;
+
+	if (*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled &&
+		is_online_schema_change)
+		aspects |= YB_SYS_CAT_MOD_ASPECT_ONLINE_SCHEMA_CHANGE;
+
+	return YbCatalogModificationAspectsToDdlMode(aspects);
+}
+
 YbDdlModeOptional
-YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
+YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context,
+			 bool *defer_ddl_state_change)
 {
 	bool		is_ddl = true;
 	bool		is_version_increment = true;
 	bool		is_breaking_change = true;
 	bool		is_altering_existing_data = false;
-	bool		is_online_schema_change = false;
-	bool		is_top_level = (context == PROCESS_UTILITY_TOPLEVEL);
 
 	Node	   *parsetree = GetActualStmtNode(pstmt);
 	NodeTag		node_tag = nodeTag(parsetree);
@@ -3519,25 +3560,17 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 			/* T_Index... */
 		case T_IndexStmt:
 			{
-				IndexStmt  *stmt = castNode(IndexStmt, parsetree);
+				Assert(defer_ddl_state_change != NULL);
+
 				/*
-				 * For nonconcurrent index backfill we do not guarantee global consistency anyway.
-				 * For (new) concurrent backfill the backfill process should wait for ongoing
-				 * transactions so we don't have to force a transaction abort on PG side.
+				 * Defer the ddl state change for CREATE INDEX statement since
+				 * it can be executed in the same tranasction or start a
+				 * separate transaction depending on whether we want to use
+				 * concurrent index creation or not. This decision is taken at a
+				 * much later step in the execution (DefineIndex) and hence, the
+				 * state change should be done in DefineIndex.
 				 */
-				if (YbIsRangeVarTempRelation(stmt->relation))
-				{
-					is_version_increment = false;
-					is_altering_existing_data = true;
-				}
-				is_breaking_change = false;
-				/*
-				 * Concurrent create index only happens if we are not in an
-				 * explicit transaction block and NONCONCURRENTLY option is not
-				 * specified explicitly.
-				 */
-				is_online_schema_change = !IsInTransactionBlock(is_top_level)
-					&& stmt->concurrent != YB_CONCURRENCY_DISABLED;
+				*defer_ddl_state_change = true;
 				break;
 			}
 
@@ -3636,9 +3669,12 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 
 	if (!is_ddl)
 	{
-		/* Only clear up the DDL state if DDL, DML unification is disabled. */
+		/*
+		 * Only clear up the DDL state if the previous statement used a separate
+		 * DDL transaction.
+		 */
 		if (ddl_transaction_state.nesting_level == 0 &&
-			!*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled)
+			!ddl_transaction_state.use_regular_txn_block)
 		{
 			/*
 			 * Free up the altered_table_ids list separately which is allocated
@@ -3659,47 +3695,43 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context)
 		};
 	}
 
-	/*
-	 * If yb_make_next_ddl_statement_nonbreaking is true, then no DDL statement
-	 * will cause a breaking catalog change.
-	 */
-	if (yb_make_next_ddl_statement_nonbreaking)
-		is_breaking_change = false;
-	/*
-	 * If yb_make_next_ddl_statement_nonincrementing is true, then no DDL statement
-	 * will cause a catalog version to increment. Note that we also disable breaking
-	 * catalog change as well because it does not make sense to only increment
-	 * breaking breaking catalog version.
-	 */
-	if (yb_make_next_ddl_statement_nonincrementing)
-	{
-		is_version_increment = false;
-		is_breaking_change = false;
-	}
-
-
-	is_altering_existing_data |= is_version_increment;
-
-	uint64_t	aspects = 0;
-
-	if (is_altering_existing_data)
-		aspects |= YB_SYS_CAT_MOD_ASPECT_ALTERING_EXISTING_DATA;
-
-	if (is_version_increment)
-		aspects |= YB_SYS_CAT_MOD_ASPECT_VERSION_INCREMENT;
-
-	if (is_breaking_change)
-		aspects |= YB_SYS_CAT_MOD_ASPECT_BREAKING_CHANGE;
-
-	if (*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled &&
-		is_online_schema_change)
-		aspects |= YB_SYS_CAT_MOD_ASPECT_ONLINE_SCHEMA_CHANGE;
-
 	return (YbDdlModeOptional)
 	{
 		.has_value = true,
-			.value = YbCatalogModificationAspectsToDdlMode(aspects),
+			.value = YbCalculateDdlMode(is_breaking_change,
+										is_version_increment,
+										is_altering_existing_data,
+										false /* is_online_schema_change */ ),
 	};
+}
+
+YbDdlMode
+YbGetDdlModeForCreateIndex(IndexStmt  *stmt, bool concurrent)
+{
+	bool		is_version_increment = true;
+	bool		is_breaking_change = true;
+	bool		is_altering_existing_data = false;
+	bool		is_online_schema_change = false;
+
+	/*
+	 * For nonconcurrent index backfill we do not guarantee global consistency
+	 * anyway.
+	 * For (new) concurrent backfill the backfill process should wait for
+	 * ongoing transactions so we don't have to force a transaction abort on PG
+	 * side.
+	 */
+	if (YbIsRangeVarTempRelation(stmt->relation))
+	{
+		is_version_increment = false;
+		is_altering_existing_data = true;
+	}
+	is_breaking_change = false;
+	is_online_schema_change = concurrent;
+
+	return YbCalculateDdlMode(is_breaking_change,
+							  is_version_increment,
+							  is_altering_existing_data,
+							  is_online_schema_change);
 }
 
 static void
@@ -3777,18 +3809,11 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 					   QueryCompletion *qc)
 {
 
-	const YbDdlModeOptional ddl_mode = YbGetDdlMode(pstmt, context);
+	bool defer_ddl_state_change = false;
+	const YbDdlModeOptional ddl_mode =
+		YbGetDdlMode(pstmt, context, &defer_ddl_state_change);
 
 	const bool	is_ddl = ddl_mode.has_value;
-	/*
-	 * Start a separate DDL transaction if
-	 * FLAGS_TEST_yb_ddl_transaction_block_enabled is false or if this
-	 * is an online schema change operation.
-	 */
-	const bool use_separate_ddl_transaction =
-		is_ddl &&
-		(ddl_mode.value == YB_DDL_MODE_ONLINE_SCHEMA_CHANGE_VERSION_INCREMENT ||
-		 !*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled);
 
 	PG_TRY();
 	{
@@ -3813,9 +3838,11 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 				YbInitPinnedCacheIfNeeded(true /* shared_only */ );
 #endif
 
-			if (use_separate_ddl_transaction)
-				YBIncrementDdlNestingLevel(ddl_mode.value);
-			else
+			/*
+			 * Skip setting the DDL state if we wish to defer to setting it a
+			 * later stage.
+			 */
+			if (!defer_ddl_state_change)
 				YBSetDdlState(ddl_mode.value);
 
 			if (YbShouldIncrementLogicalClientVersion(pstmt) &&
@@ -3837,20 +3864,17 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 		{
 			CheckAlterDatabaseDdl(pstmt);
 
-			if (use_separate_ddl_transaction)
+			if (!ddl_transaction_state.use_regular_txn_block)
 				YBDecrementDdlNestingLevel();
 		}
 	}
 	PG_CATCH();
 	{
-		if (use_separate_ddl_transaction)
-		{
-			/*
-			 * It is possible that nesting_level has wrong value due to error.
-			 * Ddl transaction state should be reset.
-			 */
-			YBResetDdlState();
-		}
+		/*
+		 * It is possible that nesting_level has wrong value due to error.
+		 * Ddl transaction state should be reset.
+		 */
+		YBResetDdlState();
 		PG_RE_THROW();
 	}
 	PG_END_TRY();

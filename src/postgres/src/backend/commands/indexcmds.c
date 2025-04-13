@@ -823,6 +823,17 @@ DefineIndex(Oid relationId,
 		}
 
 		/*
+		 * Now that we know the true value of "concurrent", we can set the right
+		 * DDL state.
+		 */
+		YbDdlMode ddl_mode = YbGetDdlModeForCreateIndex(stmt, concurrent);
+		if (concurrent ||
+			!YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled)
+			YBIncrementDdlNestingLevel(ddl_mode);
+		else
+			YBSetDdlState(ddl_mode);
+
+		/*
 		 * Now that we know the true value of "concurrent", take the right
 		 * lock.
 		 */

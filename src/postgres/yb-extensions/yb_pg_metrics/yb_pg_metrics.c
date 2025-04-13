@@ -1211,7 +1211,9 @@ ybpgm_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 		INSTR_TIME_SET_CURRENT(end);
 		INSTR_TIME_SUBTRACT(end, start);
 
-		YbDdlModeOptional ddl_mode = YbGetDdlMode(pstmt, context);
+		bool defer_ddl_state_change_ignored = false;
+		YbDdlModeOptional ddl_mode =
+			YbGetDdlMode(pstmt, context, &defer_ddl_state_change_ignored);
 
 		if (ddl_mode.has_value)
 			ybpgm_Store(Transaction, INSTR_TIME_GET_MICROSEC(end), 0);
