@@ -3843,7 +3843,12 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 			 * later stage.
 			 */
 			if (!defer_ddl_state_change)
-				YBSetDdlState(ddl_mode.value);
+			{
+				if (*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled)
+					YBSetDdlState(ddl_mode.value);
+				else
+					YBIncrementDdlNestingLevel(ddl_mode.value);
+			}
 
 			if (YbShouldIncrementLogicalClientVersion(pstmt) &&
 				YbIsClientYsqlConnMgr() &&
