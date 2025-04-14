@@ -597,6 +597,7 @@ DefineIndex(Oid relationId,
 	Oid			tablegroupId = InvalidOid;
 	Oid			colocation_id = InvalidOid;
 	bool		is_colocated = false;
+	bool		requires_nesting_level_decrement = false;
 
 	root_save_nestlevel = NewGUCNestLevel();
 
@@ -808,15 +809,20 @@ DefineIndex(Oid relationId,
 				concurrent = false;
 		}
 		/*
-		* Use fast path create index when in nested DDL. This is desired
-		* when there would be no concurrency issues (e.g. `CREATE TABLE
-		* ... (... UNIQUE (...))`).
-		* TODO(jason): support concurrent build for nested DDL (issue #4786).
-		* In a nested DDL, it's grammatically impossible to specify
-		* CONCURRENTLY/NONCONCURRENTLY. In the implicit case, concurrency
-		* is safe to be disabled.
-		*/
-		if (concurrent && YBGetDdlNestingLevel() > 1)
+		 * Use fast path create index when in nested DDL. This is desired
+		 * when there would be no concurrency issues (e.g. `CREATE TABLE
+		 * ... (... UNIQUE (...))`).
+		 * TODO(jason): support concurrent build for nested DDL (issue #4786).
+		 * In a nested DDL, it's grammatically impossible to specify
+		 * CONCURRENTLY/NONCONCURRENTLY. In the implicit case, concurrency
+		 * is safe to be disabled.
+		 *
+		 * For CREATE INDEX, we defer setting the ddl state until after we know
+		 * the true value of concurrent (see YBTxnDdlProcessUtility), so we
+		 * check for nested DDL via `YBGetDdlNestingLevel() > 0` instead of
+		 * `YBGetDdlNestingLevel() > 1`.
+		 */
+		if (concurrent && YBGetDdlNestingLevel() > 0)
 		{
 			Assert(stmt->concurrent != YB_CONCURRENCY_EXPLICIT_ENABLED);
 			concurrent = false;
@@ -825,13 +831,21 @@ DefineIndex(Oid relationId,
 		/*
 		 * Now that we know the true value of "concurrent", we can set the right
 		 * DDL state.
+		 * No need to set the DDL state for:
+		 * 1. initdb since we don't use transactions
+		 * 2. child indexes for partitioned tables as we would have already set
+		 * the state when executing DefineIndex for the parent.
 		 */
-		if (!YBCIsInitDbModeEnvVarSet())
+		if (!YBCIsInitDbModeEnvVarSet() && !OidIsValid(parentIndexId))
 		{
-			YbDdlMode ddl_mode = YbGetDdlModeForCreateIndex(stmt, concurrent);
+			YbDdlMode ddl_mode =
+				YbGetDdlModeForCreateIndex(relationId, concurrent);
 			if (concurrent ||
 				!*YBCGetGFlags()->TEST_ysql_yb_ddl_transaction_block_enabled)
+			{
 				YBIncrementDdlNestingLevel(ddl_mode);
+				requires_nesting_level_decrement = true;
+			}
 			else
 				YBSetDdlState(ddl_mode);
 		}
@@ -1975,6 +1989,13 @@ DefineIndex(Oid relationId,
 		table_close(rel, NoLock);
 		if (!OidIsValid(parentIndexId))
 			pgstat_progress_end_command();
+
+		if (requires_nesting_level_decrement)
+		{
+			Assert(!OidIsValid(parentIndexId));
+			YBDecrementDdlNestingLevel();
+		}
+
 		return address;
 	}
 
@@ -1989,6 +2010,12 @@ DefineIndex(Oid relationId,
 		/* If this is the top-level index, we're done. */
 		if (!OidIsValid(parentIndexId))
 			pgstat_progress_end_command();
+
+		if (requires_nesting_level_decrement)
+		{
+			Assert(!OidIsValid(parentIndexId));
+			YBDecrementDdlNestingLevel();
+		}
 
 		return address;
 	}
@@ -2304,6 +2331,9 @@ DefineIndex(Oid relationId,
 	UnlockRelationIdForSession(&heaprelid, ShareUpdateExclusiveLock);
 
 	pgstat_progress_end_command();
+
+	if (requires_nesting_level_decrement)
+		YBDecrementDdlNestingLevel();
 
 	return address;
 }

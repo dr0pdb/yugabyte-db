@@ -866,7 +866,7 @@ typedef struct YbDdlModeOptional
 extern YbDdlModeOptional YbGetDdlMode(PlannedStmt *pstmt,
 									  ProcessUtilityContext context,
 									  bool *defer_ddl_state_change);
-extern YbDdlMode YbGetDdlModeForCreateIndex(IndexStmt *stmt, bool concurrent);
+extern YbDdlMode YbGetDdlModeForCreateIndex(Oid relationId, bool concurrent);
 void		YBAddModificationAspects(YbDdlMode mode);
 
 extern void YBBeginOperationsBuffering();

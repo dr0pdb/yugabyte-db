@@ -352,6 +352,12 @@ YbIsTempRelation(Relation relation)
 	return relation->rd_rel->relpersistence == RELPERSISTENCE_TEMP;
 }
 
+static bool
+YbIsRelationIdTempRelation(Oid relid)
+{
+	return OidIsValid(relid) && get_rel_persistence(relid) == RELPERSISTENCE_TEMP;
+}
+
 /*
  * Returns true if the relation has temp persistence.
  * Returns false for all other relations, or if they are not found.
@@ -362,7 +368,7 @@ YbIsRangeVarTempRelation(const RangeVar *relation)
 	Oid relid = RangeVarGetRelidExtended(relation, NoLock,
 		RVR_MISSING_OK, /* callback */ NULL, /* callback_arg */ NULL);
 
-	return OidIsValid(relid) && get_rel_persistence(relid) == RELPERSISTENCE_TEMP;
+	return YbIsRelationIdTempRelation(relid);
 }
 
 bool
@@ -3706,12 +3712,11 @@ YbGetDdlMode(PlannedStmt *pstmt, ProcessUtilityContext context,
 }
 
 YbDdlMode
-YbGetDdlModeForCreateIndex(IndexStmt  *stmt, bool concurrent)
+YbGetDdlModeForCreateIndex(Oid relationId, bool concurrent)
 {
 	bool		is_version_increment = true;
 	bool		is_breaking_change = true;
 	bool		is_altering_existing_data = false;
-	bool		is_online_schema_change = false;
 
 	/*
 	 * For nonconcurrent index backfill we do not guarantee global consistency
@@ -3720,18 +3725,17 @@ YbGetDdlModeForCreateIndex(IndexStmt  *stmt, bool concurrent)
 	 * ongoing transactions so we don't have to force a transaction abort on PG
 	 * side.
 	 */
-	if (YbIsRangeVarTempRelation(stmt->relation))
+	if (YbIsRelationIdTempRelation(relationId))
 	{
 		is_version_increment = false;
 		is_altering_existing_data = true;
 	}
 	is_breaking_change = false;
-	is_online_schema_change = concurrent;
 
 	return YbCalculateDdlMode(is_breaking_change,
 							  is_version_increment,
 							  is_altering_existing_data,
-							  is_online_schema_change);
+							  concurrent /* is_online_schema_change */ );
 }
 
 static void
@@ -3869,7 +3873,12 @@ YBTxnDdlProcessUtility(PlannedStmt *pstmt,
 		{
 			CheckAlterDatabaseDdl(pstmt);
 
-			if (!ddl_transaction_state.use_regular_txn_block)
+			/*
+			 * If we deferred setting the DDL state, let the command execution
+			 * handle unsetting it as well.
+			 */
+			if (!defer_ddl_state_change &&
+				!ddl_transaction_state.use_regular_txn_block)
 				YBDecrementDdlNestingLevel();
 		}
 	}
