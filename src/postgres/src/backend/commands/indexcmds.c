@@ -1682,6 +1682,9 @@ DefineIndex(Oid relationId,
 		if (!OidIsValid(parentIndexId))
 			pgstat_progress_end_command();
 
+		if (requires_nesting_level_decrement)
+			YBDecrementDdlNestingLevel();
+
 		return address;
 	}
 
