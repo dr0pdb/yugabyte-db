@@ -16628,6 +16628,13 @@ dumpTableSchema(Archive *fout, const TableInfo *tbinfo)
 			free(ftoptions);
 		if (srvname)
 			free(srvname);
+
+		if (IsYugabyteEnabled && yb_properties)
+		{
+			if (yb_properties->tablegroup_name)
+				free(yb_properties->tablegroup_name);
+			free(yb_properties);
+		}
 	}
 
 	/*
@@ -16968,6 +16975,13 @@ dumpIndex(Archive *fout, const IndxInfo *indxinfo)
 				}
 			}
 			destroyPQExpBuffer(yb_reloptions);
+
+			if (IsYugabyteEnabled && yb_properties)
+			{
+				if (yb_properties->tablegroup_name)
+					free(yb_properties->tablegroup_name);
+				free(yb_properties);
+			}
 		}
 		/* Plain secondary index */
 		appendPQExpBuffer(q, "%s;\n", indxinfo->indexdef);
