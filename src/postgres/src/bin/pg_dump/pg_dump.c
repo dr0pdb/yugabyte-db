@@ -19291,7 +19291,7 @@ getYbTablePropertiesAndReloptions(Archive *fout, YbcTableProperties properties,
 			int			i_grpname = PQfnumber(res, "grpname");
 
 			properties->tablegroup_name =
-				PQgetisnull(res, 0, i_grpname) ? "" : PQgetvalue(res, 0, i_grpname);
+				PQgetisnull(res, 0, i_grpname) ? "" : pg_strdup(PQgetvalue(res, 0, i_grpname));
 
 			PQclear(res);
 			destroyPQExpBuffer(query);
