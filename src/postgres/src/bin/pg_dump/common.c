@@ -130,6 +130,8 @@ getSchemaData(Archive *fout, int *numTablesPtr)
 	int			numEventTriggers;
 
 	int			numTablegroups;
+	int			numProfiles;
+	int			numRoleProfiles;
 
 	/*
 	 * We must read extensions and extension membership info first, because
@@ -179,6 +181,12 @@ getSchemaData(Archive *fout, int *numTablesPtr)
 	/* YB */
 	pg_log_info("reading user-defined tablegroups");
 	(void) getTablegroups(fout, &numTablegroups);
+
+	pg_log_info("reading user-defined profiles");
+	(void) getProfiles(fout, &numProfiles);
+
+	pg_log_info("reading user-defined role profiles");
+	(void) getRoleProfiles(fout, &numRoleProfiles);
 
 	pg_log_info("reading user-defined operator classes");
 	getOpclasses(fout, &numOpclasses);

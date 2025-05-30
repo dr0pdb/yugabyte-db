@@ -72,6 +72,7 @@ enum dbObjectTypePriorities
 	PRIO_FDW,
 	PRIO_FOREIGN_SERVER,
 	PRIO_TABLEGROUP,
+	PRIO_YB_PROFILE,
 	PRIO_TABLE,
 	PRIO_TABLE_ATTACH,
 	PRIO_DUMMY_TYPE,
@@ -82,6 +83,7 @@ enum dbObjectTypePriorities
 	PRIO_SEQUENCE_SET,
 	PRIO_BLOB_DATA,
 	PRIO_STATISTICS_DATA_DATA,
+	PRIO_YB_ROLE_PROFILE_DATA,
 	PRIO_POST_DATA_BOUNDARY,	/* boundary! */
 	PRIO_CONSTRAINT,
 	PRIO_INDEX,
@@ -150,7 +152,9 @@ static const int dbObjectTypePriority[] =
 	PRIO_PUBLICATION_TABLE_IN_SCHEMA,	/* DO_PUBLICATION_TABLE_IN_SCHEMA */
 	PRIO_STATISTICS_DATA_DATA,	/* DO_STATISTICS_DATA_DATA */
 	PRIO_SUBSCRIPTION,			/* DO_SUBSCRIPTION */
-	PRIO_TABLEGROUP				/* DO_TABLEGROUP */
+	PRIO_TABLEGROUP,			/* DO_TABLEGROUP */
+	PRIO_YB_PROFILE,			/* DO_YB_PROFILE */
+	PRIO_YB_ROLE_PROFILE_DATA	/* DO_YB_ROLE_PROFILE_DATA */
 };
 
 StaticAssertDecl(lengthof(dbObjectTypePriority) == NUM_DUMPABLE_OBJECT_TYPES,
@@ -1575,6 +1579,16 @@ describeDumpableObject(DumpableObject *obj, char *buf, int bufsize)
 		case DO_SUBSCRIPTION:
 			snprintf(buf, bufsize,
 					 "SUBSCRIPTION (ID %d OID %u)",
+					 obj->dumpId, obj->catId.oid);
+			return;
+		case DO_YB_PROFILE:
+			snprintf(buf, bufsize,
+					 "YB_PROFILE (ID %d OID %u)",
+					 obj->dumpId, obj->catId.oid);
+			return;
+		case DO_YB_ROLE_PROFILE_DATA:
+			snprintf(buf, bufsize,
+					 "YB_ROLE_PROFILE_DATA (ID %d OID %u)",
 					 obj->dumpId, obj->catId.oid);
 			return;
 		case DO_PRE_DATA_BOUNDARY:

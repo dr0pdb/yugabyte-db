@@ -84,10 +84,12 @@ typedef enum
 	DO_PUBLICATION_TABLE_IN_SCHEMA,
 	DO_REL_STATS,
 	DO_SUBSCRIPTION,
-	DO_TABLEGROUP
+	DO_TABLEGROUP,
+	DO_YB_PROFILE,
+	DO_YB_ROLE_PROFILE_DATA
 } DumpableObjectType;
 
-#define NUM_DUMPABLE_OBJECT_TYPES (DO_TABLEGROUP + 1)
+#define NUM_DUMPABLE_OBJECT_TYPES (DO_YB_ROLE_PROFILE_DATA + 1)
 
 /*
  * DumpComponents is a bitmask of the potentially dumpable components of
@@ -392,6 +394,31 @@ typedef struct _ybTablegroupInfo
 	char	   *grptablespace;
 	char	   *grpoptions;		/* options specified by WITH (...) */
 } YbTablegroupInfo;
+
+typedef struct _ybProfileInfo
+{
+	/*
+	 * These fields are collected for every tablegroup in the database.
+	 */
+	DumpableObject  dobj;
+	int				prfmaxfailedloginattempts;
+	int				prfpasswordlocktime;
+} YbProfileInfo;
+
+typedef struct _ybRoleProfileInfo
+{
+	/*
+	 * These fields are collected for every tablegroup in the database.
+	 */
+	DumpableObject  dobj;
+	Oid				rolprfroleid;
+	const char		*rolprfrolename;
+	Oid				rolprfprofileid;
+	const char		*rolprfprofilename;
+	char			rolprfstatus;
+	int32			rolprffailedloginattempts;
+	char			*rolprflockeduntil;
+} YbRoleProfileInfo;
 
 typedef struct _tableAttachInfo
 {
@@ -804,5 +831,7 @@ extern void getSubscriptions(Archive *fout);
 /* YB */
 extern YbTablegroupInfo *findTablegroupByOid(Oid oid);
 extern YbTablegroupInfo *getTablegroups(Archive *fout, int *numTablegroups);
+extern YbProfileInfo *getProfiles(Archive *fout, int *numProfiles);
+extern YbRoleProfileInfo *getRoleProfiles(Archive *fout, int *numRoleProfiles);
 
 #endif							/* PG_DUMP_H */

@@ -210,6 +210,7 @@ typedef struct _dumpOptions
 	const char *master_hosts;	/* YB Master hosts */
 	int			no_tablegroups;
 	int			no_tablegroup_creations;
+	int			no_profiles;
 	int			include_yb_metadata;	/* In this mode DDL statements include
 										 * YB specific metadata such as tablet
 										 * partitions. */

@@ -96,6 +96,12 @@ typedef struct
 	int			objsubid;		/* subobject (table column #) */
 } SecLabelItem;
 
+typedef struct
+{
+	Oid			profileoid;		/* profile's OID */
+	const char *profilename;	/* profile's name */
+} YbProfileNameItem;
+
 typedef enum OidOptions
 {
 	zeroIsError = 1,
@@ -152,6 +158,10 @@ static int	ncomments = 0;
 static SecLabelItem *seclabels = NULL;
 static int	nseclabels = 0;
 
+/* sorted table of yb profile names */
+static YbProfileNameItem *yb_profilenames = NULL;
+static int	yb_nprofilenames = 0;
+
 /* Maximum number of relations to fetch in a fetchAttributeStats() call. */
 #define MAX_ATTR_STATS_RELS 64
 
@@ -168,6 +178,12 @@ static bool is_legacy_colocated_database = false;
 
 /* Support for YB-only table pg_yb_tablegroup. */
 static bool pg_yb_tablegroup_exists = false;
+
+/* Support for YB-only table pg_yb_profile. */
+static bool pg_yb_profile_exists = false;
+
+/* Support for YB-only table pg_yb_role_profile. */
+static bool pg_yb_role_profile_exists = false;
 
 /*
  * YB: Array of pointers to extensions having configuration tables.
@@ -357,7 +373,11 @@ static TableInfo *getRootTableInfo(const TableInfo *tbinfo);
 static bool forcePartitionRootLoad(const TableInfo *tbinfo);
 
 /* YB functions */
+static void collectYbProfileNames(Archive *fout);
+static const char *getYbProfileName(const char *profileoid_str);
 static void dumpTablegroup(Archive *fout, const YbTablegroupInfo *tginfo);
+static void dumpYbProfile(Archive *fout, const YbProfileInfo *tginfo);
+static void dumpYbRoleProfileData(Archive *fout, const YbRoleProfileInfo *tginfo);
 static void YbAppendReloptions2(PQExpBuffer buffer, bool newline_before,
 								const char *reloptions1, const char *reloptions1_prefix,
 								const char *reloptions2, const char *reloptions2_prefix,
@@ -496,6 +516,7 @@ main(int argc, char **argv)
 		{"no-serializable-deferrable", no_argument, &no_serializable_deferrable, 1},
 		{"no-tablegroups", no_argument, &dopt.no_tablegroups, 1},
 		{"no-tablegroup-creations", no_argument, &dopt.no_tablegroup_creations, 1},
+		{"no-profiles", no_argument, &dopt.no_profiles, 1},
 		{"include-yb-metadata", no_argument, &dopt.include_yb_metadata, 1},
 		{"dump-role-checks", no_argument, &dopt.yb_dump_role_checks, 1},
 		{"read-time", required_argument, NULL, 12},
@@ -1015,8 +1036,13 @@ main(int argc, char **argv)
 	if (dopt.include_everything && dopt.dumpData && !dopt.dontOutputBlobs)
 		dopt.outputBlobs = true;
 
-	/* Update pg_yb_tablegroup existence variable */
+	/*
+	 * Update pg_yb_tablegroup, pg_yb_profile and pg_yb_role_profile existence
+	 * variables
+	 */
 	pg_yb_tablegroup_exists = catalogTableExists(fout, "pg_yb_tablegroup");
+	pg_yb_profile_exists = catalogTableExists(fout, "pg_yb_profile");
+	pg_yb_role_profile_exists = catalogTableExists(fout, "pg_yb_role_profile");
 
 	/*
 	 * YB: Cache (1) whether the dumped database is a colocated database and
@@ -1029,6 +1055,11 @@ main(int argc, char **argv)
 	 * Collect role names so we can map object owner OIDs to names.
 	 */
 	collectRoleNames(fout);
+
+	/*
+	 * YB: Collect profile names so we can map profile OIDs to names.
+	 */
+	collectYbProfileNames(fout);
 
 	/*
 	 * Now scan the database and create DumpableObject structs for all the
@@ -1267,6 +1298,7 @@ help(const char *progname)
 	printf(_("  --no-tablespaces             do not dump tablespace assignments\n"));
 	printf(_("  --no-tablegroups             do not dump tablegroup assignments or creations\n"));
 	printf(_("  --no-tablegroup-creations    do not dump tablegroup creations\n"));
+	printf(_("  --no-profiles                do not dump profile assignments or creations\n"));
 	printf(_("  --no-toast-compression       do not dump TOAST compression methods\n"));
 	printf(_("  --no-unlogged-table-data     do not dump unlogged table data\n"));
 	printf(_("  --on-conflict-do-nothing     add ON CONFLICT DO NOTHING to INSERT commands\n"));
@@ -7170,6 +7202,162 @@ getTablegroups(Archive *fout, int *numTablegroups)
 	return tbinfo;
 }
 
+YbProfileInfo *
+getProfiles(Archive *fout, int *numProfiles)
+{
+	if (!pg_yb_profile_exists)
+	{
+		*numProfiles = 0;
+		return NULL;
+	}
+
+	PGresult		*res;
+	int				ntups;
+	int				i;
+	PQExpBuffer 	query;
+	YbProfileInfo 	*profile_info;
+	int				i_prfname;
+	int				i_oid;
+	int				i_tableoid;
+	int				i_prfmaxfailedloginattempts;
+	int				i_prfpasswordlocktime;
+
+	query = createPQExpBuffer();
+
+	Assert(fout->remoteVersion >= 90600);
+
+	/* Select all profiles from pg_yb_profile table */
+	appendPQExpBuffer(query,
+					  "SELECT tableoid, oid, prfname, "
+					  "prfmaxfailedloginattempts, prfpasswordlocktime"
+					  " FROM pg_yb_profile");
+
+	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
+
+	ntups = PQntuples(res);
+	*numProfiles = ntups;
+
+	profile_info = (YbProfileInfo *) pg_malloc(ntups * sizeof(YbProfileInfo));
+
+	i_prfname = PQfnumber(res, "prfname");
+	i_oid = PQfnumber(res, "oid");
+	i_tableoid = PQfnumber(res, "tableoid");
+	i_prfmaxfailedloginattempts = PQfnumber(res, "prfmaxfailedloginattempts");
+	i_prfpasswordlocktime = PQfnumber(res, "prfpasswordlocktime");
+
+	for (i = 0; i < ntups; i++)
+	{
+		profile_info[i].dobj.objType = DO_YB_PROFILE;
+		profile_info[i].dobj.catId.oid = atooid(PQgetvalue(res, i, i_oid));
+		profile_info[i].dobj.catId.tableoid = atooid(PQgetvalue(res, i, i_tableoid));
+
+		/* add the object to a global lookup map */
+		AssignDumpId(&profile_info[i].dobj);
+
+		profile_info[i].dobj.name = pg_strdup(PQgetvalue(res, i, i_prfname));
+		profile_info[i].prfmaxfailedloginattempts =
+			atoi(PQgetvalue(res, i, i_prfmaxfailedloginattempts));
+		profile_info[i].prfpasswordlocktime =
+			atoi(PQgetvalue(res, i, i_prfpasswordlocktime));
+
+		/* Decide whether we want to dump it */
+		selectDumpableObject(&(profile_info[i].dobj), fout);
+	}
+
+	PQclear(res);
+
+	destroyPQExpBuffer(query);
+
+	return profile_info;
+}
+
+YbRoleProfileInfo *
+getRoleProfiles(Archive *fout, int *numRoleProfiles)
+{
+	if (!pg_yb_role_profile_exists)
+	{
+		*numRoleProfiles = 0;
+		return NULL;
+	}
+
+	PGresult			*res;
+	int					ntups;
+	int					i;
+	PQExpBuffer			query;
+	YbRoleProfileInfo   *role_profile_info;
+	int					i_oid;
+	int					i_tableoid;
+	int					i_rolprfrole;
+	int					i_rolprfprofile;
+	int					i_rolprfstatus;
+	int					i_rolprffailedloginattempts;
+	int					i_rolprflockeduntil;
+	const char			*rolprfrole;
+	const char			*rolprfprofile;
+
+	query = createPQExpBuffer();
+
+	Assert(fout->remoteVersion >= 90600);
+
+	/* Select all role profiles from pg_yb_role_profile table */
+	appendPQExpBuffer(query,
+					  "SELECT tableoid, oid, rolprfrole, rolprfprofile, "
+					  "rolprfstatus, rolprffailedloginattempts, "
+					  "rolprflockeduntil"
+					  " FROM pg_yb_role_profile");
+
+	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
+
+	ntups = PQntuples(res);
+	*numRoleProfiles = ntups;
+
+	role_profile_info =
+		(YbRoleProfileInfo *) pg_malloc(ntups * sizeof(YbRoleProfileInfo));
+
+	i_oid = PQfnumber(res, "oid");
+	i_tableoid = PQfnumber(res, "tableoid");
+	i_rolprfrole = PQfnumber(res, "rolprfrole");
+	i_rolprfprofile = PQfnumber(res, "rolprfprofile");
+	i_rolprfstatus = PQfnumber(res, "rolprfstatus");
+	i_rolprffailedloginattempts = PQfnumber(res, "rolprffailedloginattempts");
+	i_rolprflockeduntil = PQfnumber(res, "rolprflockeduntil");
+
+	for (i = 0; i < ntups; i++)
+	{
+		role_profile_info[i].dobj.objType = DO_YB_ROLE_PROFILE_DATA;
+		role_profile_info[i].dobj.catId.oid = atooid(PQgetvalue(res, i, i_oid));
+		role_profile_info[i].dobj.catId.tableoid = atooid(PQgetvalue(res, i, i_tableoid));
+
+		/* add the object to a global lookup map */
+		AssignDumpId(&role_profile_info[i].dobj);
+
+		/* role_profile row doesn't have a name */
+		role_profile_info[i].dobj.name = pg_strdup(PQgetvalue(res, i, i_oid));
+		rolprfrole = PQgetvalue(res, i, i_rolprfrole);
+		role_profile_info[i].rolprfroleid = atooid(rolprfrole);
+		role_profile_info[i].rolprfrolename = getRoleName(rolprfrole);
+		rolprfprofile = PQgetvalue(res, i, i_rolprfprofile);
+		role_profile_info[i].rolprfprofileid = atooid(rolprfprofile);
+		role_profile_info[i].rolprfprofilename =
+			getYbProfileName(rolprfprofile);
+		role_profile_info[i].rolprfstatus =
+			*(PQgetvalue(res, i, i_rolprfstatus));
+		role_profile_info[i].rolprffailedloginattempts =
+			atoi(PQgetvalue(res, i, i_rolprffailedloginattempts));
+		role_profile_info[i].rolprflockeduntil =
+			pg_strdup(PQgetvalue(res, i, i_rolprflockeduntil));
+
+		/* Decide whether we want to dump it */
+		selectDumpableObject(&(role_profile_info[i].dobj), fout);
+	}
+
+	PQclear(res);
+
+	destroyPQExpBuffer(query);
+
+	return role_profile_info;
+}
+
 /*
  * getOwnedSeqs
  *	  identify owned sequences and mark them as dumpable if owning table is
@@ -10021,6 +10209,41 @@ getRoleName(const char *roleoid_str)
 }
 
 /*
+ * getYbProfileName -- look up the name of a profile, given its OID
+ *
+ * In current usage, we don't expect failures, so error out for a bad OID.
+ */
+static const char *
+getYbProfileName(const char *profileoid_str)
+{
+	Oid			profileoid = atooid(profileoid_str);
+
+	/*
+	 * Do binary search to find the appropriate item.
+	 */
+	if (yb_nprofilenames > 0)
+	{
+		YbProfileNameItem *low = &yb_profilenames[0];
+		YbProfileNameItem *high = &yb_profilenames[yb_nprofilenames - 1];
+
+		while (low <= high)
+		{
+			YbProfileNameItem *middle = low + (high - low) / 2;
+
+			if (profileoid < middle->profileoid)
+				high = middle - 1;
+			else if (profileoid > middle->profileoid)
+				low = middle + 1;
+			else
+				return middle->profilename;	/* found a match */
+		}
+	}
+
+	pg_fatal("profile with OID %u does not exist", profileoid);
+	return NULL;				/* keep compiler quiet */
+}
+
+/*
  * collectRoleNames --
  *
  * Construct a table of all known roles.
@@ -10045,6 +10268,40 @@ collectRoleNames(Archive *fout)
 	{
 		rolenames[i].roleoid = atooid(PQgetvalue(res, i, 0));
 		rolenames[i].rolename = pg_strdup(PQgetvalue(res, i, 1));
+	}
+
+	PQclear(res);
+}
+
+/*
+ * collectYbProfileNames --
+ *
+ * Construct a table of all known yb profile.
+ * The table is sorted by OID for speed in lookup.
+ */
+static void
+collectYbProfileNames(Archive *fout)
+{
+	PGresult   *res;
+	const char *query;
+	int			i;
+
+	if (!pg_yb_profile_exists)
+		return;
+
+	query = "SELECT oid, prfname FROM pg_catalog.pg_yb_profile ORDER BY 1";
+
+	res = ExecuteSqlQuery(fout, query, PGRES_TUPLES_OK);
+
+	yb_nprofilenames = PQntuples(res);
+
+	yb_profilenames =
+		(YbProfileNameItem *) pg_malloc(yb_nprofilenames * sizeof(YbProfileNameItem));
+
+	for (i = 0; i < yb_nprofilenames; i++)
+	{
+		yb_profilenames[i].profileoid = atooid(PQgetvalue(res, i, 0));
+		yb_profilenames[i].profilename = pg_strdup(PQgetvalue(res, i, 1));
 	}
 
 	PQclear(res);
@@ -11038,6 +11295,12 @@ dumpDumpableObject(Archive *fout, DumpableObject *dobj)
 			break;
 		case DO_TABLEGROUP:
 			dumpTablegroup(fout, (const YbTablegroupInfo *) dobj);
+			break;
+		case DO_YB_PROFILE:
+			dumpYbProfile(fout, (const YbProfileInfo *) dobj);
+			break;
+		case DO_YB_ROLE_PROFILE_DATA:
+			dumpYbRoleProfileData(fout, (const YbRoleProfileInfo *) dobj);
 			break;
 		case DO_ATTRDEF:
 			dumpAttrDef(fout, (const AttrDefInfo *) dobj);
@@ -16424,6 +16687,136 @@ dumpTablegroup(Archive *fout, const YbTablegroupInfo *tginfo)
 	free(namecopy);
 }
 
+/*
+ * dumpYbProfile
+ *	  writes out to fout the queries to recreate a YB profile object
+ */
+static void
+dumpYbProfile(Archive *fout, const YbProfileInfo *prfinfo)
+{
+	DumpOptions *dopt = fout->dopt;
+	PQExpBuffer q;
+	PQExpBuffer delq;
+	char	   *namecopy;
+
+	/*
+	 * Do nothing, if not dumping schema
+	 * or if include_yb_metadata/binary_upgrade is not supplied
+	 * or if --no-profiles is supplied.
+	 */
+	if (!dopt->dumpSchema ||
+		!(dopt->include_yb_metadata || dopt->binary_upgrade) ||
+		dopt->no_profiles)
+		return;
+
+	q = createPQExpBuffer();
+	delq = createPQExpBuffer();
+
+	namecopy = pg_strdup(fmtId(prfinfo->dobj.name));
+
+	appendPQExpBuffer(q,
+					  "CREATE PROFILE %s WITH\n"
+					  "  PASSWORD_LOCK_TIME %d\n"
+					  "  MAX_FAILED_LOGIN_ATTEMPTS %d;\n",
+					  namecopy,
+					  prfinfo->prfpasswordlocktime,
+					  prfinfo->prfmaxfailedloginattempts);
+
+	appendPQExpBuffer(delq, "DROP PROFILE %s;\n", namecopy);
+
+	if (prfinfo->dobj.dump & DUMP_COMPONENT_DEFINITION)
+		ArchiveEntry(fout,
+					 prfinfo->dobj.catId,	/* catalog ID */
+					 prfinfo->dobj.dumpId,	/* dump ID */
+					 ARCHIVE_OPTS(.tag = prfinfo->dobj.name, /* Name */
+								  .namespace = NULL,	/* Namespace */
+								  .tablespace = NULL,	/* Tablespace */
+								  .owner = NULL, /* Owner */
+								  .description = "PROFILE",	/* Desc */
+								  .section = SECTION_PRE_DATA,	/* Section */
+								  .createStmt = q->data,	/* Create */
+								  .dropStmt = delq->data,	/* Del */
+								  .copyStmt = NULL, /* Copy */
+								  .deps = NULL, /* Deps */
+								  .nDeps = 0,	/* # Deps */
+								  .dumpFn = NULL,	/* Dumper */
+								  .dumpArg = NULL));	/* Dumper Arg */
+
+	free(namecopy);
+
+	destroyPQExpBuffer(q);
+	destroyPQExpBuffer(delq);
+}
+
+static void
+dumpYbRoleProfileData(Archive *fout, const YbRoleProfileInfo *rlprfinfo)
+{
+	DumpOptions *dopt = fout->dopt;
+	PQExpBuffer q;
+	PQExpBuffer delq;
+	const char *rolename;
+	const char *profilename;
+
+	/*
+	 * Do nothing, if not dumping schema
+	 * or if include_yb_metadata/binary_upgrade is not supplied
+	 * or if --no-profiles is supplied.
+	 */
+	if (!dopt->dumpSchema ||
+		!(dopt->include_yb_metadata || dopt->binary_upgrade) ||
+		dopt->no_profiles)
+		return;
+
+	rolename = rlprfinfo->rolprfrolename;
+	profilename = rlprfinfo->rolprfprofilename;
+
+	if (!rolename || !profilename)
+		return;
+
+	q = createPQExpBuffer();
+	delq = createPQExpBuffer();
+
+	/* Assign the profile to the role */
+	appendPQExpBuffer(q, "ALTER ROLE %s WITH PROFILE %s;\n",
+					  fmtId(rolename), fmtId(profilename));
+
+	appendPQExpBuffer(delq, "ALTER ROLE %s NOPROFILE;\n", fmtId(rolename));
+
+	/* Update pg_yb_role_profile with additional attributes */
+	appendPQExpBuffer(q,
+		"UPDATE pg_catalog.pg_yb_role_profile\n"
+		"SET rolprfstatus = '%c',\n"
+		"    rolprffailedloginattempts = %d,\n"
+		"    rolprflockeduntil = '%s'\n"
+		"WHERE rolprfrole = %u AND rolprfprofile = %u;\n",
+		rlprfinfo->rolprfstatus,
+		rlprfinfo->rolprffailedloginattempts,
+		rlprfinfo->rolprflockeduntil ? rlprfinfo->rolprflockeduntil : "NULL",
+		rlprfinfo->rolprfroleid,
+		rlprfinfo->rolprfprofileid);
+
+	if (rlprfinfo->dobj.dump & DUMP_COMPONENT_DEFINITION)
+		ArchiveEntry(fout,
+					 rlprfinfo->dobj.catId,	/* catalog ID */
+					 rlprfinfo->dobj.dumpId,	/* dump ID */
+					 ARCHIVE_OPTS(.tag = rlprfinfo->dobj.name, /* Name */
+								  .namespace = NULL,	/* Namespace */
+								  .tablespace = NULL,	/* Tablespace */
+								  .owner = NULL, /* Owner */
+								  .description = "ROLE PROFILE DATA",	/* Desc */
+								  .section = SECTION_DATA,	/* Section */
+								  .createStmt = q->data,	/* Create */
+								  .dropStmt = delq->data,	/* Del */
+								  .copyStmt = NULL, /* Copy */
+								  .deps = NULL, /* Deps */
+								  .nDeps = 0,	/* # Deps */
+								  .dumpFn = NULL,	/* Dumper */
+								  .dumpArg = NULL));	/* Dumper Arg */
+
+	destroyPQExpBuffer(q);
+	destroyPQExpBuffer(delq);
+}
+
 static void
 freeYbcTablePropertiesIfRequired(YbcTableProperties yb_properties)
 {
@@ -19499,6 +19892,7 @@ addBoundaryDependencies(DumpableObject **dobjs, int numObjs,
 			case DO_CONVERSION:
 			case DO_TABLE:
 			case DO_TABLEGROUP:
+			case DO_YB_PROFILE:
 			case DO_TABLE_ATTACH:
 			case DO_ATTRDEF:
 			case DO_PROCLANG:
@@ -19518,6 +19912,7 @@ addBoundaryDependencies(DumpableObject **dobjs, int numObjs,
 			case DO_TABLE_DATA:
 			case DO_SEQUENCE_SET:
 			case DO_BLOB_DATA:
+			case DO_YB_ROLE_PROFILE_DATA:
 				/* Data objects: must come between the boundaries */
 				addObjectDependency(dobj, preDataBound->dumpId);
 				addObjectDependency(postDataBound, dobj->dumpId);
