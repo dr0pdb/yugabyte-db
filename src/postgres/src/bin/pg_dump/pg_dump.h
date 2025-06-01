@@ -402,7 +402,6 @@ typedef struct _ybProfileInfo
 	 */
 	DumpableObject  dobj;
 	int				prfmaxfailedloginattempts;
-	int				prfpasswordlocktime;
 } YbProfileInfo;
 
 typedef struct _ybRoleProfileInfo

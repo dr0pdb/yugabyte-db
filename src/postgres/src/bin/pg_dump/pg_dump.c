@@ -7220,7 +7220,6 @@ getProfiles(Archive *fout, int *numProfiles)
 	int				i_oid;
 	int				i_tableoid;
 	int				i_prfmaxfailedloginattempts;
-	int				i_prfpasswordlocktime;
 
 	query = createPQExpBuffer();
 
@@ -7243,7 +7242,6 @@ getProfiles(Archive *fout, int *numProfiles)
 	i_oid = PQfnumber(res, "oid");
 	i_tableoid = PQfnumber(res, "tableoid");
 	i_prfmaxfailedloginattempts = PQfnumber(res, "prfmaxfailedloginattempts");
-	i_prfpasswordlocktime = PQfnumber(res, "prfpasswordlocktime");
 
 	for (i = 0; i < ntups; i++)
 	{
@@ -7257,8 +7255,6 @@ getProfiles(Archive *fout, int *numProfiles)
 		profile_info[i].dobj.name = pg_strdup(PQgetvalue(res, i, i_prfname));
 		profile_info[i].prfmaxfailedloginattempts =
 			atoi(PQgetvalue(res, i, i_prfmaxfailedloginattempts));
-		profile_info[i].prfpasswordlocktime =
-			atoi(PQgetvalue(res, i, i_prfpasswordlocktime));
 
 		/* Decide whether we want to dump it */
 		selectDumpableObject(&(profile_info[i].dobj), fout);
@@ -7346,6 +7342,14 @@ getRoleProfiles(Archive *fout, int *numRoleProfiles)
 			atoi(PQgetvalue(res, i, i_rolprffailedloginattempts));
 		role_profile_info[i].rolprflockeduntil =
 			pg_strdup(PQgetvalue(res, i, i_rolprflockeduntil));
+
+		printf("getRoleProfiles: role oid: %u, role name: %s, profile oid: %u, profile name: %s, rolprfstatus: %c, rolprffailedloginattempts: %d\n",
+			role_profile_info[i].rolprfroleid,
+			role_profile_info[i].rolprfrolename,
+			role_profile_info[i].rolprfprofileid,
+			role_profile_info[i].rolprfprofilename,
+		   role_profile_info[i].rolprfstatus,
+		   role_profile_info[i].rolprffailedloginattempts);
 
 		/* Decide whether we want to dump it */
 		selectDumpableObject(&(role_profile_info[i].dobj), fout);
@@ -16715,11 +16719,9 @@ dumpYbProfile(Archive *fout, const YbProfileInfo *prfinfo)
 	namecopy = pg_strdup(fmtId(prfinfo->dobj.name));
 
 	appendPQExpBuffer(q,
-					  "CREATE PROFILE %s WITH\n"
-					  "  PASSWORD_LOCK_TIME %d\n"
-					  "  MAX_FAILED_LOGIN_ATTEMPTS %d;\n",
+					  "CREATE PROFILE %s LIMIT\n"
+					  "  FAILED_LOGIN_ATTEMPTS %d;\n",
 					  namecopy,
-					  prfinfo->prfpasswordlocktime,
 					  prfinfo->prfmaxfailedloginattempts);
 
 	appendPQExpBuffer(delq, "DROP PROFILE %s;\n", namecopy);
@@ -16770,6 +16772,8 @@ dumpYbRoleProfileData(Archive *fout, const YbRoleProfileInfo *rlprfinfo)
 	rolename = rlprfinfo->rolprfrolename;
 	profilename = rlprfinfo->rolprfprofilename;
 
+	printf("dumpYbRoleProfileData: role %s -> profile %s\n", rolename, profilename);
+
 	if (!rolename || !profilename)
 		return;
 
@@ -16778,9 +16782,9 @@ dumpYbRoleProfileData(Archive *fout, const YbRoleProfileInfo *rlprfinfo)
 
 	/* Assign the profile to the role */
 	appendPQExpBuffer(q, "ALTER ROLE %s WITH PROFILE %s;\n",
-					  fmtId(rolename), fmtId(profilename));
+					  rolename, profilename);
 
-	appendPQExpBuffer(delq, "ALTER ROLE %s NOPROFILE;\n", fmtId(rolename));
+	appendPQExpBuffer(delq, "ALTER ROLE %s NOPROFILE;\n", rolename);
 
 	/* Update pg_yb_role_profile with additional attributes */
 	appendPQExpBuffer(q,
