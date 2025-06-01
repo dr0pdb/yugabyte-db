@@ -16788,16 +16788,18 @@ dumpYbRoleProfileData(Archive *fout, const YbRoleProfileInfo *rlprfinfo)
 
 	/* Update pg_yb_role_profile with additional attributes */
 	appendPQExpBuffer(q,
-		"UPDATE pg_catalog.pg_yb_role_profile\n"
-		"SET rolprfstatus = '%c',\n"
-		"    rolprffailedloginattempts = %d,\n"
-		"    rolprflockeduntil = '%s'\n"
-		"WHERE rolprfrole = %u AND rolprfprofile = %u;\n",
-		rlprfinfo->rolprfstatus,
-		rlprfinfo->rolprffailedloginattempts,
-		rlprfinfo->rolprflockeduntil ? rlprfinfo->rolprflockeduntil : "NULL",
-		rlprfinfo->rolprfroleid,
-		rlprfinfo->rolprfprofileid);
+					  "UPDATE pg_catalog.pg_yb_role_profile\n"
+					  "SET rolprfstatus = '%c',\n"
+					  "    rolprffailedloginattempts = %d,\n"
+					  "    rolprflockeduntil = '%s'\n"
+					  "WHERE rolprfrole = %u AND rolprfprofile = %u;\n",
+					  rlprfinfo->rolprfstatus,
+					  rlprfinfo->rolprffailedloginattempts,
+					  rlprfinfo->rolprflockeduntil &&
+							  strlen(rlprfinfo->rolprflockeduntil) > 0 ?
+						  rlprfinfo->rolprflockeduntil :
+						  "NULL",
+					  rlprfinfo->rolprfroleid, rlprfinfo->rolprfprofileid);
 
 	if (rlprfinfo->dobj.dump & DUMP_COMPONENT_DEFINITION)
 		ArchiveEntry(fout,
