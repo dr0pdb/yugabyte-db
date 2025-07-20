@@ -180,6 +180,11 @@ DEFINE_NON_RUNTIME_PG_FLAG(bool, yb_disable_ddl_transaction_block_for_read_commi
     "ysql_yb_ddl_transaction_block_enabled is true. In other words, for Read Committed, fall back "
     "to the mode when ysql_yb_ddl_transaction_block_enabled is false.");
 
+DEFINE_test_flag(bool, ysql_yb_ddl_savepoint_enabled, false,
+    "If true, support for savepoints for DDL statements within a transaction block will be "
+    "enabled. This flag only takes effect if ysql_yb_ddl_transaction_block_enabled is set to "
+    "true.");
+
 namespace {
 
 constexpr const auto kMinRpcThrottleThresholdBytes = 16;
