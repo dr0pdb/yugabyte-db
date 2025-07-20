@@ -707,13 +707,16 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						RequireTransactionBlock(isTopLevel, "SAVEPOINT");
 
 						/*
-						 * Disallow savepoint if the user has executed a DDL
-						 * within the transaction block.
+						 * Disallow savepoint if savepoint for DDL support is
+						 * disabled and the user has executed a DDL within the
+						 * transaction block.
 						 *
-						 * TODO(#26734): Remove once savepoint for DDL is
-						 * supported.
+						 * TODO(#26734): Change the error message to suggest
+						 * enabling the savepoint feature once it is no longer a
+						 * test flag.
 						 */
 						if (IsYugaByteEnabled() &&
+							!*YBCGetGFlags()->TEST_ysql_yb_ddl_savepoint_enabled &&
 							YBGetDdlUseRegularTransactionBlock())
 							ereport(ERROR,
 									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),

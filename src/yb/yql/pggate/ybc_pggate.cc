@@ -183,6 +183,7 @@ DEFINE_RUNTIME_PG_FLAG(
 DECLARE_bool(TEST_ash_debug_aux);
 DECLARE_bool(TEST_generate_ybrowid_sequentially);
 DECLARE_bool(TEST_ysql_log_perdb_allocated_new_objectid);
+DECLARE_bool(TEST_ysql_yb_ddl_savepoint_enabled);
 
 DECLARE_bool(use_fast_backward_scan);
 DECLARE_uint32(ysql_max_invalidation_message_queue_size);
@@ -2312,6 +2313,8 @@ const YbcPgGFlagsAccessor* YBCGetGFlags() {
         &FLAGS_ysql_enable_neghit_full_inheritscache,
       .enable_object_locking_for_table_locks =
           &FLAGS_enable_object_locking_for_table_locks,
+      .TEST_ysql_yb_ddl_savepoint_enabled =
+          &FLAGS_TEST_ysql_yb_ddl_savepoint_enabled,
       .ysql_max_invalidation_message_queue_size =
           &FLAGS_ysql_max_invalidation_message_queue_size,
       .ysql_max_replication_slots = &FLAGS_max_replication_slots,
