@@ -784,6 +784,29 @@ message IsYsqlDdlVerificationDoneResponsePB {
   optional bool done = 2;
 }
 
+message RollbackYsqlTxnToSubTxnRequestPB {
+  // The transaction whose status is being reported.
+  optional bytes transaction_id = 1;
+
+  // The subtransaction to rollback to.
+  optional uint32 sub_transaction_id = 2;
+}
+
+message RollbackYsqlTxnToSubTxnResponsePB {
+  optional MasterErrorPB error = 1;
+}
+
+message IsRollbackYsqlTxnToSubTxnDoneRequestPB {
+  optional TransactionMetadataPB transaction = 1;
+  optional uint32 sub_transaction_id = 2;
+}
+
+message IsRollbackYsqlTxnToSubTxnDoneResponsePB {
+  optional MasterErrorPB error = 1;
+
+  optional bool done = 2;
+}
+
 // ============================================================================
 // Table/Object Locks
 // ============================================================================
@@ -912,6 +935,11 @@ service MasterDdl {
       (ReportYsqlDdlTxnStatusResponsePB);
   rpc IsYsqlDdlVerificationDone(IsYsqlDdlVerificationDoneRequestPB) returns
       (IsYsqlDdlVerificationDoneResponsePB);
+
+  rpc RollbackYsqlTxnToSubTxn(RollbackYsqlTxnToSubTxnRequestPB) returns
+      (RollbackYsqlTxnToSubTxnResponsePB);
+  rpc IsRollbackYsqlTxnToSubTxnDone(IsRollbackYsqlTxnToSubTxnDoneRequestPB) returns
+      (IsRollbackYsqlTxnToSubTxnDoneResponsePB);
 
   rpc AcquireObjectLocksGlobal(AcquireObjectLocksGlobalRequestPB)
       returns (AcquireObjectLocksGlobalResponsePB);

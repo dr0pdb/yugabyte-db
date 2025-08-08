@@ -53,6 +53,8 @@ DEFINE_test_flag(bool, disable_release_object_locks_on_ddl_verification, false,
     "When set, skip release object lock rpcs to tservers triggered at the end of DDL verification, "
     "that release object locks acquired by the DDL.");
 
+DECLARE_bool(TEST_ysql_yb_ddl_savepoint_enabled);
+
 using namespace std::placeholders;
 using std::shared_ptr;
 using std::string;
@@ -447,25 +449,57 @@ Status CatalogManager::HandleSuccessfulYsqlDdlTxn(
 }
 
 Status CatalogManager::HandleAbortedYsqlDdlTxn(const YsqlTableDdlTxnState txn_data) {
+  return RollbackYsqlTxnDdlStates(
+      txn_data, false /* is_rollback_to_subtxn */, 0 /* rollback_till_ddl_state_index_incl */);
+}
+
+// Helper function to rollback DDL states for the given txn_data in the segment
+// [rollback_till_ddl_state_index_incl, ysql_ddl_txn_verifier_state().size())
+Status CatalogManager::RollbackYsqlTxnDdlStates(
+    const YsqlTableDdlTxnState txn_data, bool is_rollback_to_subtxn,
+    int rollback_till_ddl_state_index_incl) {
   auto& l = txn_data.write_lock;
+  RSTATUS_DCHECK(
+      rollback_till_ddl_state_index_incl >= 0 &&
+          rollback_till_ddl_state_index_incl < l->ysql_ddl_txn_verifier_state().size(),
+      IllegalState,
+      Format(
+          "Invalid start index $0 to rollback to for transaction $1",
+          rollback_till_ddl_state_index_incl, txn_data.ddl_txn_id));
+
   auto& mutable_pb = l.mutable_data()->pb;
   // A table can undergo DDL operations in the following order:
   // a. 0 or 1 CREATE TABLE
   // b. 0 or more ALTER TABLE
   // c. 0 or 1 DROP TABLE
-  const auto table_created_in_txn = l->is_being_created_by_ysql_ddl_txn();
-  const auto& first_ddl_state = l->ysql_ddl_txn_verifier_state_first();
-  if (table_created_in_txn) {
-    // This table was created in this aborted transaction. Drop the xCluster streams and the table.
-    RETURN_NOT_OK(YsqlDdlTxnDropTableHelper(txn_data, /*success=*/false));
+  const auto table_created_in_txn_segment =
+      mutable_pb.ysql_ddl_txn_verifier_state(rollback_till_ddl_state_index_incl)
+          .contains_create_table_op();
+  const auto& first_ddl_state =
+      mutable_pb.ysql_ddl_txn_verifier_state(rollback_till_ddl_state_index_incl);
+  if (table_created_in_txn_segment) {
+    RSTATUS_DCHECK_EQ(
+        rollback_till_ddl_state_index_incl, 0, IllegalState,
+        "Corrupt ysql_ddl_txn_verifier_state. A table creation could have only happened as part of "
+        "the first sub-transaction of ysql_ddl_txn_verifier_state.");
+
+    // This table was created in this aborted transaction segment. Drop the xCluster streams and the
+    // table.
+    RETURN_NOT_OK(YsqlDdlTxnDropTableHelper(txn_data, /*success=*/false, is_rollback_to_subtxn));
 
     return DropXClusterStreamsOfTables({txn_data.table->id()});
   } else if (!first_ddl_state.contains_alter_table_op()) {
     // The first_ddl_state is neither a CREATE nor an ALTER. So it must be DELETE and a single such
     // state should be present.
-    DCHECK(first_ddl_state.contains_drop_table_op());
-    DCHECK_EQ(mutable_pb.ysql_ddl_txn_verifier_state_size(), 1);
-    return ClearYsqlDdlTxnState(txn_data);
+    RSTATUS_DCHECK(
+        first_ddl_state.contains_drop_table_op(), IllegalState,
+        Format(
+            "Corrupt ysql_ddl_txn_verifier_state. "
+            "$0 index unexpectedly doesn't include a drop table operation.",
+            rollback_till_ddl_state_index_incl));
+    DCHECK_EQ(
+        mutable_pb.ysql_ddl_txn_verifier_state_size(), rollback_till_ddl_state_index_incl + 1);
+    return ClearYsqlDdlTxnState(txn_data, rollback_till_ddl_state_index_incl);
   }
 
   // There might be more than one YsqlDdlTxnVerifierStatePB with alter table op but since we are
@@ -477,7 +511,7 @@ Status CatalogManager::HandleAbortedYsqlDdlTxn(const YsqlTableDdlTxnState txn_da
       master_->clock()->Now(),
       txn_data.table->id(),
       mutable_pb,
-      "Rollback of DDL Transaction");
+      is_rollback_to_subtxn ? "Rollback of SubTransactions" : "Rollback of DDL Transaction");
   mutable_pb.mutable_schema()->CopyFrom(first_ddl_state.previous_schema());
   const string new_table_name = first_ddl_state.previous_table_name();
   mutable_pb.set_name(new_table_name);
@@ -485,18 +519,32 @@ Status CatalogManager::HandleAbortedYsqlDdlTxn(const YsqlTableDdlTxnState txn_da
     mutable_pb.set_next_column_id(first_ddl_state.previous_next_column_id());
   }
   return YsqlDdlTxnAlterTableHelper(
-      txn_data, ddl_log_entries, new_table_name, /*success=*/false);
+      txn_data, ddl_log_entries, new_table_name, /*success=*/false,
+      rollback_till_ddl_state_index_incl);
 }
 
-Status CatalogManager::ClearYsqlDdlTxnState(const YsqlTableDdlTxnState txn_data) {
+Status CatalogManager::ClearYsqlDdlTxnState(
+    const YsqlTableDdlTxnState txn_data, int rollback_till_ddl_state_index_incl) {
   auto& pb = txn_data.write_lock.mutable_data()->pb;
   VLOG(3) << "Clearing ysql_ddl_txn_verifier_state from table "
-          << txn_data.table->id() << ", txn_id: " << txn_data.ddl_txn_id;
-  pb.clear_ysql_ddl_txn_verifier_state();
-  pb.clear_transaction();
+          << txn_data.table->id() << ", txn_id: " << txn_data.ddl_txn_id
+          << ", rollback_till_ddl_state_index_incl: " << rollback_till_ddl_state_index_incl;
 
-  RETURN_NOT_OK(
-      GetXClusterManager()->ClearXClusterFieldsAfterYsqlDDL(txn_data.table, pb, txn_data.epoch));
+  auto total_cleanup = rollback_till_ddl_state_index_incl == 0;
+  if (total_cleanup) {
+    pb.clear_ysql_ddl_txn_verifier_state();
+    pb.clear_transaction();
+
+    RETURN_NOT_OK(
+        GetXClusterManager()->ClearXClusterFieldsAfterYsqlDDL(txn_data.table, pb, txn_data.epoch));
+  } else {
+    // Only a part of the ysql_ddl_txn_verifier_state needs to be cleared.
+    // Represents a rollback to a sub-transaction.
+    for (int idx = pb.ysql_ddl_txn_verifier_state_size() - 1;
+         idx >= rollback_till_ddl_state_index_incl; idx--) {
+      pb.mutable_ysql_ddl_txn_verifier_state()->RemoveLast();
+    }
+  }
 
   RETURN_NOT_OK(sys_catalog_->Upsert(txn_data.epoch, txn_data.table));
   if (RandomActWithProbability(
@@ -504,14 +552,23 @@ Status CatalogManager::ClearYsqlDdlTxnState(const YsqlTableDdlTxnState txn_data)
     return STATUS(InternalError, "Injected random failure for testing.");
   }
   txn_data.write_lock.Commit();
-  RemoveDdlTransactionState(txn_data.table->id(), {txn_data.ddl_txn_id});
+  if (total_cleanup) {
+    RemoveDdlTransactionState(txn_data.table->id(), {txn_data.ddl_txn_id});
+  } else {
+    RemoveDdlRollbackToSubTxnState(txn_data.table->id(), txn_data.ddl_txn_id);
+  }
   return Status::OK();
 }
 
 Status CatalogManager::YsqlDdlTxnAlterTableHelper(const YsqlTableDdlTxnState txn_data,
                                                   const std::vector<DdlLogEntry>& ddl_log_entries,
                                                   const string& new_table_name,
-                                                  bool success) {
+                                                  bool success,
+                                                  int rollback_till_ddl_state_index_incl) {
+  RSTATUS_DCHECK(
+      rollback_till_ddl_state_index_incl == 0 || FLAGS_TEST_ysql_yb_ddl_savepoint_enabled,
+      InternalError, "Unexpected value of rollback_till_ddl_state_index_incl");
+
   auto& table_pb = txn_data.write_lock.mutable_data()->pb;
   const int target_schema_version = table_pb.version() + 1;
   table_pb.set_version(target_schema_version);
@@ -520,10 +577,21 @@ Status CatalogManager::YsqlDdlTxnAlterTableHelper(const YsqlTableDdlTxnState txn
   table_pb.set_state_msg(
     strings::Substitute("Alter table version=$0 ts=$1", table_pb.version(), LocalTimeAsString()));
 
-  VLOG(3) << "Clearing ysql_ddl_txn_verifier_state from table "
-          << txn_data.table->id() << ", txn_id: " << txn_data.ddl_txn_id;
-  table_pb.clear_ysql_ddl_txn_verifier_state();
-  table_pb.clear_transaction();
+  auto total_cleanup = rollback_till_ddl_state_index_incl == 0;
+  if (total_cleanup) {
+    VLOG(3) << "Clearing all ysql_ddl_txn_verifier_state from table " << txn_data.table->id()
+            << ", txn_id: " << txn_data.ddl_txn_id;
+    table_pb.clear_ysql_ddl_txn_verifier_state();
+    table_pb.clear_transaction();
+  } else {
+    VLOG(3) << "Clearing ysql_ddl_txn_verifier_state from index: "
+            << rollback_till_ddl_state_index_incl << " for table: " << txn_data.table->id()
+            << ", txn_id: " << txn_data.ddl_txn_id;
+    for (int idx = table_pb.ysql_ddl_txn_verifier_state_size() - 1;
+         idx >= rollback_till_ddl_state_index_incl; idx--) {
+      table_pb.mutable_ysql_ddl_txn_verifier_state()->RemoveLast();
+    }
+  }
 
   // Update sys-catalog with the new table schema.
   RETURN_NOT_OK(UpdateSysCatalogWithNewSchema(
@@ -541,11 +609,17 @@ Status CatalogManager::YsqlDdlTxnAlterTableHelper(const YsqlTableDdlTxnState txn
 
   txn_data.write_lock.Commit();
 
-  // Enqueue this transaction to be notified when the alter operation is updated.
   auto table = txn_data.table;
-  table->AddDdlTxnWaitingForSchemaVersion(target_schema_version, txn_data.ddl_txn_id);
+  if (total_cleanup) {
+    // Enqueue this transaction to be notified when the alter operation is updated.
+    table->AddDdlTxnWaitingForSchemaVersion(target_schema_version, txn_data.ddl_txn_id);
+  } else {
+    table->AddDdlTxnForRollbackToSubTxnWaitingForSchemaVersion(
+        target_schema_version, txn_data.ddl_txn_id);
+  }
 
-  auto action = success ? "roll forward" : "rollback";
+  auto action = success ? "roll forward"
+                        : (total_cleanup ? "rollback" : "rollback to sub-transaction");
   LOG(INFO) << "Sending Alter Table request as part of " << action << " for table "
             << table->name();
   if (RandomActWithProbability(FLAGS_TEST_ysql_ddl_rollback_failure_probability)) {
@@ -555,7 +629,7 @@ Status CatalogManager::YsqlDdlTxnAlterTableHelper(const YsqlTableDdlTxnState txn
 }
 
 Status CatalogManager::YsqlDdlTxnDropTableHelper(
-    const YsqlTableDdlTxnState txn_data, bool success) {
+    const YsqlTableDdlTxnState txn_data, bool success, bool is_rollback_to_subtxn) {
   // TableInfo::ysql_ddl_txn_verifier_state and TableInfo::transaction are cleared once all tablets
   // are deleted (in CheckTableDeleted).
   auto table = txn_data.table;
@@ -573,7 +647,9 @@ Status CatalogManager::YsqlDdlTxnDropTableHelper(
     return STATUS(InternalError, "Injected random failure for testing.");
   }
   // Mark that we have called delete table on this table.
-  {
+  // Skip this step when rolling back to a sub-transaction because this state is specific to
+  // transaction verification.
+  if (!is_rollback_to_subtxn) {
     LockGuard lock(ddl_txn_verifier_mutex_);
     auto verifier_state = FindOrNull(ysql_ddl_txn_verfication_state_map_, txn_data.ddl_txn_id);
     if (!verifier_state) {
@@ -630,6 +706,24 @@ void CatalogManager::UpdateDdlVerificationState(const TransactionId& txn,
   UpdateDdlVerificationStateUnlocked(txn, state);
 }
 
+void CatalogManager::UpdateDdlRollbackToSubTxnStateUnlocked(
+    const TransactionId& txn, const SubTransactionId sub_txn_id,
+    YsqlDdlSubTransactionRollbackState state) {
+  auto current_state = FindOrNull(ysql_ddl_txn_undergoing_subtransaction_rollback_, txn);
+  if (current_state && current_state->sub_txn == sub_txn_id) {
+    LOG(INFO) << "Updating the rollback to sub-transaction state for " << txn
+              << ", sub_transaction_id: " << sub_txn_id << " to " << state;
+    current_state->state = state;
+  }
+}
+
+void CatalogManager::UpdateDdlRollbackToSubTxnState(
+    const TransactionId& txn, const SubTransactionId sub_txn_id,
+    YsqlDdlSubTransactionRollbackState state) {
+  LockGuard lock(ddl_txn_verifier_mutex_);
+  UpdateDdlRollbackToSubTxnStateUnlocked(txn, sub_txn_id, state);
+}
+
 void CatalogManager::RemoveDdlTransactionStateUnlocked(
     const TableId& table_id, const std::vector<TransactionId>& txn_ids) {
   if (txn_ids.size() == 0) {
@@ -650,6 +744,7 @@ void CatalogManager::RemoveDdlTransactionStateUnlocked(
     if (tables.empty()) {
       LOG(INFO) << "Erasing DDL Verification state for " << txn_id;
       ysql_ddl_txn_verfication_state_map_.erase(iter);
+      ysql_ddl_txn_undergoing_subtransaction_rollback_.erase(txn_id);
       // At this point, we can be sure that the docdb schema changes have been applied.
       // For instance, consider the case of an ALTER.
       // 1. Either the alter waits inline successfully before issuing the commit,
@@ -673,6 +768,33 @@ void CatalogManager::RemoveDdlTransactionState(
     const TableId& table_id, const std::vector<TransactionId>& txn_ids) {
   LockGuard lock(ddl_txn_verifier_mutex_);
   RemoveDdlTransactionStateUnlocked(table_id, txn_ids);
+}
+
+void CatalogManager::RemoveDdlRollbackToSubTxnStateUnlocked(
+    const TableId& table_id, TransactionId txn_id) {
+  auto iter = ysql_ddl_txn_undergoing_subtransaction_rollback_.find(txn_id);
+  if (iter == ysql_ddl_txn_undergoing_subtransaction_rollback_.end()) {
+    return;
+  }
+
+  LOG(INFO) << "Removing " << table_id << " from DDL rollback to sub-transaction state for "
+            << txn_id;
+  auto& tables = iter->second.tables;
+  const auto num_tables = std::erase_if(
+      tables, [&table_id](const TableInfoPtr& table) { return table->id() == table_id; });
+  DCHECK_LE(num_tables, 1);
+  if (tables.empty()) {
+    LOG(INFO) << "Erasing DDL rollback to sub-transaction state " << txn_id;
+    ysql_ddl_txn_undergoing_subtransaction_rollback_.erase(iter);
+  } else {
+    VLOG(1) << "DDL rollback to sub-transaction for " << txn_id << " has " << tables.size()
+            << " tables remaining";
+  }
+}
+
+void CatalogManager::RemoveDdlRollbackToSubTxnState(const TableId& table_id, TransactionId txn_id) {
+  LockGuard lock(ddl_txn_verifier_mutex_);
+  RemoveDdlRollbackToSubTxnStateUnlocked(table_id, txn_id);
 }
 
 Status CatalogManager::TriggerDdlVerificationIfNeeded(
@@ -817,6 +939,251 @@ void CatalogManager::ScheduleTriggerDdlVerificationIfNeeded(
 void CatalogManager::DoReleaseObjectLocksIfNecessary(const TransactionId& txn_id) {
   DEBUG_ONLY_TEST_SYNC_POINT("DoReleaseObjectLocksIfNecessary");
   object_lock_info_manager_->ReleaseLocksForTxn(txn_id);
+}
+
+Status CatalogManager::RollbackYsqlTxnToSubTxn(
+  const RollbackYsqlTxnToSubTxnRequestPB* req, RollbackYsqlTxnToSubTxnResponsePB* resp,
+  rpc::RpcContext* rpc, const LeaderEpoch& epoch) {
+  RSTATUS_DCHECK(req, InvalidArgument, "Received invalid RollbackYsqlTxnToSubTxn request");
+  const auto& req_txn = req->transaction_id();
+  SCHECK(!req_txn.empty(), IllegalState,
+      "Received RollbackYsqlTxnToSubTxn request without transaction id");
+
+  const auto& sub_txn_id = req->sub_transaction_id();
+  SCHECK_GE(sub_txn_id, kMinSubTransactionId, IllegalState,
+    Format("Received RollbackYsqlTxnToSubTxn request with an invalid sub-txn id $0", sub_txn_id));
+
+  return YsqlDdlTxnRollbackToSubTxn(req_txn, sub_txn_id, epoch);
+}
+
+Status CatalogManager::YsqlDdlTxnRollbackToSubTxn(const std::string& pb_txn_id,
+                                                  const SubTransactionId sub_txn_id,
+                                                  const LeaderEpoch& epoch) {
+  auto txn = VERIFY_RESULT(FullyDecodeTransactionId(pb_txn_id));
+  LOG_WITH_FUNC(INFO) << "transaction: " << txn
+                      << " sub_transaction: " << sub_txn_id;
+
+  vector<TableInfoPtr> tables;
+  {
+    LockGuard lock(ddl_txn_verifier_mutex_);
+    auto verifier_state = FindOrNull(ysql_ddl_txn_verfication_state_map_, txn);
+    if (!verifier_state || verifier_state->state != YsqlDdlVerificationState::kDdlInProgress ||
+        verifier_state->txn_state != TxnState::kUnknown) {
+      VLOG(3) << "Rolling back to sub-transaction for an already completed "
+              << " transaction: " << txn
+              << ", verifier_state: "
+              << ((verifier_state) ? ToString(verifier_state->state) : "NULL")
+              << ", txn_state: "
+              << ((verifier_state) ? ToString(verifier_state->txn_state) : "NULL");
+      return STATUS_FORMAT(
+          IllegalState,
+          "Rolling back to sub-transaction for an already completed transaction: $0",
+          txn);
+    }
+
+    auto sub_txn_rollback_state = FindOrNull(ysql_ddl_txn_undergoing_subtransaction_rollback_, txn);
+    if (sub_txn_rollback_state) {
+      RSTATUS_DCHECK(
+          sub_txn_rollback_state->sub_txn == sub_txn_id, IllegalState,
+          Format(
+              "Rolling back to sub-transaction when another sub-transaction rollback in progress. "
+              "transaction: $0, sub_transaction_id: $1, sub_transaction_id_in_progress: $2",
+              txn, sub_txn_id, sub_txn_rollback_state->sub_txn));
+
+      VLOG(3) << "Rolling back to sub-transaction is already in progress. "
+              << " transaction: " << txn << ", sub_transaction_id: " << sub_txn_id;
+      return Status::OK();
+    }
+
+    LOG(INFO) << "Enqueuing txn_id " << pb_txn_id
+              << ", sub_txn_id: " << sub_txn_id
+              << " for rollback to sub-transaction operation.";
+    ysql_ddl_txn_undergoing_subtransaction_rollback_.emplace(
+        txn, YsqlDdlSubTransactionRollbackMetadata{
+                                sub_txn_id,
+                                YsqlDdlSubTransactionRollbackState::kDdlSubTxnRollbackInProgress,
+                                {} /* tables */});
+
+    tables = verifier_state->tables;
+  }
+
+  auto rollback_to_sub_txn_success = true;
+  for (auto& table : tables) {
+    auto table_txn_id = table->LockForRead()->pb_transaction_id();
+
+    // If the table is no longer involved in a DDL transaction or involved in a new DDL transaction,
+    // then txn has already completed.
+    // This can happen if the transaction aborts (say client disconnect) during the processing of
+    // the rollback to sub-transaction. There isn't much to do in this case. Any cleanup such as
+    // removing from ysql_ddl_txn_undergoing_subtransaction_rollback_ map will be done by the
+    // ysql_ddl_txn_verifier task which handles transaction aborts.
+    if (table_txn_id.empty() || table_txn_id != pb_txn_id) {
+      // We don't remove the data from ysql_ddl_txn_undergoing_subtransaction_rollback_
+      // here because that is the responsibility of the task handling the transaction completion
+      // i.e. the ysql_ddl_txn_verifier task.
+      return STATUS_FORMAT(
+          IllegalState, "Rolling back to sub-transaction for an already completed transaction: $0",
+          txn);
+    }
+
+    if (table->is_index()) {
+      // This is an index. If the indexed table is being deleted or marked for deletion due to the
+      // sub-transaction rollback, then skip doing anything as the deletion of the table will delete
+      // this index.
+      const auto& indexed_table_id = table->indexed_table_id();
+      auto indexed_table = VERIFY_RESULT(FindTableById(indexed_table_id));
+      if (table->IsBeingDroppedDueToSubTxnRollback(pb_txn_id, sub_txn_id) &&
+          indexed_table->IsBeingDroppedDueToSubTxnRollback(pb_txn_id, sub_txn_id)) {
+        LOG(INFO) << "Skipping rollback to sub-transaction for index " << table->ToString()
+                  << " as the indexed table " << indexed_table->ToString()
+                  << " is also being dropped";
+        continue;
+      }
+    }
+
+    auto s = background_tasks_thread_pool_->SubmitFunc([this, table, txn, sub_txn_id, epoch]() {
+      auto s = YsqlDdlTxnRollbackToSubTxnHelper(table.get(), txn, sub_txn_id, epoch);
+      if (!s.ok()) {
+        LOG(WARNING) << "YsqlDdlTxnRollbackToSubTxnHelper failed for table " << table->ToString()
+                     << " txn " << txn << ": " << s.ToString();
+        UpdateDdlRollbackToSubTxnState(
+            txn, sub_txn_id,
+            YsqlDdlSubTransactionRollbackState::kDdlSubTxnRollbackPostProcessingFailed);
+      }
+    });
+    if (!s.ok()) {
+      rollback_to_sub_txn_success = false;
+      break;
+    }
+
+    {
+      LockGuard lock(ddl_txn_verifier_mutex_);
+      ysql_ddl_txn_undergoing_subtransaction_rollback_[txn].tables.push_back(table);
+    }
+  }
+  if (!rollback_to_sub_txn_success) {
+    UpdateDdlRollbackToSubTxnState(
+        txn, sub_txn_id,
+        YsqlDdlSubTransactionRollbackState::kDdlSubTxnRollbackPostProcessingFailed);
+    return STATUS_FORMAT(
+        InternalError, "Failed to submit background task to rollback to sub-transaction");
+  }
+
+  return Status::OK();
+}
+
+Status CatalogManager::YsqlDdlTxnRollbackToSubTxnHelper(
+  TableInfo* table, const TransactionId& txn_id, const SubTransactionId sub_txn_id,
+  const LeaderEpoch& epoch) {
+  const auto id = "table id: " + table->id();
+
+  auto l = table->LockForWrite();
+  if (!VERIFY_RESULT(l->is_being_modified_by_ddl_transaction(txn_id))) {
+    // Transaction is already complete for this table. This could happen if the tserver / PG crashes
+    // immediately after the savepoint rollback leading to the transaction abort.
+    VLOG(3) << "YsqlDdlTxnRollbackToSubTxnHelper called for an already finished txn: " << txn_id
+            << ", sub_txn: " << sub_txn_id << ", table: " << id << ". Ignoring";
+    return Status::OK();
+  }
+  LOG_WITH_FUNC(INFO) << id << " for transaction " << txn_id
+                      << ", sub_transaction: " << sub_txn_id
+                      << ", ysql_ddl_txn_verifier_state: "
+                      << CollectionToString(l->ysql_ddl_txn_verifier_state());
+
+  auto& metadata = l.mutable_data()->pb;
+
+  SCHECK(
+      l->is_running(), Aborted,
+      "Unexpected table state ($0), abandoning sub_transaction rollback for $1",
+      SysTablesEntryPB_State_Name(metadata.state()), table->ToString());
+
+  // Find the index of ddl_state in ysql_ddl_txn_verifier_state with smallest sub-transaction id >=
+  // sub_txn_id we have to rollback to.
+  //
+  // Example:
+  //    BEGIN;
+  //    SAVEPOINT a;                          -- sub_transaction_id = 2
+  //    ALTER TABLE test ADD COLUMN c1 INT;
+  //    SAVEPOINT b;                          -- sub_transaction_id = 3
+  //    ALTER TABLE test2 ADD COLUMN c2 INT;
+  //    SAVEPOINT c;                          -- sub_transaction_id = 4
+  //    ALTER TABLE test ADD COLUMN c3 INT;
+  //    ROLLBACK TO SAVEPOINT b;              -- Rollback all the DDLs till sub_transaction_id = 3
+  //
+  // For the table test, the ysql_ddl_txn_verifier_state will look like:
+  // [
+  //   {alter_table_op: true, .., sub_transaction_id = 2},
+  //   {alter_table_op: true, .., sub_transaction_id = 4}
+  // ]
+  //
+  // In the above example, we have to rollback to the state with sub_transaction_id = 3 i.e. for
+  // table 'test', we must rollback the changes made by sub_transaction_id = 4.
+  // So rollback_till_ddl_state_index_incl must be 1 in this case (zero based index).
+  const auto& ddl_states = l->ysql_ddl_txn_verifier_state();
+  int rollback_till_ddl_state_index_incl = l->ysql_first_ddl_state_at_or_after_sub_txn(sub_txn_id);
+  if (rollback_till_ddl_state_index_incl == ddl_states.size()) {
+    // Example:
+    //    BEGIN;
+    //    ALTER TABLE test ADD COLUMN c INT;
+    //    SAVEPOINT a;                          -- sub_transaction_id = 2
+    //    ALTER TABLE test2 ADD COLUMN c INT;
+    //    ROLLBACK TO SAVEPOINT a;
+    //
+    // When rolling back to savepoint a, there won't be anything to rollback for table 'test'.
+    VLOG_WITH_FUNC(3) << "Nothing to rollback to for transaction: "
+      << txn_id << ", sub_transaction: "
+      << sub_txn_id << ", table: "
+      << id << ", ddl_states: "
+      << CollectionToString(ddl_states);
+    return Status::OK();
+  }
+
+  VLOG_WITH_FUNC(3) << "rollback_till_ddl_state_index_incl: "
+          << rollback_till_ddl_state_index_incl << ", ddl_states: "
+          << CollectionToString(ddl_states);
+
+  auto txn_data = YsqlTableDdlTxnState {
+    .table = table,
+    .write_lock = l,
+    .epoch = epoch,
+    .ddl_txn_id = txn_id
+  };
+
+  return RollbackYsqlTxnDdlStates(
+      txn_data, true /* is_rollback_to_subtxn */, rollback_till_ddl_state_index_incl);
+}
+
+Status CatalogManager::IsRollbackYsqlTxnToSubTxnDone(
+    const IsRollbackYsqlTxnToSubTxnDoneRequestPB* req,
+    IsRollbackYsqlTxnToSubTxnDoneResponsePB* resp, rpc::RpcContext* rpc, const LeaderEpoch& epoch) {
+  auto txn = VERIFY_RESULT(TransactionMetadata::FromPB(req->transaction()));
+  const auto& req_txn = txn.transaction_id;
+  const auto& sub_txn_id = req->sub_transaction_id();
+  SCHECK_GE(sub_txn_id, kMinSubTransactionId, IllegalState,
+    Format("Received IsRollbackYsqlTxnToSubTxnDone request with an invalid sub-txn id $0",
+           sub_txn_id));
+
+  bool is_done = false;
+  bool is_success = false;
+  {
+    LockGuard lock(ddl_txn_verifier_mutex_);
+    const auto itr = ysql_ddl_txn_undergoing_subtransaction_rollback_.find(req_txn);
+    is_done = itr != ysql_ddl_txn_undergoing_subtransaction_rollback_.end() ||
+              itr->second.sub_txn != sub_txn_id ||
+              itr->second.state != YsqlDdlSubTransactionRollbackState::kDdlSubTxnRollbackInProgress;
+
+    is_success =
+        is_done &&
+        (itr != ysql_ddl_txn_undergoing_subtransaction_rollback_.end() ||
+         itr->second.state == YsqlDdlSubTransactionRollbackState::kDdlSubTxnRollbackPostProcessing);
+  }
+  resp->set_done(is_done);
+  VLOG(1) << "Received IsRollbackYsqlTxnToSubTxnDoneRequestPB request for transaction " << req_txn
+          << ", sub_transaction_id: " << sub_txn_id
+          << " responding with " << (is_done ? "true" : "false")
+          << ", is_success: " << (is_success ? "true" : "false");
+  return (is_success) ? Status::OK()
+                      : STATUS_FORMAT(InternalError, "Rollback to sub-transaction failed.");
 }
 
 } // namespace yb::master

@@ -119,6 +119,7 @@ DECLARE_bool(ysql_yb_allow_replication_slot_ordering_modes);
 DECLARE_bool(ysql_yb_enable_advisory_locks);
 DECLARE_bool(ysql_yb_ddl_transaction_block_enabled);
 DECLARE_bool(enable_object_locking_for_table_locks);
+DECLARE_bool(TEST_ysql_yb_ddl_savepoint_enabled);
 
 DECLARE_string(ysql_sequence_cache_method);
 
@@ -1916,6 +1917,16 @@ class PgClientSession::Impl {
 
     const auto deadline = context->GetClientDeadline();
     RETURN_NOT_OK(transaction->RollbackToSubTransaction(subtxn_id, deadline));
+
+    if (req.has_options() && req.options().ddl_mode() &&
+        req.options().ddl_use_regular_transaction_block() &&
+        FLAGS_TEST_ysql_yb_ddl_savepoint_enabled) {
+      RSTATUS_DCHECK(ddl_txn_metadata_.transaction_id == transaction->id(), IllegalState,
+                    "Unexpected DDL transaction metadata found");
+      RETURN_NOT_OK(client_.RollbackYsqlTxnToSubTxn(ddl_txn_metadata_, subtxn_id));
+      RETURN_NOT_OK(client_.WaitForRollbackYsqlTxnToSubTxnToFinish(ddl_txn_metadata_, subtxn_id));
+    }
+
     return ReleaseObjectLocksIfNecessary(transaction, kind, deadline, subtxn_id);
   }
 

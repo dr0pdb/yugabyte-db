@@ -970,6 +970,11 @@ class YBClient {
 
   Status WaitForDdlVerificationToFinish(const TransactionMetadata& txn);
 
+  Status RollbackYsqlTxnToSubTxn(const TransactionMetadata& txn, SubTransactionId sub_txn_id);
+
+  Status WaitForRollbackYsqlTxnToSubTxnToFinish(
+      const TransactionMetadata& txn, SubTransactionId sub_txn_id);
+
   Result<bool> CheckIfPitrActive();
 
   void LookupTabletByKey(const std::shared_ptr<YBTable>& table,

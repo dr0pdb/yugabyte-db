@@ -3095,6 +3095,52 @@ Status YBClient::Data::WaitForDdlVerificationToFinish(
       std::bind(&YBClient::Data::IsYsqlDdlVerificationInProgress, this, txn, _1, _2));
 }
 
+Status YBClient::Data::RollbackYsqlTxnToSubTxn(
+  const TransactionMetadata& txn, SubTransactionId sub_txn_id, const CoarseTimePoint& deadline) {
+  master::RollbackYsqlTxnToSubTxnRequestPB req;
+  master::RollbackYsqlTxnToSubTxnResponsePB resp;
+
+  req.set_transaction_id(txn.transaction_id.data(), txn.transaction_id.size());
+  req.set_sub_transaction_id(sub_txn_id);
+  RETURN_NOT_OK(SyncLeaderMasterRpc(
+      deadline, req, &resp, "RollbackYsqlTxnToSubTxn",
+      &master::MasterDdlProxy::RollbackYsqlTxnToSubTxnAsync));
+  if (resp.has_error()) {
+    return StatusFromPB(resp.error().status());
+  }
+  return Status::OK();
+}
+
+Status YBClient::Data::IsRollbackYsqlTxnToSubTxnInProgress(
+    const TransactionMetadata& txn, SubTransactionId sub_txn_id, CoarseTimePoint deadline,
+    bool* rollback_to_sub_txn_in_progress) {
+  master::IsRollbackYsqlTxnToSubTxnDoneRequestPB req;
+  master::IsRollbackYsqlTxnToSubTxnDoneResponsePB resp;
+
+  txn.ToPB(req.mutable_transaction());
+  req.set_sub_transaction_id(sub_txn_id);
+  auto status = SyncLeaderMasterRpc(
+      deadline, req, &resp, "IsRollbackYsqlTxnToSubTxnDone",
+      &master::MasterDdlProxy::IsRollbackYsqlTxnToSubTxnDoneAsync);
+
+  *rollback_to_sub_txn_in_progress = !resp.done();
+  return status;
+}
+
+Status YBClient::Data::WaitForRollbackYsqlTxnToSubTxnToFinish(
+    const TransactionMetadata& txn, SubTransactionId sub_txn_id, CoarseTimePoint deadline) {
+  return RetryFunc(
+      deadline,
+      Format(
+          "Waiting on YSQL Rollback to sub-transaction for $0-$1 to be completed",
+          txn.transaction_id, sub_txn_id),
+      Format(
+          "Timed out on YSQL Rollback to sub-transaction for $0-$1 to be completed",
+          txn.transaction_id, sub_txn_id),
+      std::bind(
+          &YBClient::Data::IsRollbackYsqlTxnToSubTxnInProgress, this, txn, sub_txn_id, _1, _2));
+}
+
 Result<bool> YBClient::Data::CheckIfPitrActive(CoarseTimePoint deadline) {
   CheckIfPitrActiveRequestPB req;
   CheckIfPitrActiveResponsePB resp;

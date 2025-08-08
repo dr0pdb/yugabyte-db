@@ -595,6 +595,7 @@ DEFINE_test_flag(int32, system_table_num_tablets, -1,
 DECLARE_bool(enable_pg_cron);
 DECLARE_bool(enable_truncate_cdcsdk_table);
 DECLARE_bool(ysql_yb_enable_replica_identity);
+DECLARE_bool(TEST_ysql_yb_ddl_savepoint_enabled);
 
 namespace yb::master {
 
@@ -1532,6 +1533,7 @@ Status CatalogManager::RunLoaders(SysCatalogLoadingState* state) {
   {
     LockGuard l(ddl_txn_verifier_mutex_);
     ysql_ddl_txn_verfication_state_map_.clear();
+    ysql_ddl_txn_undergoing_subtransaction_rollback_.clear();
   }
 
   ysql_manager_->Clear();
@@ -11198,6 +11200,11 @@ Status CatalogManager::HandleTabletSchemaVersionReport(
 
   // Clean up any DDL verification state that is waiting for this Alter to complete.
   RemoveDdlTransactionState(table->id(), table->EraseDdlTxnsWaitingForSchemaVersion(version));
+
+  if (FLAGS_TEST_ysql_yb_ddl_savepoint_enabled) {
+    RemoveDdlRollbackToSubTxnState(
+        table->id(), table->EraseDdlTxnForRollbackToSubTxnWaitingForSchemaVersion(version));
+  }
 
   return MultiStageAlterTable::LaunchNextTableInfoVersionIfNecessary(this, table, version, epoch);
 }

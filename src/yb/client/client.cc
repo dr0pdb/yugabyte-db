@@ -2606,6 +2606,20 @@ Status YBClient::WaitForDdlVerificationToFinish(const TransactionMetadata& txn) 
   return data_->WaitForDdlVerificationToFinish(txn, deadline);
 }
 
+Status YBClient::RollbackYsqlTxnToSubTxn(
+    const TransactionMetadata& txn, SubTransactionId sub_txn_id) {
+  auto deadline = CoarseMonoClock::Now() + default_rpc_timeout();
+  return data_->RollbackYsqlTxnToSubTxn(txn, sub_txn_id, deadline);
+}
+
+Status YBClient::WaitForRollbackYsqlTxnToSubTxnToFinish(
+    const TransactionMetadata& txn, SubTransactionId sub_txn_id) {
+  auto deadline = CoarseMonoClock::Now() +
+  MonoDelta::FromSeconds(FLAGS_ddl_verification_timeout_multiplier *
+                         default_admin_operation_timeout().ToSeconds());
+  return data_->WaitForRollbackYsqlTxnToSubTxnToFinish(txn, sub_txn_id, deadline);
+}
+
 Result<bool> YBClient::CheckIfPitrActive() {
   auto deadline = CoarseMonoClock::Now() + default_rpc_timeout();
   return data_->CheckIfPitrActive(deadline);

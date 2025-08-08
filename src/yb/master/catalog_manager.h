@@ -170,6 +170,11 @@ YB_DEFINE_ENUM(YsqlDdlVerificationState,
 // this table's DocDB schema.
 YB_DEFINE_ENUM(TxnState, (kUnknown)(kCommitted)(kAborted)(kNoChange));
 
+YB_DEFINE_ENUM(YsqlDdlSubTransactionRollbackState,
+    (kDdlSubTxnRollbackInProgress)
+    (kDdlSubTxnRollbackPostProcessing)
+    (kDdlSubTxnRollbackPostProcessingFailed));
+
 YB_DEFINE_ENUM(
     DeleteYsqlDBTablesType,
     (kNormal)                // Reglar DB drop. Can we used during both normal operations and major
@@ -504,19 +509,43 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
 
   Status HandleAbortedYsqlDdlTxn(const YsqlTableDdlTxnState txn_data);
 
-  Status ClearYsqlDdlTxnState(const YsqlTableDdlTxnState txn_data);
+  Status YsqlDdlTxnRollbackToSubTxn(const std::string& pb_txn_id,
+                                    const SubTransactionId sub_txn_id,
+                                    const LeaderEpoch& epoch);
+
+  Status YsqlDdlTxnRollbackToSubTxnHelper(TableInfo* table,
+                                          const TransactionId& txn_id,
+                                          const SubTransactionId sub_txn_id,
+                                          const LeaderEpoch& epoch);
+
+  Status RollbackYsqlTxnDdlStates(const YsqlTableDdlTxnState txn_data,
+                                  bool is_rollback_to_subtxn,
+                                  int rollback_till_ddl_state_index_incl);
+
+  Status ClearYsqlDdlTxnState(const YsqlTableDdlTxnState txn_data,
+                              int rollback_till_ddl_state_index_incl = 0);
 
   Status YsqlDdlTxnAlterTableHelper(const YsqlTableDdlTxnState txn_data,
                                     const std::vector<DdlLogEntry>& ddl_log_entries,
                                     const std::string& new_table_name,
-                                    bool success);
+                                    bool success,
+                                    int rollback_till_ddl_state_index_incl = 0);
 
-  Status YsqlDdlTxnDropTableHelper(const YsqlTableDdlTxnState txn_data, bool success);
+  Status YsqlDdlTxnDropTableHelper(
+      const YsqlTableDdlTxnState txn_data, bool success, bool is_rollback_to_subtxn = false);
 
   void UpdateDdlVerificationStateUnlocked(const TransactionId& txn,
                                           YsqlDdlVerificationState state)
       REQUIRES_SHARED(ddl_txn_verifier_mutex_);
   void UpdateDdlVerificationState(const TransactionId& txn, YsqlDdlVerificationState state);
+
+  void UpdateDdlRollbackToSubTxnStateUnlocked(const TransactionId& txn,
+                                              const SubTransactionId sub_txn_id,
+                                              YsqlDdlSubTransactionRollbackState state)
+      REQUIRES_SHARED(ddl_txn_verifier_mutex_);
+  void UpdateDdlRollbackToSubTxnState(const TransactionId& txn,
+                                      const SubTransactionId sub_txn_id,
+                                      YsqlDdlSubTransactionRollbackState state);
 
   bool HasDdlVerificationState(const TransactionId& txn) const EXCLUDES(ddl_txn_verifier_mutex_);
   void RemoveDdlTransactionStateUnlocked(
@@ -525,6 +554,12 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
 
   void RemoveDdlTransactionState(
       const TableId& table_id, const std::vector<TransactionId>& txn_ids)
+      EXCLUDES(ddl_txn_verifier_mutex_);
+
+  void RemoveDdlRollbackToSubTxnStateUnlocked(const TableId& table_id, TransactionId txn_id)
+      REQUIRES(ddl_txn_verifier_mutex_);
+
+  void RemoveDdlRollbackToSubTxnState(const TableId& table_id, TransactionId txn_id)
       EXCLUDES(ddl_txn_verifier_mutex_);
 
   Status TriggerDdlVerificationIfNeeded(const TransactionMetadata& txn, const LeaderEpoch& epoch);
@@ -1237,6 +1272,18 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
   Status IsYsqlDdlVerificationDone(
       const IsYsqlDdlVerificationDoneRequestPB* req,
       IsYsqlDdlVerificationDoneResponsePB* resp,
+      rpc::RpcContext* rpc,
+      const LeaderEpoch& epoch);
+
+  Status RollbackYsqlTxnToSubTxn(
+      const RollbackYsqlTxnToSubTxnRequestPB* req,
+      RollbackYsqlTxnToSubTxnResponsePB* resp,
+      rpc::RpcContext* rpc,
+      const LeaderEpoch& epoch);
+
+  Status IsRollbackYsqlTxnToSubTxnDone(
+      const IsRollbackYsqlTxnToSubTxnDoneRequestPB* req,
+      IsRollbackYsqlTxnToSubTxnDoneResponsePB* resp,
       rpc::RpcContext* rpc,
       const LeaderEpoch& epoch);
 
@@ -3011,6 +3058,16 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
     std::unordered_set<TableId> nochange_tables;
   };
 
+  struct YsqlDdlSubTransactionRollbackMetadata {
+    // The sub-transaction to which this transaction is getting rolled back to.
+    SubTransactionId sub_txn;
+
+    YsqlDdlSubTransactionRollbackState state;
+
+    // The table info objects of the tables affected by this rollback to sub-transaction operation.
+    std::vector<TableInfoPtr> tables;
+  };
+
   // This map stores the transaction ids of all the DDL transactions undergoing verification.
   // For each transaction, it also stores pointers to the table info objects of the tables affected
   // by that transaction.
@@ -3018,6 +3075,10 @@ class CatalogManager : public CatalogManagerIf, public SnapshotCoordinatorContex
 
   std::unordered_map<TransactionId, YsqlDdlTransactionState>
       ysql_ddl_txn_verfication_state_map_ GUARDED_BY(ddl_txn_verifier_mutex_);
+
+  // Stores the transaction ids of all the transactions undergoing rollback to a sub-transaction.
+  std::unordered_map<TransactionId, YsqlDdlSubTransactionRollbackMetadata>
+      ysql_ddl_txn_undergoing_subtransaction_rollback_ GUARDED_BY(ddl_txn_verifier_mutex_);
 
   ServerRegistrationPB server_registration_;
 

@@ -62,6 +62,8 @@ class MasterDdlServiceImpl : public MasterServiceBase, public MasterDdlIf {
     (ReportYsqlDdlTxnStatus)
     (TruncateTable)
     (RefreshYsqlLease)
+    (RollbackYsqlTxnToSubTxn)
+    (IsRollbackYsqlTxnToSubTxnDone)
   )
 
   MASTER_SERVICE_IMPL_ON_LEADER_WITHOUT_LOCK(
