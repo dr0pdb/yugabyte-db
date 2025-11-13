@@ -12,6 +12,7 @@
 //
 package org.yb.pgsql;
 
+import java.util.Collections;
 import java.util.Map;
 
 import org.junit.Test;
@@ -38,8 +39,7 @@ public class TestPgRegressIndex extends BasePgRegressTest {
     // Disable auto analyze because it aborts the SQL snippet:
     // force_cache_refresh which increments catalog version explictly.
     flagMap.put("ysql_enable_auto_analyze", "false");
-    // TODO(29143): Fix the test with txn ddl and reenable.
-    flagMap.put("ysql_yb_ddl_transaction_block_enabled", "false");
+    flagMap.put("ysql_yb_ddl_transaction_block_enabled", "true");
     flagMap.put("enable_object_locking_for_table_locks", "false");
     return flagMap;
   }
@@ -50,5 +50,19 @@ public class TestPgRegressIndex extends BasePgRegressTest {
     // superuser connections when Connection Manager is enabled.
     enableStickySuperuserConnsAndRestartCluster();
     runPgRegressTest("yb_index_schedule");
+  }
+
+  // TODO(#29344): Remove once Txn ddl is enabled by default in all builds.
+  @Test
+  public void scheduleWithoutTxnDdl() throws Exception {
+    // (DB-13032) This test touches system tables, so enable stickiness for
+    // superuser connections when Connection Manager is enabled.
+    if (isTestRunningWithConnectionManager()) {
+      ysql_conn_mgr_superuser_sticky = true;
+    }
+    Map<String, String> tserverFlagMap = getTServerFlags();
+    tserverFlagMap.put("ysql_yb_ddl_transaction_block_enabled", "false");
+    restartClusterWithFlags(super.getMasterFlags(), tserverFlagMap);
+    runPgRegressTest("yb_index_without_txn_ddl_schedule");
   }
 }
