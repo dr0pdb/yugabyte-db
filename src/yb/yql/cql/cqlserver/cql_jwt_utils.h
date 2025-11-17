@@ -13,16 +13,25 @@
 
 #pragma once
 
-#include <string>
-
-#include "yb/util/net/net_util.h"
+#include "yb/gutil/macros.h"
+#include "ybgate/ybgate_api.h"
 
 namespace yb {
 
-class Status;
+class MemoryContextGuard {
+ public:
+  explicit MemoryContextGuard(YbgMemoryContext ctx_to_restore)
+      : ctx_to_restore_(ctx_to_restore) {
+  }
 
-std::string PgDeriveSocketDir(const HostPort& host_port);
+  ~MemoryContextGuard() {
+    YbgSetCurrentMemoryContext(ctx_to_restore_);
+  }
 
-std::string PgDeriveSocketLockFile(const HostPort& host_port);
+ private:
+  YbgMemoryContext ctx_to_restore_;
+
+  DISALLOW_COPY_AND_ASSIGN(MemoryContextGuard);
+};
 
 } // namespace yb

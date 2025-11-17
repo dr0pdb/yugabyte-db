@@ -32,6 +32,8 @@
 #include "yb/yql/cql/ql/parser/parser_fwd.h"
 #include "yb/yql/cql/ql/util/cql_message.h"
 
+#include "ybgate/ybgate_api.h"
+
 namespace yb {
 
 namespace tserver {
@@ -61,7 +63,7 @@ class CQLServiceImpl : public CQLServerServiceIf,
   CQLServiceImpl(CQLServer* server, const CQLServerOptions& opts);
   ~CQLServiceImpl();
 
-  void CompleteInit();
+  Status CompleteInit();
 
   void Shutdown() override;
 
@@ -148,6 +150,22 @@ class CQLServiceImpl : public CQLServerServiceIf,
   Status YCQLStatementStats(const tserver::PgYCQLStatementStatsRequestPB& req,
       tserver::PgYCQLStatementStatsResponsePB* resp);
 
+  const std::string& GetJwtJwks() const {
+    return jwt_jwks_;
+  }
+
+  const std::vector<std::string>& GetJwtAllowedIssuers() const {
+    return jwt_allowed_issuers_;
+  }
+
+  const std::vector<std::string>& GetJwtAllowedAudience() const {
+    return jwt_allowed_audience_;
+  }
+
+  const YbgMemoryContext& GetJwtIdentMemCtx() const {
+    return jwt_ident_memctx_;
+  }
+
  private:
   constexpr static int kRpcTimeoutSec = 5;
 
@@ -180,6 +198,10 @@ class CQLServiceImpl : public CQLServerServiceIf,
 
   // Resets prepared statement counters.
   void ResetPreparedStatementsCounters();
+
+  Status InitJwtAuth();
+  Status LoadJwtJwks();
+  Status LoadJwtIdent();
 
   // CQLServer of this service.
   CQLServer* const server_;
@@ -248,6 +270,13 @@ class CQLServiceImpl : public CQLServerServiceIf,
   rpc::Messenger* messenger_ = nullptr;
 
   int64_t num_allocated_processors_ = 0;
+
+  // JWT auth specific fields.
+  // Initialized once and used by CQLProcessor during JWT authentication.
+  std::string jwt_jwks_;
+  YbgMemoryContext jwt_ident_memctx_;
+  std::vector<std::string> jwt_allowed_audience_;
+  std::vector<std::string> jwt_allowed_issuers_;
 };
 
 }  // namespace cqlserver

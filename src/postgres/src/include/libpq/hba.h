@@ -183,9 +183,12 @@ extern int	check_usermap(const char *usermap_name,
 						  const char *pg_role, const char *auth_user,
 						  bool case_insensitive);
 extern HbaLine *parse_hba_line(TokenizedAuthLine *tok_line, int elevel);
-extern IdentLine *parse_ident_line(TokenizedAuthLine *tok_line, int elevel);
+extern IdentLine *parse_ident_line(TokenizedAuthLine *tok_line, int elevel,
+								   const char *yb_mapname);
 extern bool pg_isblank(const char c);
 extern MemoryContext tokenize_auth_file(const char *filename, FILE *file,
 										List **tok_lines, int elevel);
+
+extern void YbSetParsedIdentLines(List *parsed_ident_lines);
 
 #endif							/* HBA_H */

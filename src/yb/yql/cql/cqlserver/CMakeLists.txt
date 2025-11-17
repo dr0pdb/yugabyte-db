@@ -38,6 +38,8 @@ ADD_YB_LIBRARY(cql_service_proto
 # CQL server
 #########################################
 
+include_directories(${YB_BUILD_ROOT}/postgres/include/server)
+
 set(CQLSERVER_SRCS
   cql_processor.cc
   cql_rpc.cc

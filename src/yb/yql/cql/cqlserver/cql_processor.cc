@@ -31,6 +31,7 @@
 #include "yb/rpc/messenger.h"
 
 #include "yb/util/format.h"
+#include "yb/util/jwt_util.h"
 #include "yb/util/logging.h"
 #include "yb/util/metrics.h"
 #include "yb/util/result.h"
@@ -38,8 +39,12 @@
 #include "yb/util/status_log.h"
 #include "yb/util/trace.h"
 
+#include "yb/yql/cql/cqlserver/cql_jwt_utils.h"
 #include "yb/yql/cql/cqlserver/cql_service.h"
 #include "yb/yql/cql/ql/util/errcodes.h"
+
+#include "ybgate/ybgate_api.h"
+#include "ybgate/ybgate_cpp_util.h"
 
 using namespace std::literals;
 
@@ -145,6 +150,11 @@ DEFINE_UNKNOWN_string(ycql_ldap_search_attribute, "",
 DEFINE_UNKNOWN_string(ycql_ldap_search_filter, "",
     "The search filter to use when doing search + bind "
     "authentication.");
+
+DECLARE_bool(TEST_ycql_use_jwt);
+DECLARE_string(ycql_jwt_users_to_skip_csv);
+DECLARE_string(ycql_jwt_matching_claim_key);
+DECLARE_string(ycql_jwt_ident_conf_path);
 
 namespace yb::cqlserver {
 
@@ -924,6 +934,43 @@ Result<bool> CheckLDAPAuth(const ql::AuthResponseRequest::AuthQueryParameters& p
   return true;
 }
 
+Result<bool> CheckJWTAuth(
+    const ql::AuthResponseRequest::AuthQueryParameters& params, const std::string& jwks,
+    const std::vector<std::string>& allowed_issuers,
+    const std::vector<std::string>& allowed_audience,
+    const YbgMemoryContext& ident_memctx) {
+  LOG(INFO) << "Attempting JWT Authentication";
+
+  std::vector<std::string> identity_claims;
+  auto s = util::ValidateJWT(
+      params.password, jwks, FLAGS_ycql_jwt_matching_claim_key, allowed_issuers, allowed_audience,
+      &identity_claims);
+  if (!s.ok()) {
+    LOG(ERROR) << "JWT token validation failed with error: " << s;
+    return s;
+  }
+  LOG(INFO) << "JWT token validation successful";
+
+  if (FLAGS_ycql_jwt_ident_conf_path.empty()) {
+    return true;
+  }
+
+  bool match = false;
+  std::string username_map = "YCQL_IDENT_MAPNAME";
+  MemoryContextGuard mem_guard(YbgSetCurrentMemoryContext(ident_memctx));
+  for (const auto& identity : identity_claims) {
+    PG_RETURN_NOT_OK(YbgCheckUsermap(
+        username_map.c_str(), params.username.c_str(), identity.c_str(),
+        false /*case_insensitive*/, &match));
+    if (match) {
+      LOG(INFO) << "JWT identity match successful";
+      return true;
+    }
+  }
+  LOG(ERROR) << "JWT identity match failed";
+  return false;
+}
+
 static bool UserIn(const std::string& username, const std::string& users_to_skip) {
   size_t comma_index = 0;
   size_t prev_comma_index = -1;
@@ -952,7 +999,26 @@ unique_ptr<CQLResponse> CQLProcessor::ProcessAuthResult(const string& saved_hash
   unique_ptr<CQLResponse> response = nullptr;
   bool authenticated = false;
 
-  if (FLAGS_ycql_use_ldap && !UserIn(params.username, FLAGS_ycql_ldap_users_to_skip_csv)) {
+  if (FLAGS_TEST_ycql_use_jwt && !UserIn(params.username, FLAGS_ycql_jwt_users_to_skip_csv)) {
+    Result<bool> jwt_auth_result = CheckJWTAuth(
+        params, service_impl_->GetJwtJwks(), service_impl_->GetJwtAllowedIssuers(),
+        service_impl_->GetJwtAllowedAudience(), service_impl_->GetJwtIdentMemCtx());
+    if (!jwt_auth_result.ok()) {
+      return make_unique<ErrorResponse>(
+          *request_, ErrorResponse::Code::SERVER_ERROR,
+          "Failed to authenticate using JWT auth: " + jwt_auth_result.status().ToString());
+    } else if (!*jwt_auth_result) {
+      response = make_unique<ErrorResponse>(
+          *request_, ErrorResponse::Code::BAD_CREDENTIALS,
+          "Failed to authenticate using JWT: Provided username '" + params.username +
+          "' and/or password are incorrect");
+    } else {
+      authenticated = true;
+      call_->ql_session()->set_current_role_name(params.username);
+      response = make_unique<AuthSuccessResponse>(*request_,
+                                                  "" /* this does not matter */);
+    }
+  } else if (FLAGS_ycql_use_ldap && !UserIn(params.username, FLAGS_ycql_ldap_users_to_skip_csv)) {
     Result<bool> ldap_auth_result = CheckLDAPAuth(req.params());
     if (!ldap_auth_result.ok()) {
       return make_unique<ErrorResponse>(

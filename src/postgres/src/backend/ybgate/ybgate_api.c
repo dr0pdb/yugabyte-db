@@ -34,6 +34,7 @@
 #include "executor/execExpr.h"
 #include "executor/executor.h"
 #include "funcapi.h"
+#include "libpq/hba.h"
 #include "mb/pg_wchar.h"
 #include "nodes/execnodes.h"
 #include "nodes/makefuncs.h"
@@ -858,4 +859,78 @@ int
 YbgGetPgVersion()
 {
 	return PG_MAJORVERSION_NUM;
+}
+
+YbgStatus
+YbgLoadIdent(const char *ident_file_path, const char *ident_mapname)
+{
+	PG_SETUP_ERROR_REPORTING();
+
+	FILE	   *file;
+	YbgMemoryContext linecxt;
+	List	   *ident_lines = NIL;
+	List	   *parsed_lines = NIL;
+	ListCell   *cell;
+	bool		ok = true;
+
+	file = AllocateFile(ident_file_path, "r");
+	if (file == NULL)
+	{
+		ok = false;
+		return YbgStatusCreateError("Could not read the ident file",
+									__FILE__, __LINE__);
+	}
+
+	linecxt = tokenize_auth_file(ident_file_path, file, &ident_lines, LOG);
+	FreeFile(file);
+
+	foreach(cell, ident_lines)
+	{
+		TokenizedAuthLine *tok = (TokenizedAuthLine *) lfirst(cell);
+
+		if (tok->err_msg != NULL)
+		{
+			ok = false;
+			continue;
+		}
+
+		IdentLine *newline = parse_ident_line(tok, LOG, ident_mapname);
+		if (newline == NULL)
+		{
+			ok = false;
+			continue;
+		}
+
+		parsed_lines = lappend(parsed_lines, newline);
+	}
+
+	MemoryContextDelete(linecxt);
+
+	if (!ok)
+	{
+		ListCell *pcell;
+		foreach(pcell, parsed_lines)
+		{
+			IdentLine *il = (IdentLine *) lfirst(pcell);
+			if (il->ident_user[0] == '/')
+				pg_regfree(&il->re);
+		}
+
+		return YbgStatusCreateError("Error while parsing ident file",
+									__FILE__, __LINE__);
+	}
+
+	YbSetParsedIdentLines(parsed_lines);
+	PG_STATUS_OK();
+}
+
+YbgStatus
+YbgCheckUsermap(const char *usermap_name, const char *pg_role,
+				const char *auth_user, bool case_insensitive,
+				bool *matched)
+{
+	PG_SETUP_ERROR_REPORTING();
+	*matched =
+		check_usermap(usermap_name, pg_role, auth_user, case_insensitive) == STATUS_OK;
+	PG_STATUS_OK();
 }

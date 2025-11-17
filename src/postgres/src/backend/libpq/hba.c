@@ -2602,9 +2602,12 @@ load_hba(void)
  * Note: this function leaks memory when an error occurs.  Caller is expected
  * to have set a memory context that will be reset if this function returns
  * NULL.
+ *
+ * YB: When yb_mapname is not NULL, all lines are treated as belonging to
+ * yb_mapname map.
  */
 IdentLine *
-parse_ident_line(TokenizedAuthLine *tok_line, int elevel)
+parse_ident_line(TokenizedAuthLine *tok_line, int elevel, const char *yb_mapname)
 {
 	int			line_num = tok_line->line_num;
 	char	  **err_msg = &tok_line->err_msg;
@@ -2619,14 +2622,20 @@ parse_ident_line(TokenizedAuthLine *tok_line, int elevel)
 	parsedline = palloc0(sizeof(IdentLine));
 	parsedline->linenumber = line_num;
 
-	/* Get the map token (must exist) */
-	tokens = lfirst(field);
-	IDENT_MULTI_VALUE(tokens);
-	token = linitial(tokens);
-	parsedline->usermap = pstrdup(token->string);
+	if (yb_mapname == NULL)
+	{
+		/* Get the map token (must exist) */
+		tokens = lfirst(field);
+		IDENT_MULTI_VALUE(tokens);
+		token = linitial(tokens);
+		parsedline->usermap = pstrdup(token->string);
+	}
+	else
+		parsedline->usermap = pstrdup(yb_mapname);
 
 	/* Get the ident user token */
-	field = lnext(tok_line->fields, field);
+	if (yb_mapname == NULL)
+		field = lnext(tok_line->fields, field);
 	IDENT_FIELD_ABSENT(field);
 	tokens = lfirst(field);
 	IDENT_MULTI_VALUE(tokens);
@@ -2919,7 +2928,7 @@ load_ident(void)
 			continue;
 		}
 
-		if ((newline = parse_ident_line(tok_line, LOG)) == NULL)
+		if ((newline = parse_ident_line(tok_line, LOG, NULL)) == NULL)
 		{
 			/* Parse error; remember there's trouble */
 			ok = false;
@@ -3075,4 +3084,11 @@ hba_authname(UserAuth auth_method)
 					 "UserAuthName[] must match the UserAuth enum");
 
 	return UserAuthName[auth_method];
+}
+
+void
+YbSetParsedIdentLines(List *new_parsed_ident_lines)
+{
+	Assert(parsed_ident_lines == NIL);
+	parsed_ident_lines = new_parsed_ident_lines;
 }

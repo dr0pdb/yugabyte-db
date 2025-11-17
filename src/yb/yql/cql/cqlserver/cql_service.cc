@@ -30,6 +30,7 @@
 #include "yb/tserver/tserver_shared_mem.h"
 
 #include "yb/util/bytes_formatter.h"
+#include "yb/util/csv_util.h"
 #include "yb/util/format.h"
 #include "yb/util/jsonwriter.h"
 #include "yb/util/mem_tracker.h"
@@ -41,9 +42,12 @@
 #include "yb/yql/cql/cqlserver/cql_processor.h"
 #include "yb/yql/cql/cqlserver/cql_rpc.h"
 #include "yb/yql/cql/cqlserver/cql_server.h"
+#include "yb/yql/cql/cqlserver/cql_jwt_utils.h"
 #include "yb/yql/cql/cqlserver/system_query_cache.h"
 #include "yb/yql/cql/ql/parser/parser.h"
 #include "yb/util/flags.h"
+
+#include "ybgate/ybgate_cpp_util.h"
 
 using namespace std::placeholders;
 using namespace yb::size_literals;
@@ -70,6 +74,26 @@ DEFINE_RUNTIME_int64(cql_dump_statement_metrics_limit, 5000,
             "Limit the number of statements that are dumped at the /statements endpoint.");
 DEFINE_RUNTIME_int32(cql_unprepared_stmts_entries_limit, 500,
             "Limit the number of unprepared statements that are being tracked.");
+
+DEFINE_test_flag(bool, ycql_use_jwt, false, "Use JWT for authentication");
+DEFINE_RUNTIME_string(ycql_jwt_users_to_skip_csv, "",
+    "Users that are authenticated via the local password"
+    " check instead of JWT (if ycql_use_jwt=true). This is a comma separated list");
+TAG_FLAG(ycql_jwt_users_to_skip_csv, sensitive_info);
+DEFINE_RUNTIME_string(ycql_jwt_jwks_path, "",
+    "The path of the file containing the Json Web Key Set of the Identity Provider (IDP)."
+    " Used when ycql_jwt_jwks_url is not set");
+DEFINE_RUNTIME_string(ycql_jwt_jwks_url, "",
+    "The URL from where to fetch the Json Web Key Set of the Identity Provider (IDP).");
+DEFINE_RUNTIME_string(ycql_jwt_matching_claim_key, "sub",
+    "");
+DEFINE_RUNTIME_string(ycql_jwt_allowed_issuers_csv, "",
+    "");
+DEFINE_RUNTIME_string(ycql_jwt_allowed_audience_csv, "",
+    "");
+DEFINE_RUNTIME_string(ycql_jwt_ident_conf_path, "",
+    "The path of the file containing the user-name mappings from Identity Provider (IDP)"
+    " username to YCQL username");
 
 namespace yb {
 namespace cqlserver {
@@ -182,8 +206,10 @@ const std::shared_ptr<client::YBMetaDataCache>& CQLServiceImpl::metadata_cache()
   return metadata_cache_;
 }
 
-void CQLServiceImpl::CompleteInit() {
+Status CQLServiceImpl::CompleteInit() {
   stmts_mem_tracker_->AddGarbageCollector(shared_from_this());
+  RETURN_NOT_OK(InitJwtAuth());
+  return Status::OK();
 }
 
 void CQLServiceImpl::Shutdown() {
@@ -618,6 +644,51 @@ Status CQLServiceImpl::YCQLStatementStats(const tserver::PgYCQLStatementStatsReq
       stmt_pb.set_stddev_time(stddev_time);
     }
   }
+  return Status::OK();
+}
+
+Status CQLServiceImpl::LoadJwtJwks() {
+  if (!FLAGS_ycql_jwt_jwks_url.empty()) {
+    // TODO: Support url.
+  } else {
+    // TODO: remove conversion to std::string.
+    faststring jwks_fs;
+    RETURN_NOT_OK(ReadFileToString(Env::Default(), FLAGS_ycql_jwt_jwks_path, &jwks_fs));
+    jwt_jwks_ = jwks_fs.ToString();
+  }
+
+  LOG(INFO) << "Successfully loaded JWKS for JWT auth: " << jwt_jwks_;
+  return Status::OK();
+}
+
+Status CQLServiceImpl::LoadJwtIdent() {
+  if (FLAGS_ycql_jwt_ident_conf_path.empty()) {
+    return Status::OK();
+  }
+
+  PG_RETURN_NOT_OK(YbgCreateMemoryContext(nullptr, "ycql_jwt_ident_memctx_", &jwt_ident_memctx_));
+  MemoryContextGuard mem_guard(YbgSetCurrentMemoryContext(jwt_ident_memctx_));
+
+  std::string ident_mapname = "YCQL_IDENT_MAPNAME";
+  YbgStatus s = YbgLoadIdent(FLAGS_ycql_jwt_ident_conf_path.c_str(), ident_mapname.c_str());
+  if (YbgStatusIsError(s)) {
+    LOG(ERROR) << "Error in loading JWT Ident file. " << s;
+    YbgResetMemoryContext();
+    PG_RETURN_NOT_OK(s);
+  }
+  LOG(INFO) << "Successfully loaded Ident file for JWT auth";
+  return Status::OK();
+}
+
+Status CQLServiceImpl::InitJwtAuth() {
+  if (!FLAGS_TEST_ycql_use_jwt) {
+    return Status::OK();
+  }
+
+  RETURN_NOT_OK(LoadJwtIdent());
+  RETURN_NOT_OK(LoadJwtJwks());
+  RETURN_NOT_OK(ReadCSVValues(FLAGS_ycql_jwt_allowed_audience_csv, &jwt_allowed_audience_));
+  RETURN_NOT_OK(ReadCSVValues(FLAGS_ycql_jwt_allowed_issuers_csv, &jwt_allowed_issuers_));
   return Status::OK();
 }
 
