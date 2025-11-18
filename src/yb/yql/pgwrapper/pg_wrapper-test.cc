@@ -780,6 +780,11 @@ class PgWrapperAutoFlagsDisabledTest : public PgWrapperAutoFlagsTest {
   void UpdateMiniClusterOptions(ExternalMiniClusterOptions* options) override {
     PgWrapperFlagsTest::UpdateMiniClusterOptions(options);
     options->extra_master_flags.emplace_back("--disable_auto_flags_management");
+    // Transactional DDL can only be enabled if ysql_yb_ddl_rollback_enabled (DDL atomicity) is
+    // enabled. Since ysql_yb_ddl_rollback_enabled is an autoflag and we're disabling autoflag
+    // above, it remains as false. Hence, txn ddl must remain disabled otherwise the cluster won't
+    // start.
+    options->extra_tserver_flags.emplace_back("--ysql_yb_ddl_transaction_block_enabled=false");
   }
 };
 
