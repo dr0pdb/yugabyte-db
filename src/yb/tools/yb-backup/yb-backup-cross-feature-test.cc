@@ -3260,6 +3260,11 @@ TEST_P(
     YBBackupTestWithTableRewrite,
     YB_DISABLE_TEST_IN_SANITIZERS(TestYSQLBackupAndRestoreAfterFailedRewrite)) {
   ASSERT_OK(cluster_->SetFlagOnMasters("enable_transactional_ddl_gc", "false"));
+  // This test disables DDL atomicity, so we must disable transactional DDL. Since we have to
+  // disable txn ddl, we also have to disable table level locks.
+  ASSERT_OK(cluster_->SetFlagOnMasters("enable_object_locking_for_table_locks", "false"));
+  ASSERT_OK(cluster_->SetFlagOnTServers("enable_object_locking_for_table_locks", "false"));
+  ASSERT_OK(cluster_->SetFlagOnTServers("ysql_yb_ddl_transaction_block_enabled", "false"));
   ASSERT_OK(cluster_->SetFlagOnTServers("ysql_yb_ddl_rollback_enabled", "false"));
   SetUpTestData(true /* failedRewrite */);
 
@@ -3338,6 +3343,10 @@ TEST_P(
 TEST_F(YBBackupTest, YB_DISABLE_TEST_IN_SANITIZERS(TestBackupWithFailedLegacyRewrite)) {
   ASSERT_OK(cluster_->SetFlagOnTServers("ysql_yb_enable_alter_table_rewrite", "false"));
   ASSERT_OK(cluster_->SetFlagOnMasters("enable_transactional_ddl_gc", "false"));
+  // This test disables DDL atomicity, so we must disable transactional DDL. Since we have to
+  // disable txn ddl, we also have to disable table level locks.
+  ASSERT_OK(cluster_->SetFlagOnMasters("enable_object_locking_for_table_locks", "false"));
+  ASSERT_OK(cluster_->SetFlagOnTServers("enable_object_locking_for_table_locks", "false"));
   ASSERT_OK(cluster_->SetFlagOnTServers("ysql_yb_ddl_transaction_block_enabled", "false"));
   ASSERT_OK(cluster_->SetFlagOnTServers("ysql_yb_ddl_rollback_enabled", "false"));
 

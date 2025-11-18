@@ -785,6 +785,9 @@ class PgWrapperAutoFlagsDisabledTest : public PgWrapperAutoFlagsTest {
     // above, it remains as false. Hence, txn ddl must remain disabled otherwise the cluster won't
     // start.
     options->extra_tserver_flags.emplace_back("--ysql_yb_ddl_transaction_block_enabled=false");
+    // Table level locks depends on transactional DDL. So we have to disable it as well.
+    options->extra_tserver_flags.emplace_back("--enable_object_locking_for_table_locks=false");
+    options->extra_master_flags.emplace_back("--enable_object_locking_for_table_locks=false");
   }
 };
 
