@@ -1570,8 +1570,10 @@ class PgLibPqTableRewrite:
       // Disable the current version of DDL rollback so that we can test the
       // transaction GC framework.
       options->extra_tserver_flags.push_back("--ysql_yb_ddl_rollback_enabled=false");
+      options->extra_tserver_flags.push_back("--ysql_yb_ddl_transaction_block_enabled=false");
     } else {
       options->extra_tserver_flags.push_back("--ysql_yb_ddl_rollback_enabled=true");
+      options->extra_tserver_flags.push_back("--ysql_yb_ddl_transaction_block_enabled=true");
     }
   }
 
