@@ -5222,12 +5222,14 @@ yb_is_retry_possible(ErrorData *edata, int attempt,
 
 	/*
 	 * In READ COMMITTED isolation, if the current statement is a DDL, then we
-	 * don't support retrying it, if transactional DDL is enabled. This is
-	 * because we don't support savepoint rollback for DDLs, so we can't rely
-	 * on that mechanism to perform statement level retries.
+	 * don't support retrying it, if transactional DDL is enabled and savepoint
+	 * for DDL support is disabled. This is because we don't support savepoint
+	 * rollback for DDLs, so we can't rely on that mechanism to perform
+	 * statement level retries.
 	 */
 	if (IsYBReadCommitted() &&
 		YBIsDdlTransactionBlockEnabled() &&
+		!*YBCGetGFlags()->TEST_ysql_yb_enable_ddl_savepoint_support &&
 		YBIsCurrentStmtDdl())
 	{
 		const char *retry_err = ("query layer retry isn't possible because "
@@ -5553,7 +5555,11 @@ yb_get_sleep_usecs_on_txn_conflict(int attempt)
 static void
 yb_maybe_sleep_on_txn_conflict(int attempt)
 {
-	if (YBIsWaitQueueEnabled())
+	/*
+	 * We don't yet support wait queues in catalog tables on yb-master. Hence,
+	 * sleep in case of DDL statements.
+	 */
+	if (YBIsWaitQueueEnabled() && !YBIsCurrentStmtDdl())
 		return;
 
 	/*

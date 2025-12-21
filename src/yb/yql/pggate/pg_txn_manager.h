@@ -190,7 +190,7 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   YB_STRONGLY_TYPED_BOOL(NeedsHigherPriorityTxn);
   YB_STRONGLY_TYPED_BOOL(SavePriority);
 
-  void ResetTxnAndSession();
+  void ResetTxnAndSession(bool recreate_transaction);
   void StartNewSession();
   Status UpdateReadTimeForFollowerReadsIfRequired();
   Status RecreateTransaction(SavePriority save_priority);

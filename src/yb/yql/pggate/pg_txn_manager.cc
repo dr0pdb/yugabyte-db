@@ -293,7 +293,7 @@ Status PgTxnManager::RecreateTransaction() {
 Status PgTxnManager::RecreateTransaction(SavePriority save_priority) {
   VLOG(2) << "RecreateTransaction";
   use_saved_priority_ = save_priority;
-  ResetTxnAndSession();
+  ResetTxnAndSession(true /* recreate_transaction */);
   txn_in_progress_ = true;
   return Status::OK();
 }
@@ -580,7 +580,7 @@ Status PgTxnManager::FinishPlainTransaction(
   const auto is_read_only = isolation_level_ == IsolationLevel::NON_TRANSACTIONAL;
   if (is_read_only && !PREDICT_FALSE(IsTableLockingEnabledForCurrentTxn())) {
     VLOG_TXN_STATE(2) << "This was a read-only transaction, nothing to commit.";
-    ResetTxnAndSession();
+    ResetTxnAndSession(false /* recreate_transaction */);
     return Status::OK();
   }
 
@@ -605,11 +605,11 @@ Status PgTxnManager::FinishPlainTransaction(
                     << (ddl_mode ? ddl_mode->ToString() : "NULL");
   Status status = client_->FinishTransaction(commit, ddl_mode);
   VLOG_TXN_STATE(2) << "Transaction " << (commit ? "commit" : "abort") << " status: " << status;
-  ResetTxnAndSession();
+  ResetTxnAndSession(false /* recreate_transaction */);
   return status;
 }
 
-void PgTxnManager::ResetTxnAndSession() {
+void PgTxnManager::ResetTxnAndSession(bool recreate_transaction) {
   txn_in_progress_ = false;
   isolation_level_ = IsolationLevel::NON_TRANSACTIONAL;
   priority_ = std::nullopt;
@@ -630,8 +630,7 @@ void PgTxnManager::ResetTxnAndSession() {
   // unification is enabled and we have a DDL statement within the transaction block.
   // With transactional DDL disabled, we can enter this function while executing the ANALYZE command
   // with DDL state set. We don't want to clear out the DDL state in that case.
-  // TODO(#26298): Add unit test with RC isolation level once supported since it can retry DDLs.
-  if (IsDdlModeWithRegularTransactionBlock()) {
+  if (IsDdlModeWithRegularTransactionBlock() && !recreate_transaction) {
     ddl_state_.reset();
   }
 }

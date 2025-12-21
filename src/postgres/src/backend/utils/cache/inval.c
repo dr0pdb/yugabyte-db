@@ -1563,6 +1563,16 @@ AtEOSubXact_Inval(bool isCommit)
 	}
 	else
 	{
+		/*
+		 * Yugabyte uses aggressive caching, therefore even modifications
+		 * in CurrentCmdInvalidMsgs would have been applied to the cache.
+		 */
+		if (IsYugaByteEnabled())
+		{
+			AppendInvalidationMessages(&myInfo->PriorCmdInvalidMsgs,
+									   &myInfo->CurrentCmdInvalidMsgs);
+		}
+
 		ProcessInvalidationMessages(&myInfo->PriorCmdInvalidMsgs,
 									LocalExecuteInvalidationMessage);
 
