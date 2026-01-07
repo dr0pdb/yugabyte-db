@@ -936,7 +936,6 @@ Result<bool> CheckJWTAuth(
     const std::vector<std::string>& allowed_issuers,
     const std::vector<std::string>& allowed_audience) {
   VLOG(4) << "Attempting JWT Authentication";
-  LOG(INFO) << "YCQL username: " << params.username << ", token: " << params.password;
 
   std::vector<std::string> identity_claims;
   auto s = util::ValidateJWT(
@@ -996,8 +995,6 @@ unique_ptr<CQLResponse> CQLProcessor::ProcessAuthResult(const string& saved_hash
   const auto& params = req.params();
   unique_ptr<CQLResponse> response = nullptr;
   bool authenticated = false;
-
-  LOG(INFO) << "YCQL username: " << params.username << ", password: " << params.password;
 
   if (FLAGS_TEST_ycql_use_jwt && !UserIn(params.username, FLAGS_ycql_jwt_users_to_skip_csv)) {
     Result<bool> jwt_auth_result = CheckJWTAuth(
