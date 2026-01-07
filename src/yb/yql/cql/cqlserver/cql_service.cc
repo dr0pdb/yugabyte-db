@@ -30,6 +30,8 @@
 #include "yb/tserver/tserver_shared_mem.h"
 
 #include "yb/util/bytes_formatter.h"
+#include "yb/util/csv_util.h"
+#include "yb/util/curl_util.h"
 #include "yb/util/format.h"
 #include "yb/util/jsonwriter.h"
 #include "yb/util/mem_tracker.h"
@@ -70,6 +72,26 @@ DEFINE_RUNTIME_int64(cql_dump_statement_metrics_limit, 5000,
             "Limit the number of statements that are dumped at the /statements endpoint.");
 DEFINE_RUNTIME_int32(cql_unprepared_stmts_entries_limit, 500,
             "Limit the number of unprepared statements that are being tracked.");
+
+DEFINE_test_flag(bool, ycql_use_jwt, false, "Use JWT for authentication");
+
+DEFINE_RUNTIME_string(ycql_jwt_users_to_skip_csv, "",
+    "Users that are authenticated via the local password"
+    " check instead of JWT (if ycql_use_jwt=true). This is a comma separated list");
+TAG_FLAG(ycql_jwt_users_to_skip_csv, sensitive_info);
+
+DEFINE_RUNTIME_string(ycql_jwt_jwks_url, "",
+    "The URL from where to fetch the Json Web Key Set of the Identity Provider (IDP).");
+
+DEFINE_RUNTIME_string(ycql_jwt_matching_claim_key, "sub",
+    "Key of the claim which represents the identity of the user on the Identity Provider (IDP)."
+    " Some common values are 'sub', 'email', 'groups', 'roles' etc.");
+
+DEFINE_RUNTIME_string(ycql_jwt_allowed_issuers_csv, "",
+    "");
+
+DEFINE_RUNTIME_string(ycql_jwt_allowed_audience_csv, "",
+    "");
 
 namespace yb {
 namespace cqlserver {
@@ -182,8 +204,10 @@ const std::shared_ptr<client::YBMetaDataCache>& CQLServiceImpl::metadata_cache()
   return metadata_cache_;
 }
 
-void CQLServiceImpl::CompleteInit() {
+Status CQLServiceImpl::CompleteInit() {
   stmts_mem_tracker_->AddGarbageCollector(shared_from_this());
+  RETURN_NOT_OK(InitJwtAuth());
+  return Status::OK();
 }
 
 void CQLServiceImpl::Shutdown() {
@@ -618,6 +642,50 @@ Status CQLServiceImpl::YCQLStatementStats(const tserver::PgYCQLStatementStatsReq
       stmt_pb.set_stddev_time(stddev_time);
     }
   }
+  return Status::OK();
+}
+
+Status CQLServiceImpl::LoadJwtJwks() {
+  LOG(INFO) << "Fetching JWT JWKS from URL: " << FLAGS_ycql_jwt_jwks_url;
+  EasyCurl curl;
+  faststring buf_ret;
+  RETURN_NOT_OK(curl.FetchURL(FLAGS_ycql_jwt_jwks_url, &buf_ret));
+  jwt_jwks_ = buf_ret.ToString();
+  LOG(INFO) << "Loaded JWKS for JWT auth: " << jwt_jwks_;
+  return Status::OK();
+}
+
+Status CQLServiceImpl::InitJwtAuth() {
+  if (!FLAGS_TEST_ycql_use_jwt) {
+    return Status::OK();
+  }
+
+  LOG(INFO) << "Initializing JWT authentication";
+  RETURN_NOT_OK(LoadJwtJwks());
+  RETURN_NOT_OK(ReadCSVValues(FLAGS_ycql_jwt_allowed_audience_csv, &jwt_allowed_audience_));
+  RETURN_NOT_OK(ReadCSVValues(FLAGS_ycql_jwt_allowed_issuers_csv, &jwt_allowed_issuers_));
+  return ValidateJwtConfig();
+}
+
+Status CQLServiceImpl::ValidateJwtConfig() {
+  if (jwt_jwks_.empty()) {
+    return STATUS(
+        InvalidArgument,
+        Format("Received empty JWKS from $0", FLAGS_ycql_jwt_jwks_url));
+  }
+
+  if (jwt_allowed_audience_.empty()) {
+    return STATUS(
+        InvalidArgument,
+        "Invalid jwt_allowed_audience_ empty list");
+  }
+
+  if (jwt_allowed_issuers_.empty()) {
+    return STATUS(
+        InvalidArgument,
+        "Invalid jwt_allowed_issuers_ empty list");
+  }
+
   return Status::OK();
 }
 

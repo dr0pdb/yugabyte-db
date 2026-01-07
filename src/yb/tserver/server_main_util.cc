@@ -32,6 +32,7 @@
 #include "yb/server/skewed_clock.h"
 
 #include "yb/util/debug/trace_event.h"
+#include "yb/util/csv_util.h"
 #include "yb/util/flags.h"
 #include "yb/util/mem_tracker.h"
 #include "yb/util/pg_util.h"
