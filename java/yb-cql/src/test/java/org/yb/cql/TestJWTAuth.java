@@ -406,7 +406,8 @@ public class TestJWTAuth extends BaseAuthenticationCQLTest {
       JWTClaimsSet.Builder claimsSetBuilder =
           new JWTClaimsSet.Builder()
               .subject("testuser1")
-              .issuer("oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0")
+              .issuer(
+                  "oidc.issuer2.unsecured.example.com/4ffa94aa-2156-11ee-be56-0242ac120002/v2.0")
               .audience("795c2b42-2156-11ee-be56-0242ac120002")
               .expirationTime(EXPIRATION_TIME);
       SignedJWT signedJWT = new SignedJWT(

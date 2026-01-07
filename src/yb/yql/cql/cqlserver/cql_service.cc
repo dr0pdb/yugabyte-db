@@ -88,10 +88,12 @@ DEFINE_RUNTIME_string(ycql_jwt_matching_claim_key, "sub",
     " Some common values are 'sub', 'email', 'groups', 'roles' etc.");
 
 DEFINE_RUNTIME_string(ycql_jwt_allowed_issuers_csv, "",
-    "");
+    "The list of issuers (IDP) that are valid. One of the items within the list must match the "
+    "'iss' claim present in the token. This is a comma separated list");
 
 DEFINE_RUNTIME_string(ycql_jwt_allowed_audience_csv, "",
-    "");
+    "The list of accepted audiences. One of the items within the list must match the 'aud' claim"
+    " present in the token. This is a comma separated list");
 
 namespace yb {
 namespace cqlserver {
