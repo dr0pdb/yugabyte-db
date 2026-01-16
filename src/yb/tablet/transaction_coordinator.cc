@@ -1023,7 +1023,7 @@ class TransactionState {
   }
 
   void StartApply() {
-    VLOG_WITH_PREFIX(4) << __func__ << ", commit time: " << commit_time_ << ", involved tablets: "
+    LOG_WITH_PREFIX(INFO) << __func__ << ", commit time: " << commit_time_ << ", involved tablets: "
                         << AsString(involved_tablets_);
     resend_applying_time_ = MonoTime::Now() +
         std::chrono::microseconds(FLAGS_transaction_resend_applying_interval_usec);

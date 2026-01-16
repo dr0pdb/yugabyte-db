@@ -486,7 +486,7 @@ class ConflictResolver : public std::enable_shared_from_this<ConflictResolver> {
     if (status == TransactionStatus::COMMITTED) {
       if (VERIFY_RESULT(context_->CheckConflictWithCommitted(
               *transaction, transaction->commit_time))) {
-        VLOG_WITH_PREFIX(4)
+        LOG(INFO)
             << "Committed: " << transaction->id << ", commit time: " << transaction->commit_time;
         return true;
       }
@@ -494,7 +494,7 @@ class ConflictResolver : public std::enable_shared_from_this<ConflictResolver> {
       auto commit_time = status_manager().LocalCommitTime(transaction->id);
       if (commit_time) {
         if (VERIFY_RESULT(context_->CheckConflictWithCommitted(*transaction, commit_time))) {
-          VLOG_WITH_PREFIX(4)
+          LOG(INFO)
               << "Locally committed: " << transaction->id << "< commit time: " << commit_time;
           return true;
         }

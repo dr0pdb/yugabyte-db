@@ -3397,6 +3397,8 @@ class PgClientSession::Impl {
     const auto txn_serial_no = options.txn_serial_no();
     const auto read_time_serial_no = options.read_time_serial_no();
 
+    LOG(INFO) << "UpdateReadTime with options: " << options.DebugString() << " with kind: " << kind;
+
     if (options.restart_transaction()) {
       VLOG_WITH_PREFIX(3) << "Restarting transaction";
       if (options.ddl_mode()) {

@@ -200,7 +200,7 @@ void PgTxnManager::SerialNo::IncTxn(
 
 void PgTxnManager::SerialNo::IncReadTime() {
   read_time_ = ++max_read_time_;
-  VLOG(4) << "IncReadTime to " << max_read_time_;
+  LOG(INFO) << "IncReadTime to " << max_read_time_;
 }
 
 void PgTxnManager::SerialNo::IncMaxReadTime() {
@@ -293,7 +293,7 @@ Status PgTxnManager::RecreateTransaction() {
 Status PgTxnManager::RecreateTransaction(SavePriority save_priority) {
   VLOG(2) << "RecreateTransaction";
   use_saved_priority_ = save_priority;
-  ResetTxnAndSession(true /* recreate_transaction */);
+  ResetTxnAndSession(true /* preserve_ddl_state */);
   txn_in_progress_ = true;
   return Status::OK();
 }
@@ -580,7 +580,7 @@ Status PgTxnManager::FinishPlainTransaction(
   const auto is_read_only = isolation_level_ == IsolationLevel::NON_TRANSACTIONAL;
   if (is_read_only && !PREDICT_FALSE(IsTableLockingEnabledForCurrentTxn())) {
     VLOG_TXN_STATE(2) << "This was a read-only transaction, nothing to commit.";
-    ResetTxnAndSession(false /* recreate_transaction */);
+    ResetTxnAndSession(false /* preserve_ddl_state */);
     return Status::OK();
   }
 
@@ -605,11 +605,11 @@ Status PgTxnManager::FinishPlainTransaction(
                     << (ddl_mode ? ddl_mode->ToString() : "NULL");
   Status status = client_->FinishTransaction(commit, ddl_mode);
   VLOG_TXN_STATE(2) << "Transaction " << (commit ? "commit" : "abort") << " status: " << status;
-  ResetTxnAndSession(false /* recreate_transaction */);
+  ResetTxnAndSession(false /* preserve_ddl_state */);
   return status;
 }
 
-void PgTxnManager::ResetTxnAndSession(bool recreate_transaction) {
+void PgTxnManager::ResetTxnAndSession(bool preserve_ddl_state) {
   txn_in_progress_ = false;
   isolation_level_ = IsolationLevel::NON_TRANSACTIONAL;
   priority_ = std::nullopt;
@@ -630,7 +630,7 @@ void PgTxnManager::ResetTxnAndSession(bool recreate_transaction) {
   // unification is enabled and we have a DDL statement within the transaction block.
   // With transactional DDL disabled, we can enter this function while executing the ANALYZE command
   // with DDL state set. We don't want to clear out the DDL state in that case.
-  if (IsDdlModeWithRegularTransactionBlock() && !recreate_transaction) {
+  if (IsDdlModeWithRegularTransactionBlock() && !preserve_ddl_state) {
     ddl_state_.reset();
   }
 }
