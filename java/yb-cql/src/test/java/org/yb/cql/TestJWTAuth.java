@@ -246,17 +246,16 @@ public class TestJWTAuth extends BaseAuthenticationCQLTest {
     flagMap.put("ycql_jwt_users_to_skip_csv", "cassandra");
 
     // Construct the combined options string
-    // Format: key="value" separated by spaces
     StringBuilder jwtOptions = new StringBuilder();
-    jwtOptions.append("jwt_issuers=\"").append(issuersCsv).append("\"");
-    jwtOptions.append(" jwt_audiences=\"").append(audiencesCsv).append("\"");
-    jwtOptions.append(" jwt_jwks_url=\"").append(jwksUrl).append("\"");
+    jwtOptions.append("jwt_issuers=").append(issuersCsv);
+    jwtOptions.append(" jwt_audiences=").append(audiencesCsv);
+    jwtOptions.append(" jwt_jwks_url=").append(jwksUrl);
     if (!matchingClaimKey.isEmpty()) {
-      jwtOptions.append(" jwt_matching_claim_key=\"").append(matchingClaimKey).append("\"");
+      jwtOptions.append(" jwt_matching_claim_key=").append(matchingClaimKey);
     }
     flagMap.put("ycql_jwt_options", jwtOptions.toString());
 
-    flagMap.put("vmodule", "cql_processor=4");
+    flagMap.put("vmodule", "cql_processor=4,cql_service=4,jwt_util=4");
     restartClusterWithTSFlags(flagMap);
     LOG.info("Cluster restart finished");
   }

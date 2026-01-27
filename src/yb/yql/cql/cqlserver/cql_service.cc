@@ -82,7 +82,7 @@ TAG_FLAG(ycql_jwt_users_to_skip_csv, sensitive_info);
 
 DEFINE_RUNTIME_string(ycql_jwt_options, "",
     "The space-separated list of options to configure JWT authentication. "
-    "The format is a list of 'key=\"value\"' pairs separated by space. "
+    "The format is a list of 'key=value' pairs separated by space. "
     "Valid keys are:\n"
     "  * jwt_jwks_url: The URL from where to fetch the Json Web Key Set of the Identity Provider "
     "(IDP).\n"
@@ -662,17 +662,24 @@ Status CQLServiceImpl::LoadJwtOptions(std::string* jwks_url) {
 
     if (option_kv[0] == kJwtAuthJwksUrl) {
       DCHECK(jwks_url);
-      *jwks_url = StripQuotesIfExists(option_kv[1]);
+      *jwks_url = option_kv[1];
     } else if (option_kv[0] == kJwtAudiences) {
       RETURN_NOT_OK(ReadCSVValues(option_kv[1], &jwt_allowed_audience_));
     } else if (option_kv[0] == kJwtIssuers) {
       RETURN_NOT_OK(ReadCSVValues(option_kv[1], &jwt_allowed_issuers_));
     } else if (option_kv[0] == kJwtMatchingClaimKey) {
-      jwt_matching_claim_key_ = StripQuotesIfExists(option_kv[1]);
+      jwt_matching_claim_key_ = option_kv[1];
     } else {
       return STATUS_FORMAT(InvalidArgument, "Unknown JWT option $0", option_kv[0]);
     }
   }
+
+  VLOG(4) << "Loaded JWT Options: "
+          << "JWKS URL=" << *jwks_url << ", "
+          << "Audiences=" << CollectionToString(jwt_allowed_audience_) << ", "
+          << "Issuers=" << CollectionToString(jwt_allowed_issuers_) << ", "
+          << "Matching Claim Key=" << jwt_matching_claim_key_;
+
   return Status::OK();
 }
 

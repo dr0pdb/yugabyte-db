@@ -136,11 +136,4 @@ std::vector<std::string> SplitAndFlatten(
   return result_vec;
 }
 
-std::string StripQuotesIfExists(const std::string& input) {
-  if (input.size() >= 2 && input.front() == '"' && input.back() == '"') {
-    return input.substr(1, input.size() - 2);
-  }
-  return input;
-}
-
 }  // namespace yb
