@@ -240,15 +240,22 @@ public class TestJWTAuth extends BaseAuthenticationCQLTest {
       List<String> allowedAudiences, String matchingClaimKey, String jwksUrl) throws Exception {
     String issuersCsv = String.join(",", allowedIssuers);
     String audiencesCsv = String.join(",", allowedAudiences);
+
     Map<String, String> flagMap = super.getTServerFlags();
-    flagMap.put("TEST_ycql_use_jwt", "true");
+    flagMap.put("TEST_ycql_use_jwt_auth", "true");
     flagMap.put("ycql_jwt_users_to_skip_csv", "cassandra");
-    flagMap.put("ycql_jwt_allowed_audience_csv", audiencesCsv);
-    flagMap.put("ycql_jwt_allowed_issuers_csv", issuersCsv);
+
+    // Construct the combined options string
+    // Format: key="value" separated by spaces
+    StringBuilder jwtOptions = new StringBuilder();
+    jwtOptions.append("jwt_issuers=\"").append(issuersCsv).append("\"");
+    jwtOptions.append(" jwt_audiences=\"").append(audiencesCsv).append("\"");
+    jwtOptions.append(" jwt_jwks_url=\"").append(jwksUrl).append("\"");
     if (!matchingClaimKey.isEmpty()) {
-      flagMap.put("ycql_jwt_matching_claim_key", matchingClaimKey);
+      jwtOptions.append(" jwt_matching_claim_key=\"").append(matchingClaimKey).append("\"");
     }
-    flagMap.put("ycql_jwt_jwks_url", jwksUrl);
+    flagMap.put("ycql_jwt_options", jwtOptions.toString());
+
     flagMap.put("vmodule", "cql_processor=4");
     restartClusterWithTSFlags(flagMap);
     LOG.info("Cluster restart finished");

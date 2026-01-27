@@ -210,6 +210,8 @@ bool HasSubstring(std::string_view str, const Container& container) {
   return FindSubstring(str, std::begin(container), end) != end;
 }
 
+std::string StripQuotesIfExists(const std::string& input);
+
 }  // namespace yb
 
 namespace rocksdb {

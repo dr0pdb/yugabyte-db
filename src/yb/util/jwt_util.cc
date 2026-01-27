@@ -223,7 +223,7 @@ Result<jwt::decoded_jwt<jwt::traits::kazuho_picojson>> DecodeAndValidateDecodedJ
   return decoded_jwt;
 }
 
-Status PopulateIdentityClaims(
+Status HandleValidationResultAndPopulateIdentityClaims(
     const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded_jwt,
     const std::string& jwt_issuer, bool valid_issuer, bool valid_audience,
     const std::string& matching_claim_key, std::vector<std::string>* identity_claims) {
@@ -274,7 +274,7 @@ Status ValidateJWT(
     }
   }
 
-  return PopulateIdentityClaims(
+  return HandleValidationResultAndPopulateIdentityClaims(
       decoded_jwt, jwt_issuer, valid_issuer, valid_audience, options.matching_claim_key,
       identity_claims);
 }
@@ -309,7 +309,7 @@ Status ValidateJWT(
     }
   }
 
-  return PopulateIdentityClaims(
+  return HandleValidationResultAndPopulateIdentityClaims(
       decoded_jwt, jwt_issuer, valid_issuer, valid_audience, matching_claim_key,
       identity_claims);
 }

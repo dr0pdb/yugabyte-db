@@ -106,9 +106,8 @@ DECLARE_bool(use_cassandra_authentication);
 DECLARE_bool(ycql_cache_login_info);
 DECLARE_int32(client_read_write_timeout_ms);
 DECLARE_bool(ycql_enable_stat_statements);
-DECLARE_bool(TEST_ycql_use_jwt);
+DECLARE_bool(TEST_ycql_use_jwt_auth);
 DECLARE_string(ycql_jwt_users_to_skip_csv);
-DECLARE_string(ycql_jwt_matching_claim_key);
 
 DEFINE_RUNTIME_bool(ycql_enable_tracing_flag, true,
     "If enabled, setting TRACING ON in cqlsh will cause "
@@ -933,17 +932,17 @@ Result<bool> CheckLDAPAuth(const ql::AuthResponseRequest::AuthQueryParameters& p
 
 Result<bool> CheckJWTAuth(
     const ql::AuthResponseRequest::AuthQueryParameters& params, const std::string& jwks,
+    const std::string& matching_claim_key,
     const std::vector<std::string>& allowed_issuers,
     const std::vector<std::string>& allowed_audience) {
   VLOG(4) << "Attempting JWT Authentication";
 
   std::vector<std::string> identity_claims;
   auto s = util::ValidateJWT(
-      params.password, jwks, FLAGS_ycql_jwt_matching_claim_key, allowed_issuers, allowed_audience,
+      params.password, jwks, matching_claim_key, allowed_issuers, allowed_audience,
       &identity_claims);
   if (!s.ok()) {
-    LOG(ERROR) << "JWT token validation failed with error: " << s;
-    return s;
+    return s.CloneAndPrepend("JWT token validation failed");
   }
 
   // Validate identity of the IDP user vs the YCQL user.
@@ -953,19 +952,18 @@ Result<bool> CheckJWTAuth(
   // 2. Multiple entry identity such as "groups" or "roles". In such cases identity_claims can be
   // have multiple entries and the identity match will be successful if at least one entry matches
   // with the YCQL username.
-  bool match = false;
   for (const auto& idp_identity : identity_claims) {
     VLOG(5) << "Matching YCQL user with IDP identity: " << idp_identity;
     // TODO(#29861): Support regex mapping between IDP identity and the YCQL username instead of an
     // exact match.
     if (idp_identity == params.username) {
-      match = true;
-      break;
+      VLOG(4) << "JWT identity check successful";
+      return true;
     }
   }
 
-  VLOG(4) << "JWT token validation completed with match: " << match;
-  return match;
+  VLOG(4) << "JWT identity check failed";
+  return false;
 }
 
 static bool UserIn(const std::string& username, const std::string& users_to_skip) {
@@ -996,10 +994,10 @@ unique_ptr<CQLResponse> CQLProcessor::ProcessAuthResult(const string& saved_hash
   unique_ptr<CQLResponse> response = nullptr;
   bool authenticated = false;
 
-  if (FLAGS_TEST_ycql_use_jwt && !UserIn(params.username, FLAGS_ycql_jwt_users_to_skip_csv)) {
+  if (FLAGS_TEST_ycql_use_jwt_auth && !UserIn(params.username, FLAGS_ycql_jwt_users_to_skip_csv)) {
     Result<bool> jwt_auth_result = CheckJWTAuth(
-        params, service_impl_->GetJwtJwks(), service_impl_->GetJwtAllowedIssuers(),
-        service_impl_->GetJwtAllowedAudience());
+        params, service_impl_->GetJwtJwks(), service_impl_->GetJwtMatchingClaimKey(),
+        service_impl_->GetJwtAllowedIssuers(), service_impl_->GetJwtAllowedAudience());
     if (!jwt_auth_result.ok()) {
       return make_unique<ErrorResponse>(
           *request_, ErrorResponse::Code::SERVER_ERROR,

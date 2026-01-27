@@ -152,6 +152,10 @@ class CQLServiceImpl : public CQLServerServiceIf,
     return jwt_jwks_;
   }
 
+  const std::string& GetJwtMatchingClaimKey() const {
+    return jwt_matching_claim_key_;
+  }
+
   const std::vector<std::string>& GetJwtAllowedIssuers() const {
     return jwt_allowed_issuers_;
   }
@@ -195,7 +199,8 @@ class CQLServiceImpl : public CQLServerServiceIf,
   void ResetPreparedStatementsCounters();
 
   Status InitJwtAuth();
-  Status LoadJwtJwks();
+  Status LoadJwtOptions(std::string* jwks_url);
+  Status LoadJwtJwks(const std::string& jwks_url);
   Status ValidateJwtConfig();
 
   // CQLServer of this service.
@@ -269,6 +274,7 @@ class CQLServiceImpl : public CQLServerServiceIf,
   // JWT auth specific fields.
   // Initialized once and used by CQLProcessor during JWT authentication.
   std::string jwt_jwks_;
+  std::string jwt_matching_claim_key_ = "sub";
   std::vector<std::string> jwt_allowed_audience_;
   std::vector<std::string> jwt_allowed_issuers_;
 };
