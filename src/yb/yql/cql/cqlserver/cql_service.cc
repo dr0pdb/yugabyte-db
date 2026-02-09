@@ -707,21 +707,15 @@ Status CQLServiceImpl::InitJwtAuth() {
 
 Status CQLServiceImpl::ValidateJwtConfig() {
   if (jwt_jwks_.empty()) {
-    return STATUS(
-        InvalidArgument,
-        Format("JWKS cannot be empty"));
+    return STATUS(InvalidArgument, Format("JWKS received from the jwt_jwks_url cannot be empty"));
   }
 
   if (jwt_allowed_audience_.empty()) {
-    return STATUS(
-        InvalidArgument,
-        "jwt_allowed_audience_ cannot be empty");
+    return STATUS(InvalidArgument, "jwt_audiences cannot be empty");
   }
 
   if (jwt_allowed_issuers_.empty()) {
-    return STATUS(
-        InvalidArgument,
-        "jwt_allowed_issuers_ cannot be empty");
+    return STATUS(InvalidArgument, "jwt_issuers cannot be empty");
   }
 
   return Status::OK();
