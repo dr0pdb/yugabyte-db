@@ -12,7 +12,7 @@
 //
 package org.yb.cql;
 
-import static org.junit.Assert.assertNotNull;
+import static org.yb.AssertionWrappers.assertNotNull;
 
 import java.math.BigInteger;
 import java.security.PrivateKey;
@@ -42,8 +42,10 @@ import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.yb.YBTestRunner;
 import org.yb.util.Pair;
 
 import com.datastax.driver.core.ProtocolOptions;
@@ -69,6 +71,7 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 
+@RunWith(value = YBTestRunner.class)
 public class TestJWTAuth extends BaseAuthenticationCQLTest {
   private static final Logger LOG = LoggerFactory.getLogger(TestJWTAuth.class);
 
