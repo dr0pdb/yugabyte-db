@@ -3038,7 +3038,7 @@ load_ident(MemoryContext yb_ident_context, const char *yb_hardcoded_mapname)
 	FreeFile(file);
 
 	/* Now parse all the lines */
-	if (IsYugaByteEnabled() && yb_ident_context)
+	if (yb_ident_context)
 		oldcxt = MemoryContextSwitchTo(yb_ident_context);
 	else
 	{
@@ -3097,7 +3097,7 @@ load_ident(MemoryContext yb_ident_context, const char *yb_hardcoded_mapname)
 		/*
 		 * YB: ident_context is unused when yb_ident_context is passed as param.
 		 */
-		if (IsYugaByteEnabled() && ident_context)
+		if (!yb_ident_context)
 			MemoryContextDelete(ident_context);
 		return false;
 	}
@@ -3121,7 +3121,7 @@ load_ident(MemoryContext yb_ident_context, const char *yb_hardcoded_mapname)
 	 * yb_ident_context and the responsibility of managing the context is left
 	 * to the caller.
 	 */
-	if (IsYugaByteEnabled() && ident_context)
+	if (!yb_ident_context)
 		parsed_ident_context = ident_context;
 	parsed_ident_lines = new_parsed_lines;
 

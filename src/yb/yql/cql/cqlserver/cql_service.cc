@@ -102,8 +102,9 @@ DEFINE_RUNTIME_string(ycql_jwt_options, "",
     "default value is 'sub'.");
 
 DEFINE_NON_RUNTIME_string(ycql_ident_conf_csv, "",
-    "CSV formatted line represented list of identity mapping rules (in order)."
-    "Only applied in JWT authentication.");
+    "CSV formatted line represented list of identity mapping rules (in order). "
+    "Each line contains two fields separated by space - IDP username and YCQL username. "
+    "Only applicable in JWT authentication i.e. when ycql_use_jwt_auth=true.");
 
 namespace yb {
 namespace cqlserver {
