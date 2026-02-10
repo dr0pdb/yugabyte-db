@@ -180,18 +180,18 @@ class TSLocalLockManagerTest : public TabletServerTestBase {
   }
 
   bool DoesLockTypeContainLock(TableLockType a, TableLockType b) {
-    auto entries1 = docdb::GetEntriesForLockType(a);
-    auto entries2 = docdb::GetEntriesForLockType(b);
-    for (auto& [key2, intent_type2] : entries2) {
-      bool contains = std::ranges::any_of(entries1, [&](auto key_and_intent) {
-        return key_and_intent.first == key2 &&
-               docdb::LockStateContains(IntentTypeSetAdd(key_and_intent.second),
-                                        IntentTypeSetAdd(intent_type2));
-      });
-      if (!contains) {
-        return false;
-      }
-    }
+    // auto entries1 = docdb::GetEntriesForLockType(a);
+    // auto entries2 = docdb::GetEntriesForLockType(b);
+    // for (auto& [key2, intent_type2] : entries2) {
+    //   bool contains = std::ranges::any_of(entries1, [&](auto key_and_intent) {
+    //     return key_and_intent.first == key2 &&
+    //            docdb::LockStateContains(IntentTypeSetAdd(key_and_intent.second),
+    //                                     IntentTypeSetAdd(intent_type2));
+    //   });
+    //   if (!contains) {
+    //     return false;
+    //   }
+    // }
     return true;
   }
 

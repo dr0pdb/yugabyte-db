@@ -34,6 +34,7 @@
 #include "executor/execExpr.h"
 #include "executor/executor.h"
 #include "funcapi.h"
+#include "libpq/hba.h"
 #include "mb/pg_wchar.h"
 #include "nodes/execnodes.h"
 #include "nodes/makefuncs.h"
@@ -858,4 +859,25 @@ int
 YbgGetPgVersion()
 {
 	return PG_MAJORVERSION_NUM;
+}
+
+YbgStatus
+YbgLoadIdent(const char *ident_file_path, const char *ident_mapname,
+			 YbgMemoryContext ident_context)
+{
+	PG_SETUP_ERROR_REPORTING();
+	IdentFileName = pstrdup(ident_file_path);
+	load_ident(ident_context, ident_mapname);
+	PG_STATUS_OK();
+}
+
+YbgStatus
+YbgCheckUsermap(const char *usermap_name, const char *pg_role,
+				const char *auth_user, bool case_insensitive,
+				bool *matched)
+{
+	PG_SETUP_ERROR_REPORTING();
+	*matched = check_usermap(usermap_name, pg_role, auth_user,
+							 case_insensitive) == STATUS_OK;
+	PG_STATUS_OK();
 }

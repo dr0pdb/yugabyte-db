@@ -15,6 +15,9 @@
 #include "nodes/pg_list.h"
 #include "regex/regex.h"
 
+/* YB includes. */
+#include "utils/palloc.h"
+
 
 /*
  * The following enum represents the authentication methods that
@@ -176,16 +179,23 @@ typedef struct TokenizedAuthLine
 typedef struct Port hbaPort;
 
 extern bool load_hba(void);
-extern bool load_ident(void);
+extern bool load_ident(MemoryContext yb_ident_context,
+					   const char *yb_hardcoded_mapname);
 extern const char *hba_authname(UserAuth auth_method);
 extern void hba_getauthmethod(hbaPort *port);
 extern int	check_usermap(const char *usermap_name,
 						  const char *pg_role, const char *auth_user,
 						  bool case_insensitive);
 extern HbaLine *parse_hba_line(TokenizedAuthLine *tok_line, int elevel);
-extern IdentLine *parse_ident_line(TokenizedAuthLine *tok_line, int elevel);
+extern IdentLine *parse_ident_line(TokenizedAuthLine *tok_line, int elevel,
+								   const char *yb_hardcoded_mapname);
 extern bool pg_isblank(const char c);
 extern MemoryContext tokenize_auth_file(const char *filename, FILE *file,
 										List **tok_lines, int elevel);
+extern MemoryContext yb_tokenize_auth_lines(char **lines,
+											int num_lines,
+											List **tok_lines,
+											int elevel);
+extern void YbSetParsedIdentLines(List *parsed_ident_lines);
 
 #endif							/* HBA_H */

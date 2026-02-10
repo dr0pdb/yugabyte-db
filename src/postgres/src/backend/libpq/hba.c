@@ -96,6 +96,9 @@ static const char *const HardcodedHbaLines[] =
  * NOTE: the IdentLine structs can contain pre-compiled regular expressions
  * that live outside the memory context. Before destroying or resetting the
  * memory context, they need to be explicitly free'd.
+ *
+ * YB: Ident mapping is also used in YCQL. When used in YCQL, this lives in the
+ * ycql_jwt_ident_memctx_ memory context.
  */
 static List *parsed_ident_lines = NIL;
 static MemoryContext parsed_ident_context = NULL;
@@ -340,6 +343,52 @@ next_field_expand(const char *filename, char **lineptr,
 		if (!initial_quote && buf[0] == '@' && buf[1] != '\0')
 			tokens = tokenize_inc_file(tokens, filename, buf + 1,
 									   elevel, err_msg);
+		else
+			tokens = lappend(tokens, make_auth_token(buf, initial_quote));
+	} while (trailing_comma && (*err_msg == NULL));
+
+	return tokens;
+}
+
+/*
+ * Tokenize one HBA field from a line handling comma lists.
+ *
+ * Does not expect file inclusions and treats them as errors.
+ *
+ * filename: current file's pathname (needed to resolve relative pathnames)
+ * *lineptr: current line pointer, which will be advanced past field
+ *
+ * In event of an error, log a message at ereport level elevel, and also
+ * set *err_msg to a string describing the error.  Note that the result
+ * may be non-NIL anyway, so *err_msg must be tested to determine whether
+ * there was an error.
+ *
+ * The result is a List of AuthToken structs, one for each token in the field,
+ * or NIL if we reached EOL.
+ */
+static List *
+yb_next_field_expand_without_file_inc(char **lineptr, int elevel, char **err_msg)
+{
+	char		buf[MAX_TOKEN];
+	bool		trailing_comma;
+	bool		initial_quote;
+	List	   *tokens = NIL;
+
+	do
+	{
+		if (!next_token(lineptr, buf, sizeof(buf),
+						&initial_quote, &trailing_comma,
+						elevel, err_msg))
+			break;
+
+		/* Is this referencing a file? */
+		if (!initial_quote && buf[0] == '@' && buf[1] != '\0')
+		{
+			ereport(elevel,
+					(errcode(ERRCODE_CONFIG_FILE_ERROR),
+					 errmsg("unexpected file inclusion")));
+			*err_msg = "unexpected file inclusion";
+		}
 		else
 			tokens = lappend(tokens, make_auth_token(buf, initial_quote));
 	} while (trailing_comma && (*err_msg == NULL));
@@ -658,6 +707,82 @@ yb_tokenize_line(const char *filename,
 		return tok_line;
 	}
 	return NULL;
+}
+
+/*
+ * Tokenize the given lines assuming that there are no file inclusions.
+ *
+ * The output is a TokenizedAuthLine struct.
+ *
+ * lines: the untokenized lines to be tokenized
+ * num_lines: number of lines in the 'lines' input data
+ * tok_lines: receives output list
+ * elevel: message logging level
+ *
+ * Errors are reported by logging messages at ereport level elevel and by
+ * putting a non-null err_msg in the TokenizedAuthLine struct.
+ *
+ * Return value is a palloc'd tokenized line.
+ */
+MemoryContext
+yb_tokenize_auth_lines(char **lines,
+					   int num_lines,
+					   List **tok_lines,
+					   int elevel)
+{
+	int			line_number = 1;
+	MemoryContext linecxt;
+	MemoryContext oldcxt;
+
+	linecxt = AllocSetContextCreate(CurrentMemoryContext,
+									"yb_tokenize_auth_lines",
+									ALLOCSET_SMALL_SIZES);
+	oldcxt = MemoryContextSwitchTo(linecxt);
+
+	*tok_lines = NIL;
+
+	for (int i = 0; i < num_lines; i++)
+	{
+		char	   *lineptr;
+		List	   *current_line = NIL;
+		char	   *err_msg = NULL;
+
+		/* Parse fields */
+		lineptr = lines[i];
+		while (*lineptr && err_msg == NULL)
+		{
+			List *current_field;
+
+			current_field = yb_next_field_expand_without_file_inc(&lineptr,
+																  elevel,
+																  &err_msg);
+
+			/* add field to line, unless we are at EOL or comment start */
+			if (current_field != NIL)
+				current_line = lappend(current_line, current_field);
+		}
+
+		/*
+		 * Emit line unless it's boring
+		 */
+		if (current_line != NIL || err_msg != NULL)
+		{
+			TokenizedAuthLine *tok_line;
+
+			tok_line = palloc(sizeof(TokenizedAuthLine));
+			tok_line->fields = current_line;
+			tok_line->line_num = line_number;
+			tok_line->raw_line = pstrdup(lines[i]);
+			tok_line->err_msg = err_msg;
+
+			*tok_lines = lappend(*tok_lines, tok_line);
+		}
+
+		line_number++;
+	}
+
+	MemoryContextSwitchTo(oldcxt);
+	return linecxt;
 }
 
 /*
@@ -2602,9 +2727,13 @@ load_hba(void)
  * Note: this function leaks memory when an error occurs.  Caller is expected
  * to have set a memory context that will be reset if this function returns
  * NULL.
+ *
+ * YB: When yb_hardcoded_mapname is not NULL, all lines are treated as belonging to
+ * yb_hardcoded_mapname map.
  */
 IdentLine *
-parse_ident_line(TokenizedAuthLine *tok_line, int elevel)
+parse_ident_line(TokenizedAuthLine *tok_line, int elevel,
+				 const char *yb_hardcoded_mapname)
 {
 	int			line_num = tok_line->line_num;
 	char	  **err_msg = &tok_line->err_msg;
@@ -2619,14 +2748,20 @@ parse_ident_line(TokenizedAuthLine *tok_line, int elevel)
 	parsedline = palloc0(sizeof(IdentLine));
 	parsedline->linenumber = line_num;
 
-	/* Get the map token (must exist) */
-	tokens = lfirst(field);
-	IDENT_MULTI_VALUE(tokens);
-	token = linitial(tokens);
-	parsedline->usermap = pstrdup(token->string);
+	if (yb_hardcoded_mapname == NULL)
+	{
+		/* Get the map token (must exist) */
+		tokens = lfirst(field);
+		IDENT_MULTI_VALUE(tokens);
+		token = linitial(tokens);
+		parsedline->usermap = pstrdup(token->string);
+	}
+	else
+		parsedline->usermap = pstrdup(yb_hardcoded_mapname);
 
 	/* Get the ident user token */
-	field = lnext(tok_line->fields, field);
+	if (yb_hardcoded_mapname == NULL)
+		field = lnext(tok_line->fields, field);
 	IDENT_FIELD_ABSENT(field);
 	tokens = lfirst(field);
 	IDENT_MULTI_VALUE(tokens);
@@ -2875,7 +3010,7 @@ check_usermap(const char *usermap_name,
  * This works the same as load_hba(), but for the user config file.
  */
 bool
-load_ident(void)
+load_ident(MemoryContext yb_ident_context, const char *yb_hardcoded_mapname)
 {
 	FILE	   *file;
 	List	   *ident_lines = NIL;
@@ -2903,11 +3038,17 @@ load_ident(void)
 	FreeFile(file);
 
 	/* Now parse all the lines */
-	Assert(PostmasterContext);
-	ident_context = AllocSetContextCreate(PostmasterContext,
-										  "ident parser context",
-										  ALLOCSET_SMALL_SIZES);
-	oldcxt = MemoryContextSwitchTo(ident_context);
+	if (IsYugaByteEnabled() && yb_ident_context)
+		oldcxt = MemoryContextSwitchTo(yb_ident_context);
+	else
+	{
+		Assert(PostmasterContext);
+		ident_context = AllocSetContextCreate(PostmasterContext,
+											  "ident parser context",
+											  ALLOCSET_SMALL_SIZES);
+		oldcxt = MemoryContextSwitchTo(ident_context);
+	}
+
 	foreach(line_cell, ident_lines)
 	{
 		TokenizedAuthLine *tok_line = (TokenizedAuthLine *) lfirst(line_cell);
@@ -2919,7 +3060,7 @@ load_ident(void)
 			continue;
 		}
 
-		if ((newline = parse_ident_line(tok_line, LOG)) == NULL)
+		if ((newline = parse_ident_line(tok_line, LOG, yb_hardcoded_mapname)) == NULL)
 		{
 			/* Parse error; remember there's trouble */
 			ok = false;
@@ -2952,7 +3093,12 @@ load_ident(void)
 			if (newline->ident_user[0] == '/')
 				pg_regfree(&newline->re);
 		}
-		MemoryContextDelete(ident_context);
+
+		/*
+		 * YB: ident_context is unused when yb_ident_context is passed as param.
+		 */
+		if (IsYugaByteEnabled() && ident_context)
+			MemoryContextDelete(ident_context);
 		return false;
 	}
 
@@ -2969,7 +3115,14 @@ load_ident(void)
 	if (parsed_ident_context != NULL)
 		MemoryContextDelete(parsed_ident_context);
 
-	parsed_ident_context = ident_context;
+	/*
+	 * YB: ident_context is unused when yb_ident_context is passed as param.
+	 * In such cases, the parsed_ident_lines are allocated in the
+	 * yb_ident_context and the responsibility of managing the context is left
+	 * to the caller.
+	 */
+	if (IsYugaByteEnabled() && ident_context)
+		parsed_ident_context = ident_context;
 	parsed_ident_lines = new_parsed_lines;
 
 	return true;
@@ -3075,4 +3228,11 @@ hba_authname(UserAuth auth_method)
 					 "UserAuthName[] must match the UserAuth enum");
 
 	return UserAuthName[auth_method];
+}
+
+void
+YbSetParsedIdentLines(List *new_parsed_ident_lines)
+{
+	Assert(parsed_ident_lines == NIL);
+	parsed_ident_lines = new_parsed_ident_lines;
 }
