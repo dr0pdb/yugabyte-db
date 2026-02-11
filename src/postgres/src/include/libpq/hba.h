@@ -15,7 +15,7 @@
 #include "nodes/pg_list.h"
 #include "regex/regex.h"
 
-/* YB includes. */
+/* YB includes */
 #include "utils/palloc.h"
 
 
