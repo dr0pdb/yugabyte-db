@@ -192,10 +192,5 @@ extern IdentLine *parse_ident_line(TokenizedAuthLine *tok_line, int elevel,
 extern bool pg_isblank(const char c);
 extern MemoryContext tokenize_auth_file(const char *filename, FILE *file,
 										List **tok_lines, int elevel);
-extern MemoryContext yb_tokenize_auth_lines(char **lines,
-											int num_lines,
-											List **tok_lines,
-											int elevel);
-extern void YbSetParsedIdentLines(List *parsed_ident_lines);
 
 #endif							/* HBA_H */
