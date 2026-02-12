@@ -2145,7 +2145,11 @@ class PgClientSession::Impl {
         // We can arrive here in case a transaction aborts due to a failure
         // during processing a DDL. In that case, ddl_mode in the request will
         // be true since we start the ddl_mode upon receiving a DDL statement.
-        !ddl_txn_metadata_.transaction_id.IsNil()) {
+        !ddl_txn_metadata_.transaction_id.IsNil() &&
+        // Skip RollbackDocdbSchemaToSubtxn RPC if this rollback is part of transaction abort.
+        // During abort, the entire transaction will be rolled back anyway, so it is wasteful to
+        // call yb-master to rollback each sub-transaction individually.
+        !req.part_of_txn_abort()) {
       RSTATUS_DCHECK(ddl_txn_metadata_.transaction_id == transaction->id(), IllegalState,
                      Format("Unexpected DDL transaction metadata found. Expected: $0, found: $1",
                             transaction->id(), ddl_txn_metadata_.transaction_id));

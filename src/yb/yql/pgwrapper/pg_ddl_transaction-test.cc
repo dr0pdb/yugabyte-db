@@ -19,6 +19,7 @@
 #include "yb/master/catalog_manager_if.h"
 #include "yb/tablet/tablet.h"
 #include "yb/tablet/tablet_peer.h"
+
 #include "yb/util/async_util.h"
 #include "yb/util/backoff_waiter.h"
 #include "yb/util/sync_point.h"
@@ -795,6 +796,68 @@ TEST_P(PgDdlSavepointMiniClusterTest, TestRollbackToSavepointSlowTableDeletion) 
   TEST_SYNC_POINT(
       "PgDdlSavepointMiniClusterTest::TestRollbackToSavepointSlowTableDeletion:WaitForDeleteTable");
   ASSERT_OK(conn.Execute("ROLLBACK"));
+}
+
+// Test that when ROLLBACK TO SAVEPOINT times out, the transaction aborts successfully without any
+// FATALs. This is achieved by using a sync point to block the RollbackToSubTransaction processing
+// till statement timeout occurs and the transaction aborts.
+TEST_P(PgDdlSavepointMiniClusterTest, TestRollbackToSavepointTimeoutCausesAbort) {
+  // Skip in case of commit as the test case is redundant.
+  if (GetParam()) {
+    return;
+  }
+
+  auto client = ASSERT_RESULT(cluster_->CreateClient());
+  auto conn = ASSERT_RESULT(Connect());
+  auto& catalog_mgr = ASSERT_RESULT(cluster_->GetLeaderMiniMaster())->catalog_manager();
+
+  ASSERT_OK(conn.ExecuteFormat("DROP TABLE IF EXISTS $0", kTableName));
+
+  SyncPoint::GetInstance()->LoadDependency({
+    {
+      "PgDdlSavepointMiniClusterTest::TestRollbackToSavepointTimeoutCausesAbort:ReleaseBlock",
+      "YsqlDdlHandler::YsqlRollbackDocdbSchemaToSubTxn:AddedToMap"
+    }
+  });
+  SyncPoint::GetInstance()->ClearTrace();
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(conn.Execute("BEGIN"));
+  ASSERT_OK(conn.ExecuteFormat("CREATE TABLE $0 (a INT PRIMARY KEY, b TEXT)", kTableName));
+  auto table_id = ASSERT_RESULT(GetTableIdByTableName(client.get(), "yugabyte", kTableName));
+  auto table = catalog_mgr.GetTableInfo(table_id);
+
+  ASSERT_OK(conn.Execute("SAVEPOINT sp1"));
+  ASSERT_OK(conn.ExecuteFormat("ALTER TABLE $0 ADD COLUMN c TEXT", kTableName));
+  ASSERT_OK(conn.Execute("SAVEPOINT sp2"));
+  ASSERT_OK(conn.ExecuteFormat("ALTER TABLE $0 ADD COLUMN d TEXT", kTableName));
+
+  auto table_verifier_states = table->LockForRead()->ysql_ddl_txn_verifier_state();
+  ASSERT_EQ(table_verifier_states.size(), 3);
+  VerifyDdlOps(table_verifier_states[0], DdlOp::kCreate);
+  VerifyDdlOps(table_verifier_states[1], DdlOp::kAlter);
+  VerifyDdlOps(table_verifier_states[2], DdlOp::kAlter);
+
+  ASSERT_OK(conn.Execute("SET statement_timeout = '10s'"));
+  auto rollback_status = conn.Execute("ROLLBACK TO SAVEPOINT sp1");
+  ASSERT_NOK(rollback_status);
+  ASSERT_TRUE(
+      rollback_status.message().ToBuffer().find("timeout") != std::string::npos ||
+      rollback_status.message().ToBuffer().find("canceling statement") != std::string::npos ||
+      rollback_status.message().ToBuffer().find("statement timeout") != std::string::npos);
+
+  TEST_SYNC_POINT(
+      "PgDdlSavepointMiniClusterTest::TestRollbackToSavepointTimeoutCausesAbort:ReleaseBlock");
+
+  auto test_status = conn.Execute("SELECT 1");
+  ASSERT_NOK(test_status);
+  ASSERT_STR_CONTAINS(test_status.message().ToBuffer(), "current transaction is aborted");
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearTrace();
+
+  ASSERT_OK(conn.Execute("ROLLBACK"));
+  ASSERT_FALSE(table->LockForRead()->has_ysql_ddl_txn_verifier_state());
 }
 
 } // namespace yb::pgwrapper

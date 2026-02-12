@@ -1980,8 +1980,8 @@ YbcStatus YBCPgSetActiveSubTransaction(uint32_t id) {
   return ToYBCStatus(pgapi->SetActiveSubTransaction(id));
 }
 
-YbcStatus YBCPgRollbackToSubTransaction(uint32_t id) {
-  return ToYBCStatus(pgapi->RollbackToSubTransaction(id));
+YbcStatus YBCPgRollbackToSubTransaction(uint32_t id, bool part_of_txn_abort) {
+  return ToYBCStatus(pgapi->RollbackToSubTransaction(id, part_of_txn_abort));
 }
 
 YbcStatus YBCPgGetSelfActiveTransaction(YbcPgUuid *txn_id, bool *is_null) {

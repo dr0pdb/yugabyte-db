@@ -365,7 +365,7 @@ static void StartTransaction(void);
 
 static void StartSubTransaction(void);
 static void CommitSubTransaction(void);
-static void AbortSubTransaction(void);
+static void AbortSubTransaction(bool yb_part_of_txn_abort);
 static void CleanupSubTransaction(void);
 static void PushTransaction(void);
 static void PopTransaction(void);
@@ -3633,7 +3633,7 @@ CommitTransactionCommand(void)
 			 * As above, but it's not dead yet, so abort first.
 			 */
 		case TBLOCK_SUBABORT_PENDING:
-			AbortSubTransaction();
+			AbortSubTransaction(false /* yb_part_of_txn_abort */ );
 			CleanupSubTransaction();
 			CommitTransactionCommand();
 			break;
@@ -3653,7 +3653,7 @@ CommitTransactionCommand(void)
 				s->name = NULL;
 				savepointLevel = s->savepointLevel;
 
-				AbortSubTransaction();
+				AbortSubTransaction(false /* yb_part_of_txn_abort */ );
 				CleanupSubTransaction();
 
 				DefineSavepoint(NULL);
@@ -3872,7 +3872,7 @@ AbortCurrentTransaction(void)
 			 * we get ROLLBACK.
 			 */
 		case TBLOCK_SUBINPROGRESS:
-			AbortSubTransaction();
+			AbortSubTransaction(true /* yb_part_of_txn_abort */ );
 			s->blockState = TBLOCK_SUBABORT;
 			break;
 
@@ -3886,7 +3886,7 @@ AbortCurrentTransaction(void)
 		case TBLOCK_SUBCOMMIT:
 		case TBLOCK_SUBABORT_PENDING:
 		case TBLOCK_SUBRESTART:
-			AbortSubTransaction();
+			AbortSubTransaction(true /* yb_part_of_txn_abort */ );
 			CleanupSubTransaction();
 			AbortCurrentTransaction();
 			break;
@@ -4976,7 +4976,7 @@ RollbackToSavepoint(const char *name)
 		elog(FATAL, "RollbackToSavepoint: unexpected state %s",
 			 BlockStateAsString(xact->blockState));
 
-	YBCRollbackToSubTransaction(target->subTransactionId);
+	YBCRollbackToSubTransaction(target->subTransactionId, false /* part_of_txn_abort */ );
 }
 
 /*
@@ -5217,7 +5217,7 @@ RollbackAndReleaseCurrentSubTransaction(void)
 	 * Abort the current subtransaction, if needed.
 	 */
 	if (s->blockState == TBLOCK_SUBINPROGRESS)
-		AbortSubTransaction();
+		AbortSubTransaction(false /* yb_part_of_txn_abort */ );
 
 	/* And clean it up, too */
 	CleanupSubTransaction();
@@ -5308,7 +5308,7 @@ AbortOutOfAnyTransaction(void)
 			case TBLOCK_SUBCOMMIT:
 			case TBLOCK_SUBABORT_PENDING:
 			case TBLOCK_SUBRESTART:
-				AbortSubTransaction();
+				AbortSubTransaction(true /* yb_part_of_txn_abort */ );
 				CleanupSubTransaction();
 				s = CurrentTransactionState;	/* changed by pop */
 				break;
@@ -5596,7 +5596,7 @@ CommitSubTransaction(void)
  * AbortSubTransaction
  */
 static void
-AbortSubTransaction(void)
+AbortSubTransaction(bool yb_part_of_txn_abort)
 {
 	TransactionState s = CurrentTransactionState;
 
@@ -5738,7 +5738,7 @@ AbortSubTransaction(void)
 		AtSubAbort_Snapshot(s->nestingLevel);
 	}
 
-	YBCRollbackToSubTransaction(s->subTransactionId);
+	YBCRollbackToSubTransaction(s->subTransactionId, yb_part_of_txn_abort);
 
 	/*
 	 * Restore the upper transaction's read-only state, too.  This should be

@@ -2093,8 +2093,9 @@ Status PgApiImpl::SetActiveSubTransaction(SubTransactionId id) {
   return Status::OK();
 }
 
-Status PgApiImpl::RollbackToSubTransaction(SubTransactionId id) {
-  const auto status = pg_txn_manager_->RollbackToSubTransaction(ClearSessionState(), id);
+Status PgApiImpl::RollbackToSubTransaction(SubTransactionId id, bool part_of_txn_abort) {
+  const auto status =
+      pg_txn_manager_->RollbackToSubTransaction(ClearSessionState(), id, part_of_txn_abort);
   VLOG_WITH_FUNC(4) << "id: " << id << ", error: " << status;
   return status;
 }

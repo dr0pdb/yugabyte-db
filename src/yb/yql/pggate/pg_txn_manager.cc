@@ -963,7 +963,7 @@ void PgTxnManager::ClearExportedTxnSnapshots() {
 }
 
 Status PgTxnManager::RollbackToSubTransaction(
-    SetupPerformOptionsAccessorTag tag, SubTransactionId id) {
+    SetupPerformOptionsAccessorTag tag, SubTransactionId id, bool part_of_txn_abort) {
   if (!txn_in_progress_) {
     VLOG_TXN_STATE(2) << "No transaction in progress, nothing to rollback.";
     return Status::OK();
@@ -975,7 +975,7 @@ Status PgTxnManager::RollbackToSubTransaction(
   }
   tserver::PgPerformOptionsPB options;
   RETURN_NOT_OK(SetupPerformOptions(tag, &options));
-  return client_->RollbackToSubTransaction(id, &options);
+  return client_->RollbackToSubTransaction(id, &options, part_of_txn_abort);
 }
 
 bool PgTxnManager::TryAcquireObjectLock(

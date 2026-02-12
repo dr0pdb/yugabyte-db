@@ -828,6 +828,7 @@ message PgRollbackToSubTransactionRequestPB {
   uint32 sub_transaction_id = 2;
   PgPerformOptionsPB options = 3;
   reserved 4; // ASH metadata is now passed in RequestHeader PB
+  bool part_of_txn_abort = 5;
 }
 
 message PgRollbackToSubTransactionResponsePB {

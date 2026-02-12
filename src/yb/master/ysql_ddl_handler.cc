@@ -1001,12 +1001,11 @@ Status CatalogManager::YsqlRollbackDocdbSchemaToSubTxn(const std::string& pb_txn
     auto sub_txn_rollback_state =
         FindOrNull(ysql_ddl_txn_undergoing_subtransaction_rollback_map_, txn);
     if (sub_txn_rollback_state) {
-      RSTATUS_DCHECK(
-          sub_txn_rollback_state->sub_txn == sub_txn_id, IllegalState,
-          Format(
-              "Rolling back to sub-transaction when another sub-transaction rollback in progress. "
-              "transaction: $0, sub_transaction_id: $1, sub_transaction_id_in_progress: $2",
-              txn, sub_txn_id, sub_txn_rollback_state->sub_txn));
+      if (sub_txn_rollback_state->sub_txn != sub_txn_id) {
+        return STATUS_FORMAT(IllegalState, "Rolling back to sub-transaction when another "
+          "sub-transaction rollback in progress. transaction: $0, sub_transaction_id: $1, "
+          "sub_transaction_id_in_progress: $2", txn, sub_txn_id, sub_txn_rollback_state->sub_txn);
+      }
 
       VLOG(3) << "Rolling back to sub-transaction is already in progress. "
               << " transaction: " << txn << ", sub_transaction_id: " << sub_txn_id;
@@ -1025,6 +1024,8 @@ Status CatalogManager::YsqlRollbackDocdbSchemaToSubTxn(const std::string& pb_txn
 
     tables = verifier_state->tables;
   }
+
+  TEST_SYNC_POINT("YsqlDdlHandler::YsqlRollbackDocdbSchemaToSubTxn:AddedToMap");
 
   vector<TableInfoPtr> tables_to_trigger_rollback_for;
   for (auto& table : tables) {

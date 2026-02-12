@@ -856,13 +856,15 @@ class PgClient::Impl : public BigDataFetcher {
     return resp.ready();
   }
 
-  Status RollbackToSubTransaction(SubTransactionId id, tserver::PgPerformOptionsPB* options) {
+  Status RollbackToSubTransaction(
+      SubTransactionId id, tserver::PgPerformOptionsPB* options, bool part_of_txn_abort) {
     tserver::PgRollbackToSubTransactionRequestPB req;
     req.set_session_id(session_id_);
     if (options) {
       options->Swap(req.mutable_options());
     }
     req.set_sub_transaction_id(id);
+    req.set_part_of_txn_abort(part_of_txn_abort);
 
     tserver::PgRollbackToSubTransactionResponsePB resp;
 
@@ -2080,8 +2082,8 @@ Result<client::TabletServersInfo> PgClient::ListLiveTabletServers(bool primary_o
 }
 
 Status PgClient::RollbackToSubTransaction(
-    SubTransactionId id, tserver::PgPerformOptionsPB* options) {
-  return impl_->RollbackToSubTransaction(id, options);
+    SubTransactionId id, tserver::PgPerformOptionsPB* options, bool part_of_txn_abort) {
+  return impl_->RollbackToSubTransaction(id, options, part_of_txn_abort);
 }
 
 Status PgClient::ValidatePlacement(tserver::PgValidatePlacementRequestPB* req) {

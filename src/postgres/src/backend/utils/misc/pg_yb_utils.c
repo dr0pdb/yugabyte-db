@@ -1499,7 +1499,7 @@ YBCSetActiveSubTransaction(SubTransactionId id)
 }
 
 void
-YBCRollbackToSubTransaction(SubTransactionId id)
+YBCRollbackToSubTransaction(SubTransactionId id, bool part_of_txn_abort)
 {
 	/*
 	 * This function is invoked:
@@ -1518,7 +1518,7 @@ YBCRollbackToSubTransaction(SubTransactionId id)
 	 * would anyway terminate the backend on failure. Revisit this approach in
 	 * case the behavior of YBCAbortTransaction changes.
 	 */
-	YbcStatus	status = YBCPgRollbackToSubTransaction(id);
+	YbcStatus	status = YBCPgRollbackToSubTransaction(id, part_of_txn_abort);
 
 	if (unlikely(status))
 		elog(FATAL, "Failed to rollback to subtransaction %" PRId32 ": %s",
