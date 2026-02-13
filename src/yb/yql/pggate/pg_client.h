@@ -234,7 +234,8 @@ class PgClient {
 
   Result<client::TabletServersInfo> ListLiveTabletServers(bool primary_only);
 
-  Status RollbackToSubTransaction(SubTransactionId id, tserver::PgPerformOptionsPB* options, bool part_of_txn_abort);
+  Status RollbackToSubTransaction(
+      SubTransactionId id, tserver::PgPerformOptionsPB* options, bool part_of_txn_abort);
 
   Status ValidatePlacement(tserver::PgValidatePlacementRequestPB* req);
 
