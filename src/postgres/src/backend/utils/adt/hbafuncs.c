@@ -559,8 +559,7 @@ fill_ident_view(Tuplestorestate *tuple_store, TupleDesc tupdesc)
 
 		/* don't parse lines that already have errors */
 		if (tok_line->err_msg == NULL)
-			identline = parse_ident_line(tok_line, DEBUG3,
-										 NULL /* yb_hardcoded_mapname */ );
+			identline = parse_ident_line(tok_line, DEBUG3);
 
 		fill_ident_line(tuple_store, tupdesc, tok_line->line_num, identline,
 						tok_line->err_msg);

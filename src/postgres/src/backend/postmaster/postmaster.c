@@ -1501,8 +1501,7 @@ PostmasterMain(int argc, char *argv[])
 		ereport(FATAL,
 				(errmsg("could not load pg_hba.conf")));
 	}
-	if (!load_ident(NULL /* yb_ident_context */ ,
-					NULL /* yb_hardcoded_mapname */ ))
+	if (!load_ident(NULL /* yb_ident_context */ ))
 	{
 		/*
 		 * We can start up without the IDENT file, although it means that you
@@ -3033,8 +3032,7 @@ SIGHUP_handler(SIGNAL_ARGS)
 			/* translator: %s is a configuration file */
 					(errmsg("%s was not reloaded", "pg_hba.conf")));
 
-		if (!load_ident(NULL /* yb_ident_context */ ,
-						NULL /* yb_hardcoded_mapname */ ))
+		if (!load_ident(NULL /* yb_ident_context */ ))
 			ereport(LOG,
 					(errmsg("%s was not reloaded", "pg_ident.conf")));
 

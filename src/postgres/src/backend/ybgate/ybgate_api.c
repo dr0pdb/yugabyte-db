@@ -862,12 +862,14 @@ YbgGetPgVersion()
 }
 
 YbgStatus
-YbgLoadIdent(const char *ident_file_path, const char *ident_mapname,
-			 YbgMemoryContext ident_context)
+YbgLoadIdent(const char *ident_file_path, YbgMemoryContext ident_context)
 {
 	PG_SETUP_ERROR_REPORTING();
 	IdentFileName = pstrdup(ident_file_path);
-	load_ident(ident_context, ident_mapname);
+	if (!load_ident(ident_context)) {
+		return YbgStatusCreateError("Failed to load ident file",
+									__FILE__, __LINE__);
+	}
 	PG_STATUS_OK();
 }
 

@@ -47,6 +47,7 @@ namespace cqlserver {
 
 extern const char* const kRoleColumnNameSaltedHash;
 extern const char* const kRoleColumnNameCanLogin;
+extern const char* const kJwtIdentMapName;
 
 class CQLMetrics;
 class CQLProcessor;

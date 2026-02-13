@@ -272,7 +272,6 @@ extern int	YbgGetPgVersion();
  * Caller is responsible to free the memory context in case of errors.
  */
 extern YbgStatus YbgLoadIdent(const char *ident_file_path,
-							  const char *ident_mapname,
 							  YbgMemoryContext ident_context);
 
 extern YbgStatus YbgCheckUsermap(const char *usermap_name, const char *pg_role,

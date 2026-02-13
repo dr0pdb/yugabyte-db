@@ -2605,13 +2605,9 @@ load_hba(void)
  * Note: this function leaks memory when an error occurs.  Caller is expected
  * to have set a memory context that will be reset if this function returns
  * NULL.
- *
- * YB: When yb_hardcoded_mapname is not NULL, all lines are treated as belonging to
- * yb_hardcoded_mapname map.
  */
 IdentLine *
-parse_ident_line(TokenizedAuthLine *tok_line, int elevel,
-				 const char *yb_hardcoded_mapname)
+parse_ident_line(TokenizedAuthLine *tok_line, int elevel)
 {
 	int			line_num = tok_line->line_num;
 	char	  **err_msg = &tok_line->err_msg;
@@ -2626,20 +2622,14 @@ parse_ident_line(TokenizedAuthLine *tok_line, int elevel,
 	parsedline = palloc0(sizeof(IdentLine));
 	parsedline->linenumber = line_num;
 
-	if (yb_hardcoded_mapname == NULL)
-	{
-		/* Get the map token (must exist) */
-		tokens = lfirst(field);
-		IDENT_MULTI_VALUE(tokens);
-		token = linitial(tokens);
-		parsedline->usermap = pstrdup(token->string);
-	}
-	else
-		parsedline->usermap = pstrdup(yb_hardcoded_mapname);
+	/* Get the map token (must exist) */
+	tokens = lfirst(field);
+	IDENT_MULTI_VALUE(tokens);
+	token = linitial(tokens);
+	parsedline->usermap = pstrdup(token->string);
 
 	/* Get the ident user token */
-	if (yb_hardcoded_mapname == NULL)
-		field = lnext(tok_line->fields, field);
+	field = lnext(tok_line->fields, field);
 	IDENT_FIELD_ABSENT(field);
 	tokens = lfirst(field);
 	IDENT_MULTI_VALUE(tokens);
@@ -2888,7 +2878,7 @@ check_usermap(const char *usermap_name,
  * This works the same as load_hba(), but for the user config file.
  */
 bool
-load_ident(MemoryContext yb_ident_context, const char *yb_hardcoded_mapname)
+load_ident(MemoryContext yb_ident_context)
 {
 	FILE	   *file;
 	List	   *ident_lines = NIL;
@@ -2938,7 +2928,7 @@ load_ident(MemoryContext yb_ident_context, const char *yb_hardcoded_mapname)
 			continue;
 		}
 
-		if ((newline = parse_ident_line(tok_line, LOG, yb_hardcoded_mapname)) == NULL)
+		if ((newline = parse_ident_line(tok_line, LOG)) == NULL)
 		{
 			/* Parse error; remember there's trouble */
 			ok = false;

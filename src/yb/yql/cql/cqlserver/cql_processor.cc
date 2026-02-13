@@ -161,6 +161,7 @@ constexpr const char* const kCassandraPasswordAuthenticator =
 
 extern const char* const kRoleColumnNameSaltedHash;
 extern const char* const kRoleColumnNameCanLogin;
+extern const char* const kJwtIdentMapName;
 
 using namespace yb::ql; // NOLINT
 
@@ -959,14 +960,13 @@ Result<bool> CheckJWTAuth(
   // have multiple entries and the identity match will be successful if at least one entry matches
   // with the YCQL username.
   bool match = false;
-  std::string username_map = "YCQL_IDENT_MAPNAME";
   bool use_ident_mapping = !FLAGS_ycql_ident_conf_csv.empty();
   MemoryContextGuard mem_guard(YbgSetCurrentMemoryContext(ident_memctx));
   for (const auto& idp_identity : identity_claims) {
     VLOG(5) << "Matching YCQL user with IDP identity: " << idp_identity;
     PG_RETURN_NOT_OK(YbgCheckUsermap(
-        use_ident_mapping ? username_map.c_str() : nullptr, params.username.c_str(),
-        idp_identity.c_str(), false /*case_insensitive*/, &match));
+        use_ident_mapping ? kJwtIdentMapName : nullptr, params.username.c_str(),
+        idp_identity.c_str(), false /* case_insensitive */, &match));
     if (match) {
       LOG(INFO) << "JWT identity match successful";
       return true;
