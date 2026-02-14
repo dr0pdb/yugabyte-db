@@ -965,7 +965,7 @@ Result<bool> CheckJWTAuth(
   for (const auto& idp_identity : identity_claims) {
     VLOG(5) << "Matching YCQL user with IDP identity: " << idp_identity;
     PG_RETURN_NOT_OK(YbgCheckUsermap(
-        use_ident_mapping ? kJwtIdentMapName : nullptr, params.username.c_str(),
+      use_ident_mapping ? kJwtIdentMapName : nullptr, params.username.c_str(),
         idp_identity.c_str(), false /* case_insensitive */, &match));
     if (match) {
       LOG(INFO) << "JWT identity match successful";

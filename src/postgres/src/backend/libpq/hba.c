@@ -2905,7 +2905,11 @@ load_ident(MemoryContext yb_ident_context)
 	linecxt = tokenize_auth_file(IdentFileName, file, &ident_lines, LOG);
 	FreeFile(file);
 
-	/* Now parse all the lines */
+	/*
+	 * Now parse all the lines
+	 *
+	 * YB: yb_ident_context is non-null when called from YCQL.
+	 */
 	if (yb_ident_context)
 		oldcxt = MemoryContextSwitchTo(yb_ident_context);
 	else

@@ -15,9 +15,6 @@
 #include "nodes/pg_list.h"
 #include "regex/regex.h"
 
-/* YB includes */
-#include "utils/palloc.h"
-
 
 /*
  * The following enum represents the authentication methods that

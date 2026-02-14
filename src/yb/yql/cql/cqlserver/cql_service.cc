@@ -741,7 +741,7 @@ Status CQLServiceImpl::LoadIdentConf() {
   YbgStatus s = YbgLoadIdent(conf_path.c_str(), jwt_ident_memctx_);
   if (YbgStatusIsError(s)) {
     LOG(ERROR) << "Error in loading JWT Ident file: " << YbgStatusGetMessage(s);
-    YbgResetMemoryContext();
+    YbgDeleteMemoryContext();
     PG_RETURN_NOT_OK(s);
   }
   LOG(INFO) << "Successfully loaded Ident file for JWT auth";
