@@ -18,20 +18,20 @@
 
 namespace yb {
 
-class MemoryContextGuard {
+class ScopedSetMemoryContext {
  public:
-  explicit MemoryContextGuard(YbgMemoryContext ctx_to_restore)
-      : ctx_to_restore_(ctx_to_restore) {
+  explicit ScopedSetMemoryContext(YbgMemoryContext ctx_to_set) {
+    ctx_to_restore_ = YbgSetCurrentMemoryContext(ctx_to_set);
   }
 
-  ~MemoryContextGuard() {
+  ~ScopedSetMemoryContext() {
     YbgSetCurrentMemoryContext(ctx_to_restore_);
   }
 
  private:
   YbgMemoryContext ctx_to_restore_;
 
-  DISALLOW_COPY_AND_ASSIGN(MemoryContextGuard);
+  DISALLOW_COPY_AND_ASSIGN(ScopedSetMemoryContext);
 };
 
 } // namespace yb

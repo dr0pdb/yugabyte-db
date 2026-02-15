@@ -706,12 +706,12 @@ Status CQLServiceImpl::LoadJwtJwks(const std::string& jwks_url) {
 }
 
 Status CQLServiceImpl::LoadIdentConf() {
+  PG_RETURN_NOT_OK(YbgCreateMemoryContext(nullptr, "ycql_jwt_ident_memctx_", &jwt_ident_memctx_));
+
   if (FLAGS_ycql_ident_conf_csv.empty()) {
     LOG(INFO) << "Found empty ycql_ident_conf_csv";
     return Status::OK();
   }
-
-  PG_RETURN_NOT_OK(YbgCreateMemoryContext(nullptr, "ycql_jwt_ident_memctx_", &jwt_ident_memctx_));
 
   std::vector<std::string> ident_conf_lines;
   RETURN_NOT_OK(ReadCSVValues(FLAGS_ycql_ident_conf_csv, &ident_conf_lines));
@@ -737,7 +737,7 @@ Status CQLServiceImpl::LoadIdentConf() {
   conf_file.close();
   LOG(INFO) << "Wrote ycql_ident.conf file at " << conf_path;
 
-  MemoryContextGuard mem_guard(YbgSetCurrentMemoryContext(jwt_ident_memctx_));
+  ScopedSetMemoryContext set_memctx(jwt_ident_memctx_);
   YbgStatus s = YbgLoadIdent(conf_path.c_str(), jwt_ident_memctx_);
   if (YbgStatusIsError(s)) {
     LOG(ERROR) << "Error in loading JWT Ident file: " << YbgStatusGetMessage(s);

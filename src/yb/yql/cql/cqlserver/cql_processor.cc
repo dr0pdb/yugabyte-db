@@ -961,7 +961,7 @@ Result<bool> CheckJWTAuth(
   // with the YCQL username.
   bool match = false;
   bool use_ident_mapping = !FLAGS_ycql_ident_conf_csv.empty();
-  MemoryContextGuard mem_guard(YbgSetCurrentMemoryContext(ident_memctx));
+  ScopedSetMemoryContext set_memctx(ident_memctx);
   for (const auto& idp_identity : identity_claims) {
     VLOG(5) << "Matching YCQL user with IDP identity: " << idp_identity;
     PG_RETURN_NOT_OK(YbgCheckUsermap(
