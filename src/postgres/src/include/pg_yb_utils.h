@@ -899,8 +899,6 @@ extern NodeTag YBGetCurrentStmtDdlNodeTag();
 extern bool YBIsCurrentStmtDdl();
 extern CommandTag YBGetCurrentStmtDdlCommandTag();
 extern bool YBGetDdlUseRegularTransactionBlock();
-extern void YBSetDdlOriginalNodeAndCommandTag(NodeTag nodeTag,
-											  CommandTag commandTag);
 extern void YbSetIsGlobalDDL();
 extern void YbIncrementPgTxnsCommitted();
 extern bool YbTrackPgTxnInvalMessagesForAnalyze();
@@ -936,6 +934,33 @@ void		YBDecrementDdlNestingLevel();
 extern void YBAddDdlTxnState(YbDdlMode mode);
 extern void YBMergeDdlTxnState();
 extern void YBCommitTransactionContainingDDL();
+
+/*
+ * DDL statements such as REINDEX, ANALYZE can create multiple intermediate
+ * transactions. See callers of YbCommitTransactionCommandIntermediate. Such
+ * intermediate transactions need to have the correct DDL state set. This struct
+ * stores the fields of ddl_transaction_state that need to be set for those
+ * intermediate transactions.
+ *
+ * Note that this is only relevant when transactional DDL is enabled. When
+ * transactional DDL is disabled, the ddl_transaction_state outlives those
+ * intermediate transactions since it is only reset once the statement
+ * processing ends.
+ */
+typedef struct YbDdlTransactionStateForIntermediateTxn
+{
+	bool		is_top_level_ddl_active;
+	NodeTag	current_stmt_node_tag;
+	CommandTag	current_stmt_ddl_command_tag;
+	CommandTag	last_stmt_ddl_command_tag;
+	Oid		database_oid;
+	int		num_committed_pg_txns;
+	YbDdlMode	ddl_mode;
+} YbDdlTransactionStateForIntermediateTxn;
+ 
+extern YbDdlTransactionStateForIntermediateTxn YBGetDdlTransactionStateForIntermediateTxn();
+extern void YBRestoreDdlTransactionStateForIntermediateTxn(
+	const YbDdlTransactionStateForIntermediateTxn *ddl_state_to_restore);
 
 typedef struct YbDdlModeOptional
 {

@@ -3322,23 +3322,17 @@ YBStartTransactionCommandInternal(bool yb_skip_read_committed_internal_savepoint
 void
 YbCommitTransactionCommandIntermediate(void)
 {
-	NodeTag		yb_node_tag;
-	CommandTag	yb_command_tag;
 	bool		is_ddl_mode = YBCPgIsDdlMode();
-	YbDdlMode	ddl_mode;
+	YbDdlTransactionStateForIntermediateTxn ddl_state_to_restore;
 
 	elog(DEBUG2, "YbCommitTransactionCommandIntermediate");
 
 	/*
-	 * Remember the NodeTag and the CommandTag of the DDL currently being
-	 * executed so that we can set it into the next transaction.
+	 * Remember the properties of the DDL currently being executed so that we
+	 * can set them into the next transaction.
 	 */
 	if (YBIsDdlTransactionBlockEnabled() && is_ddl_mode)
-	{
-		yb_node_tag = YBGetCurrentStmtDdlNodeTag();
-		yb_command_tag = YBGetCurrentStmtDdlCommandTag();
-		ddl_mode = YBGetCurrentDdlMode();
-	}
+		ddl_state_to_restore = YBGetDdlTransactionStateForIntermediateTxn();
 
 	if (ActiveSnapshotSet())
 		PopActiveSnapshot();
@@ -3348,8 +3342,8 @@ YbCommitTransactionCommandIntermediate(void)
 
 	if (YBIsDdlTransactionBlockEnabled() && is_ddl_mode)
 	{
-		YBAddDdlTxnState(ddl_mode);
-		YBSetDdlOriginalNodeAndCommandTag(yb_node_tag, yb_command_tag);
+		YBAddDdlTxnState(ddl_state_to_restore.ddl_mode);
+		YBRestoreDdlTransactionStateForIntermediateTxn(&ddl_state_to_restore);
 	}
 }
 

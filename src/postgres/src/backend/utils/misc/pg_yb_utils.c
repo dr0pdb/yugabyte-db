@@ -2549,6 +2549,39 @@ YBIsDdlTransactionBlockEnabled()
 	return enabled && !yb_disable_ddl_transaction_block_for_read_committed;
 }
 
+YbDdlTransactionStateForIntermediateTxn
+YBGetDdlTransactionStateForIntermediateTxn()
+{
+	Assert(YBIsDdlTransactionBlockEnabled());
+
+	return (YbDdlTransactionStateForIntermediateTxn)
+	{
+		.is_top_level_ddl_active = ddl_transaction_state.is_top_level_ddl_active,
+		.current_stmt_node_tag = ddl_transaction_state.current_stmt_node_tag,
+		.current_stmt_ddl_command_tag = ddl_transaction_state.current_stmt_ddl_command_tag,
+		.last_stmt_ddl_command_tag = ddl_transaction_state.last_stmt_ddl_command_tag,
+		.database_oid = ddl_transaction_state.database_oid,
+		.num_committed_pg_txns = ddl_transaction_state.num_committed_pg_txns,
+		.ddl_mode = YBGetCurrentDdlMode(),
+	};
+}
+
+void
+YBRestoreDdlTransactionStateForIntermediateTxn(
+	const YbDdlTransactionStateForIntermediateTxn *ddl_state_to_restore)
+{
+	Assert(YBIsDdlTransactionBlockEnabled());
+
+	ddl_transaction_state.is_top_level_ddl_active = ddl_state_to_restore->is_top_level_ddl_active;
+	ddl_transaction_state.current_stmt_node_tag = ddl_state_to_restore->current_stmt_node_tag;
+	ddl_transaction_state.current_stmt_ddl_command_tag =
+		ddl_state_to_restore->current_stmt_ddl_command_tag;
+	ddl_transaction_state.last_stmt_ddl_command_tag =
+		ddl_state_to_restore->last_stmt_ddl_command_tag;
+	ddl_transaction_state.database_oid = ddl_state_to_restore->database_oid;
+	ddl_transaction_state.num_committed_pg_txns = ddl_state_to_restore->num_committed_pg_txns;
+}
+
 int
 YBGetDdlNestingLevel()
 {
@@ -2583,14 +2616,6 @@ bool
 YBGetDdlUseRegularTransactionBlock()
 {
 	return ddl_transaction_state.use_regular_txn_block;
-}
-
-void
-YBSetDdlOriginalNodeAndCommandTag(NodeTag nodeTag,
-								  CommandTag commandTag)
-{
-	ddl_transaction_state.current_stmt_node_tag = nodeTag;
-	ddl_transaction_state.current_stmt_ddl_command_tag = commandTag;
 }
 
 void
