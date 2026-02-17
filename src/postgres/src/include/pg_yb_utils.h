@@ -950,17 +950,16 @@ extern void YBCommitTransactionContainingDDL();
 typedef struct YbDdlTransactionStateForIntermediateTxn
 {
 	bool		is_top_level_ddl_active;
-	NodeTag	current_stmt_node_tag;
+	NodeTag		current_stmt_node_tag;
 	CommandTag	current_stmt_ddl_command_tag;
 	CommandTag	last_stmt_ddl_command_tag;
-	Oid		database_oid;
-	int		num_committed_pg_txns;
+	Oid			database_oid;
+	int			num_committed_pg_txns;
 	YbDdlMode	ddl_mode;
 } YbDdlTransactionStateForIntermediateTxn;
- 
+
 extern YbDdlTransactionStateForIntermediateTxn YBGetDdlTransactionStateForIntermediateTxn();
-extern void YBRestoreDdlTransactionStateForIntermediateTxn(
-	const YbDdlTransactionStateForIntermediateTxn *ddl_state_to_restore);
+extern void YBRestoreDdlTransactionStateForIntermediateTxn(const YbDdlTransactionStateForIntermediateTxn *ddl_state_to_restore);
 
 typedef struct YbDdlModeOptional
 {

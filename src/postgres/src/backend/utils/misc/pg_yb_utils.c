@@ -2567,8 +2567,7 @@ YBGetDdlTransactionStateForIntermediateTxn()
 }
 
 void
-YBRestoreDdlTransactionStateForIntermediateTxn(
-	const YbDdlTransactionStateForIntermediateTxn *ddl_state_to_restore)
+YBRestoreDdlTransactionStateForIntermediateTxn(const YbDdlTransactionStateForIntermediateTxn *ddl_state_to_restore)
 {
 	Assert(YBIsDdlTransactionBlockEnabled());
 
