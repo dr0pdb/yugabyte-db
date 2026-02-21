@@ -35,6 +35,7 @@ struct YBTableInfo {
   std::optional<qlexpr::IndexInfo> index_info;
   YBTableType table_type;
   bool colocated;  // Accounts for databases and tablegroups but not for YSQL system tables.
+  std::optional<TablegroupId> tablegroup_id;
   std::optional<ReplicationInfoPB> replication_info;
   std::optional<uint32> wal_retention_secs;
   // Explicitly stores the PG table id (incase the table was rewritten).

@@ -39,6 +39,7 @@
 #include "yb/client/transaction_manager.h"
 #include "yb/client/yb_op.h"
 
+#include "yb/common/colocated_util.h"
 #include "yb/common/common.pb.h"
 #include "yb/common/common_util.h"
 #include "yb/common/pgsql_error.h"
@@ -1443,21 +1444,22 @@ class TransactionProvider {
 
 YB_STRONGLY_TYPED_BOOL(IsTxnUsingTableLocks);
 
-Result<std::pair<PgClientSessionOperations, VectorIndexQueryPtr>> PrepareOperations(
-    PgPerformRequestPB* req, client::YBSession* session, rpc::Sidecars* sidecars,
+Result<std::pair<PgClientSessionOperations, VectorIndexQueryPtr>> PrepareOperationsWithoutApply(
+    PgPerformRequestPB* req, rpc::Sidecars* sidecars,
     const PgTablesQueryResult& tables, VectorIndexQueryPtr& vector_index_query,
-    bool has_distributed_txn,
-    const LWFunction<Result<TransactionMetadata>()>& object_locking_txn_meta_provider,
-    IsTxnUsingTableLocks is_txn_using_table_locks,
-    const PgClientSessionMetrics& metrics) {
+    const PgClientSessionMetrics& metrics,
+    bool *has_write_ops,
+    bool *only_writes_to_single_colocated_tablet) {
   auto write_time = HybridTime::FromPB(req->write_time());
   std::pair<PgClientSessionOperations, VectorIndexQueryPtr> result;
   auto& ops = result.first;
   ops.reserve(req->ops().size());
   client::YBTablePtr table;
-  CancelableScopeExit abort_se{[session] { session->Abort(); }};
   const auto read_from_followers = req->options().read_from_followers();
-  bool has_write_ops = false;
+  *has_write_ops = false;
+  *only_writes_to_single_colocated_tablet =
+      req->options().is_eligible_for_single_shard_optimization();
+  TablegroupId prev_tablegroup_id;
 
   // TODO(vector_index): it is unexpected to have a mix of vector index read ops and
   // non-vector index read ops. A sanity DCHECK is required.
@@ -1489,6 +1491,7 @@ Result<std::pair<PgClientSessionOperations, VectorIndexQueryPtr>> PrepareOperati
           .vector_index_read_request = nullptr,
         });
       }
+      *only_writes_to_single_colocated_tablet = false;
     } else {
       auto& write = *op.mutable_write();
       RETURN_NOT_OK(GetTable(write.table_id(), tables, &table));
@@ -1503,19 +1506,44 @@ Result<std::pair<PgClientSessionOperations, VectorIndexQueryPtr>> PrepareOperati
         .op = std::move(write_op),
         .vector_index_read_request = nullptr,
       });
-      has_write_ops = true;
+
+      *has_write_ops = true;
+      if (*only_writes_to_single_colocated_tablet) {
+        if (!table->colocated()) {
+          *only_writes_to_single_colocated_tablet = false;
+        } else {
+          // TODO: verify if this is the correct way.
+          auto tablegroup_id = table->tablegroup_id();
+          if (tablegroup_id.has_value()) {
+            if (prev_tablegroup_id.empty()) {
+              prev_tablegroup_id = *tablegroup_id;
+            } else if (prev_tablegroup_id != *tablegroup_id) {
+              *only_writes_to_single_colocated_tablet = false;
+            }
+          }
+        }
+      }
     }
   }
+  return result;
+}
 
+Status ApplyOperations(
+    client::YBSession* session,
+    const PgClientSessionOperations& ops,
+    bool has_write_ops,
+    bool has_distributed_txn,
+    const LWFunction<Result<TransactionMetadata>()>& object_locking_txn_meta_provider,
+    IsTxnUsingTableLocks is_txn_using_table_locks) {
+  CancelableScopeExit abort_se{[session] { session->Abort(); }};
   for (const auto& pg_client_session_operation : ops) {
     session->Apply(pg_client_session_operation.op);
   }
   if (has_write_ops && !has_distributed_txn && is_txn_using_table_locks) {
     session->SetObjectLockingTxnMeta(VERIFY_RESULT(object_locking_txn_meta_provider()));
   }
-
   abort_se.Cancel();
-  return result;
+  return Status::OK();
 }
 
 template <QueryTraitsType T>
@@ -2806,7 +2834,8 @@ class PgClientSession::Impl {
     RSTATUS_DCHECK(
         options.is_using_table_locks(), IllegalState, "Table Locking feature not enabled.");
     auto setup_session_result = VERIFY_RESULT(SetupSession(
-        options, deadline, GetInTxnLimit(options, clock().get())));
+        options, deadline, false /* only_writes_to_single_colocated_tablet */,
+        GetInTxnLimit(options, clock().get())));
     RSTATUS_DCHECK(
         setup_session_result.is_plain ||
         (options.ddl_mode() && setup_session_result.session_data.transaction),
@@ -3107,9 +3136,16 @@ class PgClientSession::Impl {
     const auto in_txn_limit = GetInTxnLimit(options, clock().get());
     VLOG_WITH_PREFIX(5) << "using in_txn_limit_ht: " << in_txn_limit;
 
+    bool has_write_ops = false;
+    // Only set when options.is_eligible_for_single_shard_optimization() is true.
+    bool only_writes_to_single_colocated_tablet = false;
+    std::tie(data->ops, data->vector_index_query) = VERIFY_RESULT(PrepareOperationsWithoutApply(
+        &data->req, &data->sidecars, tables, vector_index_query_data_, context_.metrics,
+        &has_write_ops, &only_writes_to_single_colocated_tablet));
+
     TransactionFullLocality locality = GetTargetTransactionLocality(data->req);
     auto setup_session_result = VERIFY_RESULT(SetupSession(
-        data->req.options(), deadline, in_txn_limit, locality));
+        data->req.options(), deadline, only_writes_to_single_colocated_tablet, in_txn_limit, locality));
     auto* session = setup_session_result.session_data.session.get();
     auto& transaction = setup_session_result.session_data.transaction;
 
@@ -3159,14 +3195,13 @@ class PgClientSession::Impl {
     data->pg_node_level_mutation_counter = pg_node_level_mutation_counter();
     data->subtxn_id = options.active_sub_transaction_id();
 
-    std::tie(data->ops, data->vector_index_query) = VERIFY_RESULT(PrepareOperations(
-        &data->req, session, &data->sidecars, tables, vector_index_query_data_,
-        data->transaction != nullptr /* has_distributed_txn */,
+    RETURN_NOT_OK(ApplyOperations(
+        session, data->ops, has_write_ops, data->transaction != nullptr /* has_distributed_txn */,
         make_lw_function([this, locality, deadline] {
           return NextObjectLockingTxnMeta(locality, deadline);
         }),
-        IsTxnUsingTableLocks(options.is_using_table_locks()),
-        context_.metrics));
+        IsTxnUsingTableLocks(options.is_using_table_locks())));
+
     if (VLOG_IS_ON(2) || options.trace_requested()) {
       const auto& read_point = *session->read_point();
       const char* session_kind_str =
@@ -3329,7 +3364,9 @@ class PgClientSession::Impl {
   }
 
   Result<SetupSessionResult> SetupSession(
-      const PgPerformOptionsPB& options, CoarseTimePoint deadline, HybridTime in_txn_limit = {},
+      const PgPerformOptionsPB& options, CoarseTimePoint deadline,
+      bool only_writes_to_single_colocated_tablet = false,
+      HybridTime in_txn_limit = {},
       TransactionFullLocality locality = TransactionFullLocality::RegionLocal()) {
     const auto read_time_serial_no = options.read_time_serial_no();
     auto kind = PgClientSessionKind::kPlain;
@@ -3356,7 +3393,8 @@ class PgClientSession::Impl {
           read_time_serial_no_ = read_time_serial_no;
         }
       }
-      RETURN_NOT_OK(BeginTransactionIfNecessary(options, deadline, locality));
+      RETURN_NOT_OK(BeginTransactionIfNecessary(
+          options, deadline, locality, only_writes_to_single_colocated_tablet));
     }
 
     auto& session_data = GetSessionData(kind);
@@ -3496,8 +3534,9 @@ class PgClientSession::Impl {
 
   Status BeginTransactionIfNecessary(
       const PgPerformOptionsPB& options, CoarseTimePoint deadline,
-      TransactionFullLocality locality) {
-    RETURN_NOT_OK(DoBeginTransactionIfNecessary(options, deadline, locality));
+      TransactionFullLocality locality,
+      bool only_writes_to_single_colocated_tablet) {
+    RETURN_NOT_OK(DoBeginTransactionIfNecessary(options, deadline, locality, only_writes_to_single_colocated_tablet));
     const auto& data = GetSessionData(PgClientSessionKind::kPlain);
     data.session->SetForceConsistentRead(client::ForceConsistentRead(!data.transaction));
     return Status::OK();
@@ -3505,7 +3544,8 @@ class PgClientSession::Impl {
 
   Status DoBeginTransactionIfNecessary(
       const PgPerformOptionsPB& options, CoarseTimePoint deadline,
-      TransactionFullLocality locality) {
+      TransactionFullLocality locality,
+      bool only_writes_to_single_colocated_tablet) {
     const auto isolation = static_cast<IsolationLevel>(options.isolation());
 
     auto priority = options.priority();
@@ -3549,6 +3589,16 @@ class PgClientSession::Impl {
       return options.ddl_mode() && options.ddl_use_regular_transaction_block()
                  ? txn->EnsureGlobal(deadline)
                  : Status::OK();
+    }
+
+    if (options.is_eligible_for_single_shard_optimization() &&
+        only_writes_to_single_colocated_tablet) {
+      RSTATUS_DCHECK(
+          !options.ddl_mode(), IllegalState,
+          "DDL mode is not supported for single shard optimization");
+      LOG(INFO)
+          << "Skipping transaction for last perform request for single colocated tablet";
+      return Status::OK();
     }
 
     const bool global_required =
@@ -3609,7 +3659,7 @@ class PgClientSession::Impl {
     const auto in_txn_limit = GetInTxnLimit(options, clock().get());
     VLOG_WITH_PREFIX(5) << "using in_txn_limit_ht: " << in_txn_limit;
     RETURN_NOT_OK(SetupSession(
-        options, deadline, in_txn_limit, TransactionFullLocality::Global()));
+        options, deadline, false, in_txn_limit, TransactionFullLocality::Global()));
     return Status::OK();
   }
 

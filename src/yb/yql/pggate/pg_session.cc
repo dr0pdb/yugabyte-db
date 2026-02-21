@@ -80,6 +80,9 @@ DEFINE_RUNTIME_PG_FLAG(int32, yb_max_num_invalidation_messages, 4096,
 DEFINE_RUNTIME_uint32(ysql_max_invalidation_message_queue_size, 1024,
                       "Maximum number of invalidation messages we keep for a given database.");
 
+DEFINE_RUNTIME_PG_FLAG(bool, yb_enable_colocated_dml_fast_path_optimization, false,
+                       "If true, colocated DML fast path optimization is enabled.");
+
 namespace yb::pggate {
 namespace {
 constexpr size_t kTablespaceCacheCapacity = 1024;
@@ -655,6 +658,7 @@ Status PgSession::StartOperationsBuffering() {
 Status PgSession::StopOperationsBuffering() {
   SCHECK(buffering_enabled_, IllegalState, "Buffering hasn't been started");
   buffering_enabled_ = false;
+  pg_txn_manager_->MarkNoFurtherOpsInTxn();
   return ResultToStatus(FlushBufferedOperations(PgFlushDebugContext::EndOperationsBuffering()));
 }
 
@@ -757,6 +761,20 @@ Result<PerformFuture> PgSession::Perform(BufferableOperations&& ops, PerformOpti
     if (ops_read_time) {
       RETURN_NOT_OK(UpdateReadTime(&options, ops_read_time));
     }
+
+    if (yb_enable_colocated_dml_fast_path_optimization) {
+      VLOG(2) << "ddl_mode: " << options.ddl_mode()
+              << " use_catalog_session: " << options.use_catalog_session()
+              << " yb_non_ddl_txn_for_sys_tables_allowed: " << yb_non_ddl_txn_for_sys_tables_allowed
+              << " num_perform_rpcs_in_txn: " << pg_txn_manager_->NumPerformRpcsInTxn()
+              << " no_further_ops_in_txn: " << pg_txn_manager_->NoFurtherOpsInTxn()
+              << " is_in_txn_block: " << pg_txn_manager_->IsInTxnBlock();
+      options.set_is_eligible_for_single_shard_optimization(
+          !options.ddl_mode() && !options.use_catalog_session() &&
+          !yb_non_ddl_txn_for_sys_tables_allowed &&
+          pg_txn_manager_->NumPerformRpcsInTxn() == 0 && pg_txn_manager_->NoFurtherOpsInTxn() &&
+          !pg_txn_manager_->IsInTxnBlock());
+    }
   }
 
   options.set_is_all_region_local(std::ranges::all_of(
@@ -849,6 +867,8 @@ Result<PerformFuture> PgSession::Perform(BufferableOperations&& ops, PerformOpti
   if (auto origin_id = pg_callbacks_.GetSessionReplicationOriginId()) {
     options.set_xrepl_origin_id(origin_id);
   }
+
+  pg_txn_manager_->IncrementNumPerformRpcsInTxn();
 
   DEBUG_ONLY(pg_txn_manager_->DEBUG_CheckOptionsForPerform(options));
 

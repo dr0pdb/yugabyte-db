@@ -2994,6 +2994,17 @@ static struct config_bool ConfigureNamesBool[] =
 		true,
 		NULL, NULL, NULL
 	},
+
+	{
+		{"yb_enable_colocated_dml_fast_path_optimization", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("GUC variable that enables colocated DML fast path optimization."),
+			NULL
+		},
+		&yb_enable_colocated_dml_fast_path_optimization,
+		false,
+		NULL, NULL, NULL
+	},
+
 	{
 		{"yb_bypass_cond_recheck", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("If true then condition rechecking is bypassed at YSQL if the condition is bound to DocDB."),

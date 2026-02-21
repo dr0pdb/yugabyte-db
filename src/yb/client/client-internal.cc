@@ -1563,6 +1563,9 @@ Status CreateTableInfoFromTableSchemaResp(const GetTableSchemaResponsePB& resp, 
   }
   SCHECK_GT(info->table_id.size(), 0U, IllegalState, "Running against a too-old master");
   info->colocated = resp.colocated();
+  if (resp.has_tablegroup_id()) {
+    info->tablegroup_id = resp.tablegroup_id();
+  }
 
   info->pg_table_id = resp.pg_table_id();
 

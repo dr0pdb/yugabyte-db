@@ -112,6 +112,8 @@ class YBTable : public std::enable_shared_from_this<YBTable> {
   // True if the table is colocated (including tablegroups, excluding YSQL system tables).
   bool colocated() const;
 
+  const std::optional<TablegroupId> tablegroup_id() const;
+
   // Returns the replication info for the table.
   const std::optional<ReplicationInfoPB>& replication_info() const;
 

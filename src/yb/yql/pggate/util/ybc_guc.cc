@@ -159,3 +159,5 @@ bool enable_object_locking_infra = true;
 bool yb_fallback_to_legacy_catalog_read_time = true;
 
 bool yb_enable_ddl_savepoint_infra = true;
+
+bool yb_enable_colocated_dml_fast_path_optimization = false;

@@ -624,6 +624,8 @@ void PgTxnManager::ResetTxnAndSession() {
   read_time_manipulation_ = tserver::ReadTimeManipulation::NONE;
   read_only_stmt_ = false;
   need_defer_read_point_ = false;
+  num_perform_rpcs_ = 0;
+  no_further_ops_ = false;
 
   // GH #22353 - Ideally the reset of the ddl_state_ should happen without the if condition, but
   // due to the linked bug GH #22353, we are resetting the DDL state only if DDL, DML transaction

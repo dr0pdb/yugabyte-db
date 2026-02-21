@@ -90,6 +90,7 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   void DdlEnableForceCatalogModification();
   void SetDdlHasSyscatalogChanges();
   Status SetInTxnBlock(bool in_txn_blk);
+  bool IsInTxnBlock() const { return in_txn_blk_; }
   Status SetReadOnlyStmt(bool read_only_stmt);
   void SetTransactionHasWrites();
   Result<bool> TransactionHasNonTransactionalWrites() const;
@@ -158,6 +159,11 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
 
   bool IsTableLockingEnabledForCurrentTxn() const;
   bool ShouldEnableTableLocking() const;
+
+  void IncrementNumPerformRpcsInTxn() { ++num_perform_rpcs_; }
+  int NumPerformRpcsInTxn() const { return num_perform_rpcs_; }
+  void MarkNoFurtherOpsInTxn() { no_further_ops_ = true; }
+  bool NoFurtherOpsInTxn() const { return no_further_ops_; }
 
  private:
   class SerialNo {
@@ -264,6 +270,11 @@ class PgTxnManager : public RefCountedThreadSafe<PgTxnManager> {
   //                 about the transaction's read-only status based on the has_writes_ flag.
   //                 This flag does not include writes made for object locking.
   bool has_writes_ = false;
+
+  // Number of Perform RPCs made in the current transaction.
+  int num_perform_rpcs_ = 0;
+  // Indicates that there are no further operations to be performed in the current transaction.
+  bool no_further_ops_ = false;
 
   const bool enable_table_locking_;
 

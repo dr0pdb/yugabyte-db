@@ -123,6 +123,10 @@ bool YBTable::colocated() const {
   return info_->colocated;
 }
 
+const std::optional<TablegroupId> YBTable::tablegroup_id() const {
+  return info_->tablegroup_id;
+}
+
 const std::optional<ReplicationInfoPB>& YBTable::replication_info() const {
   return info_->replication_info;
 }
