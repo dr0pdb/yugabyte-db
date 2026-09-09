@@ -744,7 +744,8 @@ void FillDDLInfo(
     const TableName& table_name,
     const TableId& table_id,
     GetChangesResponsePB* resp,
-    CDCThroughputMetrics* throughput_metrics) {
+    CDCThroughputMetrics* throughput_metrics,
+    const TransactionId* transaction_id = nullptr) {
   const SchemaVersion& schema_version = current_schema_details.schema_version;
   SchemaPB schema_pb;
   SchemaToPB(*current_schema_details.schema, &schema_pb);
@@ -770,6 +771,11 @@ void FillDDLInfo(
 
   SetTableProperties(schema_pb.table_properties(), cdc_sdk_table_properties_pb);
 
+  if (FLAGS_TEST_ysql_yb_enable_replication_slot_transactional_ddl && transaction_id &&
+      !transaction_id->IsNil()) {
+    row_message->set_transaction_id(transaction_id->ToString());
+  }
+
   throughput_metrics->records_sent++;
   throughput_metrics->bytes_sent += proto_record->ByteSizeLong();
 }
@@ -791,7 +797,8 @@ Result<TableName> GetColocatedTableName(
 Result<SchemaDetails> GetOrPopulateRequiredSchemaDetails(
     const std::shared_ptr<tablet::TabletPeer>& tablet_peer, uint64 read_hybrid_time,
     SchemaDetailsMap* cached_schema_details, client::YBClient* client, const TableId& req_table_id,
-    GetChangesResponsePB* resp, CDCThroughputMetrics* throughput_metrics) {
+    GetChangesResponsePB* resp, CDCThroughputMetrics* throughput_metrics,
+    const TransactionId* transaction_id = nullptr) {
   auto iter = cached_schema_details->find(req_table_id);
   if (iter != cached_schema_details->end()) {
     return iter->second;
@@ -834,7 +841,9 @@ Result<SchemaDetails> GetOrPopulateRequiredSchemaDetails(
             << " tablet " << tablet->tablet_id();
 
     const auto& schema_details = (*cached_schema_details)[cur_table_id];
-    FillDDLInfo(tablet_peer, schema_details, table_name, cur_table_id, resp, throughput_metrics);
+    FillDDLInfo(
+        tablet_peer, schema_details, table_name, cur_table_id, resp, throughput_metrics,
+        transaction_id);
 
     return schema_details;
   }
@@ -903,7 +912,7 @@ Result<std::pair<SchemaVersion, Schema>> GetSchemaAndVersion(
     uint64 read_hybrid_time, SchemaDetailsMap* cached_schema_details,
     SchemaPackingStorage* schema_packing_storage, bool is_packed_row, Slice packed_row,
     client::YBClient* client, GetChangesResponsePB* resp,
-    CDCThroughputMetrics* throughput_metrics) {
+    CDCThroughputMetrics* throughput_metrics, const TransactionId* transaction_id = nullptr) {
   bool update_schema_packing_storage = false;
   if (is_packed_row) {
     auto pr_schema_version = VERIFY_RESULT(FastDecodeUnsignedVarInt(&packed_row));
@@ -928,7 +937,7 @@ Result<std::pair<SchemaVersion, Schema>> GetSchemaAndVersion(
 
   const auto& schema_details = VERIFY_RESULT(GetOrPopulateRequiredSchemaDetails(
       tablet_peer, read_hybrid_time, cached_schema_details, client, table_id, resp,
-      throughput_metrics));
+      throughput_metrics, transaction_id));
   auto schema_version = schema_details.schema_version;
   auto schema = *schema_details.schema;
 
@@ -1050,7 +1059,7 @@ Status PopulateCDCSDKIntentRecord(
       std::tie(schema_version, schema) = VERIFY_RESULT(GetSchemaAndVersion(
           tablet_peer, tablet->metadata()->table_id(), intent.intent_ht.hybrid_time().ToUint64(),
           cached_schema_details, schema_packing_storage, IsPackedRow(value_type), value_slice,
-          client, resp, throughput_metrics));
+          client, resp, throughput_metrics, &transaction_id));
 
       record_type = VERIFY_RESULT(GetRecordTypeForPopulatingBeforeImage(metadata, table_id));
       table_info = VERIFY_RESULT(tablet->metadata()->GetTableInfo(table_id));
@@ -1134,7 +1143,7 @@ Status PopulateCDCSDKIntentRecord(
         std::tie(schema_version, schema) = VERIFY_RESULT(GetSchemaAndVersion(
             tablet_peer, table_id, intent.intent_ht.hybrid_time().ToUint64(), cached_schema_details,
             schema_packing_storage, IsPackedRow(value_type), value_slice, client, resp,
-            throughput_metrics));
+            throughput_metrics, &transaction_id));
 
         table_name = table_info->table_name;
         record_type = VERIFY_RESULT(GetRecordTypeForPopulatingBeforeImage(metadata, table_id));
@@ -1763,6 +1772,14 @@ Status PopulateCDCSDKDDLRecord(
   row_message->set_pgschema_name(schema.SchemaName());
   row_message->set_commit_time(msg->hybrid_time());
   SetTableProperties(table_properties->ToGoogleProtobuf(), cdc_sdk_table_properties_pb);
+
+  // Attach the altering txn so this DDL shares BEGIN/COMMIT with DML in the same transaction.
+  if (FLAGS_TEST_ysql_yb_enable_replication_slot_transactional_ddl &&
+      !msg->change_metadata_request().transaction_id().empty()) {
+    const auto txn_id = VERIFY_RESULT(TransactionId::FromString(
+        msg->change_metadata_request().transaction_id().ToBuffer()));
+    row_message->set_transaction_id(txn_id.ToString());
+  }
 
   throughput_metrics->records_sent++;
   throughput_metrics->bytes_sent += proto_record->ByteSizeLong();

@@ -14961,6 +14961,402 @@ TEST_F(CDCSDKYsqlTest, TestGrpcStreamGetsReplicaIdentityForDynamicTable) {
       "Waiting to stream all records of the dynamically added table"));
 }
 
+// Transactional DDL writes inserts under successive schema versions in one txn. A gRPC stream
+// must decode each insert with the packed-row schema it was written with, not the post-commit
+// schema.
+TEST_F(CDCSDKYsqlTest, TestGrpcStreamTransactionalDdlAddColumn) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_ysql_yb_enable_replication_slot_transactional_ddl) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_ddl_transaction_block_enabled) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_enable_packed_row) = true;
+
+  ASSERT_OK(SetUpWithParams(1, 1, false));
+
+  auto conn = ASSERT_RESULT(test_cluster_.ConnectToDB(test_namespace_name));
+  ASSERT_OK(conn.Execute(
+      "CREATE TABLE t1 (a int primary key, b text, c int) SPLIT INTO 1 TABLETS"));
+  auto table = ASSERT_RESULT(GetTable(&test_cluster_, test_namespace_name, "t1"));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
+  ASSERT_EQ(tablets.size(), 1);
+
+  auto stream_id = ASSERT_RESULT(CreateConsistentSnapshotStreamWithReplicationSlot(
+      "pg_grpc_slot", CDCSDKSnapshotOption::NOEXPORT_SNAPSHOT,
+      /* verify_snapshot_name */ false, test_namespace_name, kYbGrpcStreamIndicator));
+  auto set_resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id, tablets));
+  ASSERT_FALSE(set_resp.has_error());
+
+  ASSERT_OK(conn.Execute("BEGIN"));
+  ASSERT_OK(conn.Execute("INSERT INTO t1 VALUES (1, 'one', 10)"));
+  ASSERT_OK(conn.Execute("ALTER TABLE t1 ADD COLUMN d text"));
+  ASSERT_OK(conn.Execute("INSERT INTO t1 VALUES (2, 'two', 20, 'two_d')"));
+  ASSERT_OK(conn.Execute("ALTER TABLE t1 DROP COLUMN c"));
+  ASSERT_OK(conn.Execute("INSERT INTO t1 VALUES (3, 'three', 'three_d')"));
+  ASSERT_OK(conn.Execute("ALTER TABLE t1 ADD COLUMN e text"));
+  ASSERT_OK(conn.Execute("INSERT INTO t1 VALUES (4, 'four', 'four_d', 'four_e')"));
+  ASSERT_OK(conn.Execute("COMMIT"));
+
+  GetChangesResponsePB change_resp;
+  ASSERT_OK(WaitFor(
+      [&]() -> Result<bool> {
+        auto resp = GetChangesFromCDC(stream_id, tablets);
+        if (!resp.ok()) {
+          LOG(INFO) << "GetChanges failed: " << resp.status();
+          return false;
+        }
+        change_resp = *resp;
+        int insert_count = 0;
+        for (const auto& record : change_resp.cdc_sdk_proto_records()) {
+          if (record.row_message().op() == RowMessage::INSERT) {
+            insert_count++;
+          }
+        }
+        LOG(INFO) << "GetChanges returned " << change_resp.cdc_sdk_proto_records_size()
+                  << " records, " << insert_count << " inserts";
+        return insert_count == 4;
+      },
+      MonoDelta::FromSeconds(60) * kTimeMultiplier,
+      "Waiting to stream the transactional DDL inserts"));
+
+  auto find_col = [](const RowMessage& row, const std::string& name) -> const DatumMessagePB* {
+    for (const auto& col : row.new_tuple()) {
+      if (col.column_name() == name) {
+        return &col;
+      }
+    }
+    return nullptr;
+  };
+  auto col_has_value = [](const DatumMessagePB* col) {
+    return col != nullptr && col->datum_case() != DatumMessagePB::DATUM_NOT_SET &&
+           !col->has_datum_missing();
+  };
+
+  std::vector<RowMessage> inserts;
+  std::vector<RowMessage_Op> shipped_ops;
+  int ddl_count = 0;
+  std::string txn_id;
+  bool in_txn = false;
+  bool saw_commit = false;
+  for (const auto& record : change_resp.cdc_sdk_proto_records()) {
+    const auto& row_message = record.row_message();
+    shipped_ops.push_back(row_message.op());
+    if (!in_txn) {
+      if (row_message.op() != RowMessage::BEGIN) {
+        if (row_message.op() == RowMessage::DDL) {
+          ddl_count++;
+        }
+        continue;
+      }
+      in_txn = true;
+    }
+    if (saw_commit) {
+      continue;
+    }
+    const bool expect_txn_id =
+        row_message.op() == RowMessage::BEGIN || row_message.op() == RowMessage::INSERT ||
+        row_message.op() == RowMessage::UPDATE || row_message.op() == RowMessage::DELETE ||
+        row_message.op() == RowMessage::COMMIT || row_message.op() == RowMessage::DDL;
+    ASSERT_TRUE(expect_txn_id);
+    ASSERT_TRUE(row_message.has_transaction_id());
+    ASSERT_FALSE(row_message.transaction_id().empty());
+    if (txn_id.empty()) {
+      txn_id = row_message.transaction_id();
+    } else {
+      ASSERT_EQ(row_message.transaction_id(), txn_id);
+    }
+    if (row_message.op() == RowMessage::INSERT) {
+      ASSERT_EQ(row_message.table(), "t1");
+      inserts.push_back(row_message);
+    } else if (row_message.op() == RowMessage::DDL) {
+      ddl_count++;
+    } else if (row_message.op() == RowMessage::COMMIT) {
+      saw_commit = true;
+    }
+  }
+  ASSERT_EQ(inserts.size(), 4);
+  ASSERT_GE(ddl_count, 2);
+  ASSERT_FALSE(txn_id.empty());
+  int wal_ddl_with_txn = 0;
+  bool reached_commit = false;
+  for (const auto& record : change_resp.cdc_sdk_proto_records()) {
+    const auto& row_message = record.row_message();
+    if (row_message.op() == RowMessage::COMMIT) {
+      reached_commit = true;
+    }
+    if (reached_commit || row_message.op() != RowMessage::DDL || !record.has_cdc_sdk_op_id()) {
+      continue;
+    }
+    ASSERT_TRUE(row_message.has_transaction_id());
+    ASSERT_EQ(row_message.transaction_id(), txn_id);
+    wal_ddl_with_txn++;
+  }
+  ASSERT_GE(wal_ddl_with_txn, 1);
+  ASSERT_NE(
+      std::find(shipped_ops.begin(), shipped_ops.end(), RowMessage::BEGIN), shipped_ops.end());
+  ASSERT_TRUE(saw_commit);
+
+  // INSERT 1: (a, b, c) before ADD COLUMN d.
+  const auto* a = find_col(inserts[0], "a");
+  const auto* b = find_col(inserts[0], "b");
+  const auto* c = find_col(inserts[0], "c");
+  ASSERT_TRUE(col_has_value(a));
+  ASSERT_TRUE(col_has_value(b));
+  ASSERT_TRUE(col_has_value(c));
+  ASSERT_EQ(a->datum_int32(), 1);
+  ASSERT_EQ(b->datum_string(), "one");
+  ASSERT_EQ(c->datum_int32(), 10);
+  ASSERT_FALSE(col_has_value(find_col(inserts[0], "d")));
+  ASSERT_FALSE(col_has_value(find_col(inserts[0], "e")));
+
+  // INSERT 2: (a, b, c, d) after ADD COLUMN d.
+  a = find_col(inserts[1], "a");
+  b = find_col(inserts[1], "b");
+  c = find_col(inserts[1], "c");
+  const auto* d = find_col(inserts[1], "d");
+  ASSERT_TRUE(col_has_value(a));
+  ASSERT_TRUE(col_has_value(b));
+  ASSERT_TRUE(col_has_value(c));
+  ASSERT_TRUE(col_has_value(d));
+  ASSERT_EQ(a->datum_int32(), 2);
+  ASSERT_EQ(b->datum_string(), "two");
+  ASSERT_EQ(c->datum_int32(), 20);
+  ASSERT_EQ(d->datum_string(), "two_d");
+  ASSERT_FALSE(col_has_value(find_col(inserts[1], "e")));
+
+  // INSERT 3: (a, b, d) after DROP COLUMN c.
+  a = find_col(inserts[2], "a");
+  b = find_col(inserts[2], "b");
+  d = find_col(inserts[2], "d");
+  ASSERT_TRUE(col_has_value(a));
+  ASSERT_TRUE(col_has_value(b));
+  ASSERT_TRUE(col_has_value(d));
+  ASSERT_EQ(a->datum_int32(), 3);
+  ASSERT_EQ(b->datum_string(), "three");
+  ASSERT_EQ(d->datum_string(), "three_d");
+  ASSERT_FALSE(col_has_value(find_col(inserts[2], "c")));
+  ASSERT_FALSE(col_has_value(find_col(inserts[2], "e")));
+
+  // INSERT 4: (a, b, d, e) after ADD COLUMN e.
+  a = find_col(inserts[3], "a");
+  b = find_col(inserts[3], "b");
+  d = find_col(inserts[3], "d");
+  const auto* e = find_col(inserts[3], "e");
+  ASSERT_TRUE(col_has_value(a));
+  ASSERT_TRUE(col_has_value(b));
+  ASSERT_TRUE(col_has_value(d));
+  ASSERT_TRUE(col_has_value(e));
+  ASSERT_EQ(a->datum_int32(), 4);
+  ASSERT_EQ(b->datum_string(), "four");
+  ASSERT_EQ(d->datum_string(), "four_d");
+  ASSERT_EQ(e->datum_string(), "four_e");
+  ASSERT_FALSE(col_has_value(find_col(inserts[3], "c")));
+}
+
+// CHANGE_METADATA is not re-read after a tserver restart mid-APPLY. Unpacked rows do not carry a
+// packed-row schema version, so GetChanges keeps the schema resolved for the first remaining
+// intent. Later intents written after ADD/DROP COLUMN then fail column_by_id.
+TEST_F(CDCSDKYsqlTest, TestGrpcStreamTransactionalDdlGetChangesFailsAfterRestart) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_ysql_yb_enable_replication_slot_transactional_ddl) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_ddl_transaction_block_enabled) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_enable_packed_row) = false;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_enable_load_balancing) = false;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_max_stream_intent_records) = 10;
+
+  ASSERT_OK(SetUpWithParams(1, 1, false));
+
+  auto conn = ASSERT_RESULT(test_cluster_.ConnectToDB(test_namespace_name));
+  ASSERT_OK(conn.Execute(
+      "CREATE TABLE t1 (a int primary key, b text, c int) SPLIT INTO 1 TABLETS"));
+  auto table = ASSERT_RESULT(GetTable(&test_cluster_, test_namespace_name, "t1"));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
+  ASSERT_EQ(tablets.size(), 1);
+
+  auto stream_id = ASSERT_RESULT(CreateConsistentSnapshotStreamWithReplicationSlot(
+      "pg_grpc_slot", CDCSDKSnapshotOption::NOEXPORT_SNAPSHOT,
+      /* verify_snapshot_name */ false, test_namespace_name, kYbGrpcStreamIndicator));
+  auto set_resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id, tablets));
+  ASSERT_FALSE(set_resp.has_error());
+
+  ASSERT_OK(conn.Execute("BEGIN"));
+  for (int i = 1; i <= 40; ++i) {
+    ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, 'v$0', $0)", i));
+  }
+  ASSERT_OK(conn.Execute("ALTER TABLE t1 ADD COLUMN d text"));
+  for (int i = 41; i <= 80; ++i) {
+    ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, 'v$0', $0, 'd$0')", i));
+  }
+  ASSERT_OK(conn.Execute("ALTER TABLE t1 DROP COLUMN c"));
+  for (int i = 81; i <= 120; ++i) {
+    ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, 'v$0', 'd$0')", i));
+  }
+  ASSERT_OK(conn.Execute("COMMIT"));
+
+  GetChangesResponsePB change_resp;
+  ASSERT_OK(WaitFor(
+      [&]() -> Result<bool> {
+        auto resp = GetChangesFromCDC(stream_id, tablets);
+        if (!resp.ok()) {
+          LOG(INFO) << "GetChanges failed before restart: " << resp.status();
+          return false;
+        }
+        change_resp = *resp;
+        const auto& checkpoint = change_resp.cdc_sdk_checkpoint();
+        LOG(INFO) << "Pre-restart GetChanges records="
+                  << change_resp.cdc_sdk_proto_records_size()
+                  << " key_empty=" << checkpoint.key().empty()
+                  << " write_id=" << checkpoint.write_id();
+        return !checkpoint.key().empty() && checkpoint.write_id() != 0;
+      },
+      MonoDelta::FromSeconds(60) * kTimeMultiplier,
+      "Waiting for a partial-txn GetChanges checkpoint"));
+
+  auto checkpoint = change_resp.cdc_sdk_checkpoint();
+
+  auto* tserver = test_cluster()->mini_tablet_server(0);
+  ASSERT_OK(tserver->Restart());
+  ASSERT_OK(tserver->WaitStarted());
+
+  bool saw_decode_failure = false;
+  bool streamed_after_restart = false;
+  Status decode_status;
+  ASSERT_OK(WaitFor(
+      [&]() -> Result<bool> {
+        auto resp = GetChangesFromCDCWithoutRetry(stream_id, tablets, &checkpoint);
+        if (!resp.ok()) {
+          if (!streamed_after_restart &&
+              (resp.status().IsLeaderNotReadyToServe() || resp.status().IsNotFound())) {
+            return false;
+          }
+          saw_decode_failure = true;
+          decode_status = resp.status();
+          LOG(INFO) << "GetChanges failed after restart: " << resp.status();
+          return true;
+        }
+        streamed_after_restart = true;
+        change_resp = *resp;
+        checkpoint = change_resp.cdc_sdk_checkpoint();
+        LOG(INFO) << "Post-restart GetChanges records=" << change_resp.cdc_sdk_proto_records_size()
+                  << " key_empty=" << checkpoint.key().empty()
+                  << " write_id=" << checkpoint.write_id();
+        // Keep pulling while the txn is still partial; a decode failure may only appear once
+        // GetChanges crosses a schema version that was populated from CHANGE_METADATA.
+        if (checkpoint.key().empty() || checkpoint.write_id() == 0) {
+          return true;
+        }
+        return false;
+      },
+      MonoDelta::FromSeconds(60) * kTimeMultiplier,
+      "Waiting for GetChanges decode failure after tserver restart"));
+
+  ASSERT_TRUE(saw_decode_failure) << "expected GetChanges to fail after restart, last status: "
+                                  << decode_status;
+  ASSERT_STR_CONTAINS(decode_status.ToString(), "Column id");
+}
+
+// Packed rows refetch schema by packed-row version, so INSERT-only mid-APPLY restart still
+// decodes. FULL before-image reads the pre-DDL packed row through the schema of the UPDATE,
+// which can fail after a restart once CHANGE_METADATA packing is gone.
+TEST_F(CDCSDKYsqlTest, TestGrpcStreamTransactionalDdlPackedFullGetChangesFailsAfterRestart) {
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_TEST_ysql_yb_enable_replication_slot_transactional_ddl) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_yb_ddl_transaction_block_enabled) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_ysql_enable_packed_row) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_enable_intra_transactional_before_image) = true;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_enable_load_balancing) = false;
+  ANNOTATE_UNPROTECTED_WRITE(FLAGS_cdc_max_stream_intent_records) = 10;
+
+  ASSERT_OK(SetUpWithParams(1, 1, false));
+
+  auto conn = ASSERT_RESULT(test_cluster_.ConnectToDB(test_namespace_name));
+  ASSERT_OK(conn.Execute(
+      "CREATE TABLE t1 (a int primary key, b text, c int) SPLIT INTO 1 TABLETS"));
+  ASSERT_OK(conn.Execute("ALTER TABLE t1 REPLICA IDENTITY FULL"));
+  auto table = ASSERT_RESULT(GetTable(&test_cluster_, test_namespace_name, "t1"));
+  google::protobuf::RepeatedPtrField<master::TabletLocationsPB> tablets;
+  ASSERT_OK(test_client()->GetTablets(table, 0, &tablets, /* partition_list_version =*/nullptr));
+  ASSERT_EQ(tablets.size(), 1);
+
+  auto stream_id = ASSERT_RESULT(CreateConsistentSnapshotStreamWithReplicationSlot(
+      "pg_grpc_slot", CDCSDKSnapshotOption::NOEXPORT_SNAPSHOT,
+      /* verify_snapshot_name */ false, test_namespace_name, kYbGrpcStreamIndicator));
+  auto set_resp = ASSERT_RESULT(SetCDCCheckpoint(stream_id, tablets));
+  ASSERT_FALSE(set_resp.has_error());
+
+  for (int i = 1; i <= 40; ++i) {
+    ASSERT_OK(conn.ExecuteFormat("INSERT INTO t1 VALUES ($0, 'v$0', $0)", i));
+  }
+
+  ASSERT_OK(conn.Execute("BEGIN"));
+  for (int i = 1; i <= 40; ++i) {
+    ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET b = 'u$0' WHERE a = $0", i));
+  }
+  ASSERT_OK(conn.Execute("ALTER TABLE t1 ADD COLUMN d text"));
+  for (int i = 1; i <= 40; ++i) {
+    ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET d = 'd$0' WHERE a = $0", i));
+  }
+  ASSERT_OK(conn.Execute("ALTER TABLE t1 DROP COLUMN c"));
+  for (int i = 1; i <= 40; ++i) {
+    ASSERT_OK(conn.ExecuteFormat("UPDATE t1 SET b = 'w$0' WHERE a = $0", i));
+  }
+  ASSERT_OK(conn.Execute("COMMIT"));
+
+  GetChangesResponsePB change_resp;
+  ASSERT_OK(WaitFor(
+      [&]() -> Result<bool> {
+        auto resp = GetChangesFromCDC(stream_id, tablets);
+        if (!resp.ok()) {
+          LOG(INFO) << "GetChanges failed before restart: " << resp.status();
+          return false;
+        }
+        change_resp = *resp;
+        const auto& checkpoint = change_resp.cdc_sdk_checkpoint();
+        LOG(INFO) << "Pre-restart GetChanges records=" << change_resp.cdc_sdk_proto_records_size()
+                  << " key_empty=" << checkpoint.key().empty()
+                  << " write_id=" << checkpoint.write_id();
+        return !checkpoint.key().empty() && checkpoint.write_id() != 0;
+      },
+      MonoDelta::FromSeconds(60) * kTimeMultiplier,
+      "Waiting for a partial-txn GetChanges checkpoint"));
+
+  auto checkpoint = change_resp.cdc_sdk_checkpoint();
+  auto* tserver = test_cluster()->mini_tablet_server(0);
+  ASSERT_OK(tserver->Restart());
+  ASSERT_OK(tserver->WaitStarted());
+
+  bool saw_decode_failure = false;
+  bool streamed_after_restart = false;
+  Status decode_status;
+  ASSERT_OK(WaitFor(
+      [&]() -> Result<bool> {
+        auto resp = GetChangesFromCDCWithoutRetry(stream_id, tablets, &checkpoint);
+        if (!resp.ok()) {
+          if (!streamed_after_restart &&
+              (resp.status().IsLeaderNotReadyToServe() || resp.status().IsNotFound())) {
+            return false;
+          }
+          saw_decode_failure = true;
+          decode_status = resp.status();
+          LOG(INFO) << "GetChanges failed after restart: " << resp.status();
+          return true;
+        }
+        streamed_after_restart = true;
+        change_resp = *resp;
+        checkpoint = change_resp.cdc_sdk_checkpoint();
+        LOG(INFO) << "Post-restart GetChanges records=" << change_resp.cdc_sdk_proto_records_size()
+                  << " key_empty=" << checkpoint.key().empty()
+                  << " write_id=" << checkpoint.write_id();
+        if (checkpoint.key().empty() || checkpoint.write_id() == 0) {
+          return true;
+        }
+        return false;
+      },
+      MonoDelta::FromSeconds(60) * kTimeMultiplier,
+      "Waiting for packed FULL GetChanges decode failure after tserver restart"));
+
+  ASSERT_TRUE(saw_decode_failure) << "expected GetChanges to fail after restart, last status: "
+                                  << decode_status;
+  ASSERT_STR_CONTAINS(decode_status.ToString(), "Column id");
+}
+
 TEST_F(CDCSDKYsqlTest, TestBackfillOfNotificationsStreamPluginName) {
   // Enabling LISTEN/NOTIFY makes the master's background task create the yb_system database and the
   // pg_yb_notifications table (the eligible table for notifications streams).
